@@ -13,6 +13,17 @@
   --c-family: #1F8A5F;
   --c-other: #7A847F;
   --c-birthday: #8A4FD0;
+
+  /* 以下由上面的顏色自動調出來，換面板時會跟著變 */
+  --danger: #D4282C;                                                   /* 刪除、錯誤：不隨面板改變 */
+  --danger-soft: color-mix(in srgb, var(--danger) 6%, var(--sheet));
+  --danger-line: color-mix(in srgb, var(--danger) 28%, var(--sheet));
+  --soft: color-mix(in srgb, var(--green) 12%, var(--sheet));
+  --amber-soft: color-mix(in srgb, var(--c-exam) 12%, var(--sheet));
+  --amber-line: color-mix(in srgb, var(--c-exam) 32%, var(--sheet));
+  --track: color-mix(in srgb, var(--ink) 8%, var(--paper));
+  --bar: color-mix(in srgb, var(--sheet) 94%, transparent);
+  --bar-2: color-mix(in srgb, var(--paper) 96%, transparent);
   --online: #22A85A;
 
   --num: ui-rounded, "SF Pro Rounded", "PingFang TC", system-ui, sans-serif;
@@ -77,19 +88,19 @@ input, textarea {
 }
 input[type=date], input[type=time] { min-height: 48px; }
 textarea { resize: vertical; }
-.form-error { color: var(--red); font-size: 14px; margin: 4px 0 12px; }
+.form-error { color: var(--danger); font-size: 14px; margin: 4px 0 12px; }
 .demo-note {
   margin-top: 20px; padding: 12px 14px; font-size: 14px; color: var(--green);
-  background: #E6F0EA; border-radius: 12px;
+  background: var(--soft); border-radius: 12px;
 }
 
 .btn {
   display: block; width: 100%; min-height: 50px; border-radius: 14px;
   font-weight: 600; font-size: 17px; text-align: center;
 }
-.btn.primary { background: var(--ink); color: #fff; margin-top: 8px; }
+.btn.primary { background: var(--ink); color: var(--paper); margin-top: 8px; }
 .btn.ghost { border: 1px solid var(--line); background: var(--sheet); margin-top: 24px; }
-.btn.danger { color: var(--red); border: 1px solid #F0C9CA; background: #FFF6F6; margin-top: 8px; }
+.btn.danger { color: var(--danger); border: 1px solid var(--danger-line); background: var(--danger-soft); margin-top: 8px; }
 .btn:disabled { opacity: .55; }
 .link-btn { color: var(--green); font-weight: 500; min-height: 44px; padding: 0 4px; }
 .link-btn.strong { font-weight: 700; }
@@ -165,7 +176,7 @@ textarea { resize: vertical; }
 .rep { color: var(--ink-2); border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; }
 .who {
   padding: 1px 8px; border-radius: 99px; color: var(--who);
-  background: color-mix(in srgb, var(--who) 13%, white);
+  background: color-mix(in srgb, var(--who) 15%, var(--sheet));
 }
 .who.all { color: var(--ink-2); background: var(--paper); }
 .event-note { display: block; font-size: 13px; color: var(--ink-2); margin-top: 4px; overflow-wrap: anywhere; }
@@ -182,7 +193,7 @@ textarea { resize: vertical; }
 .exams::-webkit-scrollbar { display: none; }
 .exam {
   flex: 0 0 132px; text-align: left; padding: 12px 14px; border-radius: 16px;
-  background: #FFF4E3; border: 1px solid #F6DDB5;
+  background: var(--amber-soft); border: 1px solid var(--amber-line);
 }
 .exam-days { display: block; font: 800 34px/1.1 var(--num); color: var(--c-exam); }
 .exam-days small { font: 600 13px/1 var(--text); margin-left: 3px; }
@@ -208,7 +219,7 @@ textarea { resize: vertical; }
   flex: none; position: relative; z-index: 5;
   height: calc(var(--tabbar) + var(--safe-b)); padding-bottom: var(--safe-b);
   display: grid; grid-template-columns: repeat(5, 1fr);
-  background: rgba(255, 255, 255, .94); border-top: 1px solid var(--line);
+  background: var(--bar); border-top: 1px solid var(--line);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
 }
 .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; color: var(--ink-2); }
@@ -217,7 +228,7 @@ textarea { resize: vertical; }
 .tab { position: relative; }
 .tab.unread::after {
   content: ""; position: absolute; top: 8px; left: calc(50% + 8px);
-  width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px #fff;
+  width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px var(--sheet);
 }
 
 .fab {
@@ -287,7 +298,7 @@ legend small { margin-left: 8px; font-size: 12px; }
 #toast {
   position: fixed; left: 50%; bottom: calc(var(--tabbar) + var(--safe-b) + 88px); z-index: 40;
   transform: translate(-50%, 12px); opacity: 0; pointer-events: none;
-  background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 99px; font-size: 14px;
+  background: var(--ink); color: var(--paper); padding: 10px 18px; border-radius: 99px; font-size: 14px;
   transition: opacity .2s, transform .2s; white-space: nowrap;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -295,7 +306,7 @@ legend small { margin-left: 8px; font-size: 12px; }
 /* ---------- 月曆／近期切換 ---------- */
 .switcher {
   display: grid; grid-template-columns: 1fr 1fr; padding: 3px; margin-bottom: 10px;
-  background: #E7ECE6; border-radius: 12px;
+  background: var(--track); border-radius: 12px;
 }
 .switcher button { min-height: 34px; border-radius: 9px; font-size: 14px; color: var(--ink-2); }
 .switcher button.on { background: var(--sheet); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(23, 35, 31, .12); }
@@ -319,7 +330,7 @@ legend small { margin-left: 8px; font-size: 12px; }
 .chat-bar {
   flex: none;
   display: flex; gap: 8px; align-items: center; padding: 8px 12px;
-  background: rgba(246, 248, 244, .96); border-top: 1px solid var(--line);
+  background: var(--bar-2); border-top: 1px solid var(--line);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
 }
 .chat-bar input { margin: 0; border-radius: 99px; padding: 11px 16px; }
@@ -338,7 +349,7 @@ body.kb-open .fab { display: none; }
   background: var(--sheet); border-left: 5px solid var(--line);
 }
 .note.pinned { border-left-color: var(--red); }
-.note:active { background: #FBFCFA; }
+.note:active { background: var(--paper); }
 .pin { float: right; font-size: 12px; color: var(--red); font-weight: 600; margin-left: 8px; }
 .note-title { display: block; font-weight: 700; overflow-wrap: anywhere; }
 .note-body {
@@ -350,7 +361,7 @@ body.kb-open .fab { display: none; }
 /* ---------- 共用：搜尋框、撥號鈕、頭像 ---------- */
 .search { margin: 10px 0 0; border-radius: 12px; }
 .call {
-  flex: none; width: 44px; height: 44px; border-radius: 50%; background: #E6F0EA;
+  flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--soft);
   display: grid; place-items: center;
 }
 .call svg { width: 20px; height: 20px; fill: none; stroke: var(--green); stroke-width: 1.8; stroke-linejoin: round; }
@@ -377,15 +388,15 @@ body.kb-open .fab { display: none; }
 .plain-head.with-action { align-items: center; }
 .plain-head.with-action .icon-btn { margin-left: auto; padding: 0; }
 .icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
-.icon-btn.on { background: var(--ink); color: #fff; }
+.icon-btn.on { background: var(--ink); color: var(--paper); }
 .found { font-size: 13px; color: var(--ink-2); margin-top: 10px; }
 button.bubble { text-align: left; font: inherit; }
 .bubble.recalled { background: none; border: 1px dashed var(--line); color: var(--ink-2); font-size: 14px; }
 .msg.mine .bubble.recalled { background: none; color: var(--ink-2); border: 1px dashed var(--line); }
-.bubble mark { background: #FFE08A; color: inherit; border-radius: 3px; padding: 0 1px; }
+.bubble mark { background: #FFE08A; color: #17231F; border-radius: 3px; padding: 0 1px; }
 .recall {
   margin: 4px 0 6px; padding: 6px 14px; border-radius: 99px; font-size: 13px; font-weight: 600;
-  color: var(--red); background: #FFF6F6; border: 1px solid #F0C9CA; min-height: 36px;
+  color: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger-line); min-height: 36px;
 }
 
 /* ---------- 我有話要說 ---------- */
@@ -427,7 +438,7 @@ button.bubble { text-align: left; font: inherit; }
 }
 .wallet-name { font-size: 14px; color: var(--ink-2); }
 .wallet-left { font: 800 46px/1.15 var(--num); letter-spacing: -.02em; color: var(--ink); }
-.wallet-left.neg { color: var(--red); }
+.wallet-left.neg { color: var(--danger); }
 .wallet-row { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; font-size: 13px; color: var(--ink-2); }
 .wallet-row b { font: 600 14px/1 var(--num); color: var(--ink); margin-left: 2px; }
 .entries { margin-top: 14px; background: var(--sheet); border-radius: 16px; padding: 2px 16px; }
@@ -452,7 +463,7 @@ button.bubble { text-align: left; font: inherit; }
 .todo-title { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .todo-sub { display: block; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
 .todo-sub em, .request-sub em { font-style: normal; margin-left: 8px; color: var(--c-exam); font-weight: 600; }
-.todo-sub em.late, .request-sub em.late { color: var(--red); }
+.todo-sub em.late, .request-sub em.late { color: var(--danger); }
 .todo-done {
   flex: none; min-height: 38px; padding: 0 16px; border-radius: 99px; font-weight: 700; font-size: 14px;
   display: inline-flex; align-items: center; justify-content: center; line-height: 1;
@@ -484,14 +495,14 @@ button.bubble { text-align: left; font: inherit; }
 .mini-week { font-size: 11px; color: var(--ink-2); padding-bottom: 2px; }
 .mini-day { height: 38px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 10px; font: 500 14px/1.1 var(--num); }
 .mini-day.today > span:first-child { color: var(--red); font-weight: 800; }
-.mini-day.sel { background: var(--ink); color: #fff; }
-.mini-day.sel.today > span:first-child { color: #fff; }
+.mini-day.sel { background: var(--ink); color: var(--paper); }
+.mini-day.sel.today > span:first-child { color: var(--paper); }
 .marks { display: flex; gap: 2px; height: 7px; align-items: center; margin-top: 2px; }
 .marks i, .mini-legend i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
 i.in { background: var(--green); }
 i.out { background: var(--ink); }
 i.req { background: var(--c-exam); }
-.mini-day.sel i.out { background: #fff; }
+.mini-day.sel i.out { background: var(--paper); }
 .mini-legend { display: flex; justify-content: center; gap: 14px; font-size: 11px; color: var(--ink-2); padding-top: 6px; border-top: 1px solid var(--line); margin-top: 6px; }
 .mini-legend i { margin-right: 4px; }
 
@@ -511,6 +522,34 @@ div.member-main { cursor: default; }
 .card-list.push { padding-bottom: 16px; }
 .card-list.push p { font-size: 14px; color: var(--ink-2); }
 .card-list.push .btn { margin-top: 12px; min-height: 46px; font-size: 16px; }
+
+/* ---------- 面板顏色 ----------
+   每個面板只換幾個基本色：底色、卡片、文字、線條、主色（--red 的位置）、副色（--green 的位置）。
+   要新增面板：在這裡加一組，並在 js/app.js 的 THEMES 加一行。 */
+html[data-theme="ocean"]    { --paper: #F2F6FB; --line: #D8E1EC; --ink: #14233A; --ink-2: #57677E; --red: #1E6FD9; --green: #0E7C86; }
+html[data-theme="forest"]   { --paper: #F3F7F0; --line: #D9E3D3; --ink: #1B2A1E; --ink-2: #5A6B5C; --red: #2E8B57; --green: #5B6B2A; }
+html[data-theme="sakura"]   { --paper: #FCF4F7; --line: #EEDAE2; --ink: #33202A; --ink-2: #7A6570; --red: #D6457F; --green: #7A4B8C; }
+html[data-theme="sunset"]   { --paper: #FBF6EE; --line: #EBDFCB; --ink: #2E2416; --ink-2: #74664F; --red: #E0701A; --green: #7A5A1E; }
+html[data-theme="lavender"] { --paper: #F6F4FC; --line: #DEDAEE; --ink: #221D38; --ink-2: #645E7E; --red: #7A4FD0; --green: #3F5BB5; }
+html[data-theme="night"] {
+  --paper: #111715; --sheet: #1B2320; --line: #2D3934; --ink: #E9F0EC; --ink-2: #9BABA4;
+  --red: #FF6B6B; --green: #3FA57F; --danger: #FF6B6B;
+  --c-schedule: #6FA3FF; --c-exam: #FFA640; --c-family: #4CC38A; --c-other: #9BABA4; --c-birthday: #B58CFF;
+  color-scheme: dark;
+}
+html[data-theme="night"] .msg.mine .bubble, html[data-theme="night"] .send, html[data-theme="night"] .todo-done { color: #0E1412; }
+html[data-theme="night"] .send svg { stroke: #0E1412; }
+html[data-theme="night"] .todo-done.reply { color: var(--green); }
+
+.themes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 6px; padding: 6px 0 12px; }
+.theme { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); padding: 4px 0; border-radius: 12px; }
+.theme .swatch {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--a) 0 50%, var(--b) 50% 100%);
+  box-shadow: 0 0 0 2px var(--sheet), 0 0 0 3px var(--line);
+}
+.theme.on { color: var(--ink); font-weight: 700; }
+.theme.on .swatch { box-shadow: 0 0 0 2px var(--sheet), 0 0 0 4px var(--ink); }
 
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { transform: translateY(40%); opacity: 0; } }

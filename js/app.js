@@ -10,7 +10,30 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 14:20';
+  const VERSION = '2026-11-16 14:35';
+  // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
+  const THEMES = [
+    ['', '日曆紅', '#D4282C', '#1F6B52'],
+    ['ocean', '海洋藍', '#1E6FD9', '#0E7C86'],
+    ['forest', '森林綠', '#2E8B57', '#5B6B2A'],
+    ['sakura', '櫻花粉', '#D6457F', '#7A4B8C'],
+    ['sunset', '暖陽橘', '#E0701A', '#7A5A1E'],
+    ['lavender', '薰衣草紫', '#7A4FD0', '#3F5BB5'],
+    ['night', '夜間', '#1B2320', '#3FA57F']
+  ];
+  const THEME_KEY = 'family-theme';
+  const currentTheme = () => document.documentElement.dataset.theme || '';
+  function applyTheme(id) {
+    if (id) document.documentElement.dataset.theme = id; else delete document.documentElement.dataset.theme;
+    try { if (id) localStorage.setItem(THEME_KEY, id); else localStorage.removeItem(THEME_KEY); } catch (e) { /* 忽略 */ }
+    syncThemeColor();
+  }
+  // 讓手機最上方狀態列的底色跟著面板走
+  function syncThemeColor() {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    const paper = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim();
+    if (meta && paper) meta.setAttribute('content', paper);
+  }
   const EVENT_CATS = ['schedule', 'exam', 'family', 'other'];
   const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
   const READ_KEY = 'family-chat-read';
@@ -963,6 +986,15 @@
             </div>`;
         }).join('')}
       </section>
+      <section class="card-list">
+        <h2>面板顏色<small>只會改這支手機</small></h2>
+        <div class="themes" role="group" aria-label="面板顏色">
+          ${THEMES.map(([id, name, a, b]) => `
+            <button class="theme ${currentTheme() === id ? 'on' : ''}" data-act="theme" data-theme-id="${id}" style="--a:${a};--b:${b}" ${currentTheme() === id ? 'aria-pressed="true"' : ''}>
+              <span class="swatch"></span>${name}
+            </button>`).join('')}
+        </div>
+      </section>
       ${pushSectionHtml()}
       ${Api.isDemo ? '<p class="demo-note">示範模式：資料只存在這台裝置。設定 Firebase 後，全家才會看到同一份資料。</p>' : ''}
       <button class="btn ghost" data-act="logout">登出</button>
@@ -1424,6 +1456,7 @@
     else if (act === 'del-post') onDeletePost(el);
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
+    else if (act === 'theme') { applyTheme(el.dataset.themeId); render(); }
     else if (act === 'push-on') onPushOn(el);
     else if (act === 'push-off') { Api.disablePush().then(() => { toast('已關閉通知'); render(); }); }
     else if (act === 'logout') {
@@ -1604,5 +1637,6 @@
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 
+  syncThemeColor();
   boot();
 })();

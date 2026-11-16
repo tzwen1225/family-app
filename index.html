@@ -12,6 +12,8 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" href="icons/icon-192.png">
+  <!-- 先套用這支手機選的面板顏色，避免畫面先閃一下預設色 -->
+  <script>try { var t = localStorage.getItem('family-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
