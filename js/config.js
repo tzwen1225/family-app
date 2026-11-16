@@ -15,5 +15,5 @@ window.FAMILY_CONFIG = {
 
   // 推播通知用的公開金鑰（VAPID key）。留空時 App 不會顯示開啟通知的按鈕。
   // 來源：Firebase 後台 → 專案設定 → Cloud Messaging → 網路設定 → 網路推播憑證 → 產生金鑰組。
-  vapidKey: ''
+  vapidKey: 'BNsb3vIEysirAJAaFV_UZTE987yFBb4_C_am2e8xCfz8nUOkFIlGJcaJ3b3CZD9FlBUqQACLpcPX_MTB-f1BFeo'
 };
