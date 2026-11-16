@@ -1,7 +1,7 @@
 // 讓 App 在沒有網路時也能打開畫面。
 // 策略：優先走網路（確保拿到最新版程式），失敗才用快取。
 // 只處理本站的檔案，Firebase 的資料請求完全不經過這裡。
-const CACHE = 'family-shell-v11';
+const CACHE = 'family-shell-v12';
 const SHELL = [
   './', 'index.html', 'css/app.css',
   'js/config.js', 'js/api.js', 'js/app.js', 'vendor/firebase.js',
@@ -23,8 +23,12 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  // version.txt 永遠直接問伺服器，不放進快取
+  if (new URL(req.url).pathname.endsWith('/version.txt')) return;
   e.respondWith(
-    fetch(req)
+    // cache: 'no-cache' 讓瀏覽器每次都向伺服器確認檔案有沒有更新，
+    // 否則 GitHub Pages 的檔案會被瀏覽器留用約十分鐘，更新後還是看到舊版
+    fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' })
       .then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
         return res;

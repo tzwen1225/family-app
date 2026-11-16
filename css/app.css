@@ -423,6 +423,8 @@ div.member-main { cursor: default; }
 .member-sub { display: block; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
 .member-status { display: block; font-size: 12px; color: var(--ink-2); }
 .member-status.on { color: var(--online); font-weight: 600; }
+.version { text-align: center; font-size: 12px; color: var(--ink-2); margin-top: 16px; }
+.send { touch-action: manipulation; }
 .hint { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
 .card-list.push { padding-bottom: 16px; }
 .card-list.push p { font-size: 14px; color: var(--ink-2); }

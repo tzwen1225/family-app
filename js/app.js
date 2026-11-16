@@ -8,6 +8,9 @@
     other:    { label: '其他', color: 'var(--c-other)' },
     birthday: { label: '生日', color: 'var(--c-birthday)' }   // 由成員基本資料自動產生，不能手動新增
   };
+  // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
+  // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
+  const VERSION = '2026-11-16 13:35';
   const EVENT_CATS = ['schedule', 'exam', 'family', 'other'];
   const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
   const READ_KEY = 'family-chat-read';
@@ -754,7 +757,8 @@
       </section>
       ${pushSectionHtml()}
       ${Api.isDemo ? '<p class="demo-note">示範模式：資料只存在這台裝置。設定 Firebase 後，全家才會看到同一份資料。</p>' : ''}
-      <button class="btn ghost" data-act="logout">登出</button>`;
+      <button class="btn ghost" data-act="logout">登出</button>
+      <p class="version">版本 ${VERSION}</p>`;
   }
 
   // ---------- 表單面板（共用外框） ----------
@@ -1126,14 +1130,17 @@
   // 送出鈕：手指一碰到就送出，而且不讓按鈕搶走輸入框的焦點。
   // 否則 iPhone 會先收起鍵盤、畫面跟著移動，第一下按不到按鈕，要按第二次才送得出去。
   // 之後瀏覽器補發的 click／submit 會因為輸入框已清空而被忽略，不會重複送出。
-  document.addEventListener('pointerdown', (ev) => {
-    const btn = ev.target.closest('.send');
+  function sendFromButton(ev) {
+    const btn = ev.target.closest && ev.target.closest('.send');
     if (!btn) return;
-    ev.preventDefault();
+    if (ev.cancelable) ev.preventDefault();
     const form = btn.closest('form');
     if (form.getAttribute('id') === 'chat-form') onSend(form);
     else if (form.classList.contains('reply-form')) onReply(form);
-  });
+  }
+  // touchstart 要設 passive: false，preventDefault 才有效（iPhone 靠它才不會收鍵盤）
+  document.addEventListener('touchstart', sendFromButton, { passive: false });
+  document.addEventListener('pointerdown', sendFromButton);
   document.addEventListener('mousedown', (ev) => { if (ev.target.closest('.send')) ev.preventDefault(); });
 
   document.addEventListener('input', (ev) => {
@@ -1209,6 +1216,28 @@
     document.addEventListener('visibilitychange', settle);
     apply();
   })();
+
+  // ---------- 自動更新 ----------
+  // 比對伺服器上的 version.txt；有新版而且沒有正在打字或編輯時，自動重新載入。
+  // 每個版本只嘗試一次，避免萬一抓不到新檔案時不停重新載入。
+  async function checkVersion() {
+    if (!location.protocol.startsWith('http')) return;
+    try {
+      const res = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) return;
+      const latest = (await res.text()).trim();
+      if (!latest || latest === VERSION) return;
+      if (sessionStorage.getItem('family-update-tried') === latest) return;
+      const a = document.activeElement;
+      const busy = $sheet.innerHTML || state.draft || (a && /^(INPUT|TEXTAREA)$/.test(a.tagName));
+      if (busy) return;
+      sessionStorage.setItem('family-update-tried', latest);
+      location.reload();
+    } catch (e) { /* 離線時略過 */ }
+  }
+  checkVersion();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkVersion(); });
+  setInterval(checkVersion, 5 * 60 * 1000);
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
