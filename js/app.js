@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 20:50';
+  const VERSION = '2026-11-16 21:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -416,6 +416,8 @@
   const pollOver = (p) => !!p.closed || !!p.voided || (!!p.deadline && p.deadline < today());
   const pollsForMe = () => state.polls.filter((p) => !pollOver(p)
     && !state.votes.some((v) => v.poll_id === p.id && v.uid === state.userId));
+  // 已給的申請實際給了多少（舊資料沒有記的話，視為和申請金額相同）
+  const givenAmount = (r) => (r.given_amount != null ? r.given_amount : r.amount);
   const pendingRequests = () => state.requests.filter((r) => r.status !== 'given')
     .sort((a, b) => a.need_date.localeCompare(b.need_date));
   const badge = (tab) => (tab === 'chat' ? hasUnread()
@@ -466,24 +468,28 @@
 
   // 標示「已給」：同時在小朋友的零用錢帳本記一筆收入（金額和用途跟申請相同，日期是今天），
   // 並把那一筆的編號記在申請上。之後取消已給，就靠這個編號把那筆收入刪掉。
-  async function giveRequest(r) {
-    const entry = await Api.saveLedger({ kid: r.kid, type: 'income', amount: r.amount, note: r.title, date: today() });
-    await Api.saveRequest({ ...r, status: 'given', given_by: state.userId, given_at: Date.now(), ledger_id: entry.id });
+  async function giveRequest(r, amount) {
+    const entry = await Api.saveLedger({ kid: r.kid, type: 'income', amount, note: r.title, date: today() });
+    await Api.saveRequest({ ...r, status: 'given', given_by: state.userId, given_at: Date.now(), given_amount: amount, ledger_id: entry.id });
     await loadLedger();
   }
 
-  async function onRequestGiven(btn) {
+  // 按「已給」：先確認實際給了多少（預設等於申請的金額，可以改），確認後才記帳
+  function onRequestGiven(btn) {
     const r = findById(state.requests, btn.dataset.id);
     if (!r) return;
-    btn.disabled = true;
-    try {
-      await giveRequest(r);
-      toast(`已給，並記入${nameOf(r.kid)}的零用錢 ${money(r.amount)}`);
-    } catch (e) {
-      console.error(e);
-      btn.disabled = false;
-      toast('沒有成功，請再試一次');
-    }
+    showSheet('give-form', {
+      title: '給' + nameOf(r.kid) + '費用', submit: '確認已給',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(r.id)}">
+      <dl class="give-info">
+        <dt>用途</dt><dd>${esc(r.title)}</dd>
+        <dt>需要日期</dt><dd>${shortDate(r.need_date)}</dd>
+        <dt>需求金額</dt><dd><b>${money(r.amount)}</b></dd>
+      </dl>
+      <label>實際給的金額（元）<input class="title-input" type="number" name="given_amount" inputmode="numeric" min="1" step="1" value="${esc(r.amount)}"></label>
+      <p class="hint">確認後會標示為已給，並在${esc(nameOf(r.kid))}的零用錢記一筆這個金額的收入。</p>`
+    });
   }
 
   function refreshBadges() {
@@ -1491,8 +1497,11 @@
             <${editable ? `button data-act="edit-request" data-id="${esc(r.id)}"` : 'div'} class="request-main">
               <span class="request-title">${esc(r.title)}</span>
               <span class="request-sub">${shortDate(r.need_date)}${given ? '' : `<em class="${r.need_date <= today() ? 'late' : ''}">${dueText(r.need_date)}</em>`}</span>
+              ${given ? `<span class="request-detail">需求 <b>${money(r.amount)}</b>　實際給 <b>${money(givenAmount(r))}</b>${
+                givenAmount(r) < r.amount ? `<em class="less">少給 ${money(r.amount - givenAmount(r))}</em>`
+                : givenAmount(r) > r.amount ? `<em class="more">多給 ${money(givenAmount(r) - r.amount)}</em>` : ''}</span>` : ''}
             </${editable ? 'button' : 'div'}>
-            <span class="request-amount">${money(r.amount)}</span>
+            <span class="request-amount">${money(given ? givenAmount(r) : r.amount)}</span>
             ${given ? `<span class="given-mark">已給 ✓${r.given_by && member(r.given_by) ? '<small>' + esc(nameOf(r.given_by)) + '</small>' : ''}</span>`
               : amChild() ? '<span class="wait-mark">等家長給</span>'
               : `<button class="todo-done" data-act="req-given" data-id="${esc(r.id)}">已給</button>`}
@@ -1915,7 +1924,8 @@
         <span>已經給了</span>
         <input type="checkbox" name="given" ${r.status === 'given' ? 'checked' : ''}>
       </label>
-      <p class="hint">打開「已經給了」，會自動在${esc(nameOf(r.kid))}的零用錢記一筆同金額的收入；關掉會把那一筆移除。</p>`}`
+      <label id="given-amount-row" ${r.status === 'given' ? '' : 'hidden'}>實際給的金額（元）<input type="number" name="given_amount" inputmode="numeric" min="1" step="1" value="${esc(r.status === 'given' ? givenAmount(r) : r.amount)}"></label>
+      <p class="hint">打開「已經給了」，會自動在${esc(nameOf(r.kid))}的零用錢記一筆「實際給的金額」的收入；關掉會把那一筆移除。</p>`}`
     });
   }
 
@@ -2002,16 +2012,26 @@
       remove: (id) => Api.deleteLedger(id),
       after(e) { if (e) { state.ledgerMonth = e.date.slice(0, 7); state.ledgerDay = null; } return loadLedger(); }
     },
+    'give-form': {
+      done: '已給，並記入零用錢',
+      read: (f) => ({ id: f.item_id.value, amount: Number(f.given_amount.value) }),
+      check: (x) => (!Number.isInteger(x.amount) || x.amount < 1 ? '請輸入實際給的金額（整數，至少 1 元）'
+        : x.amount > 1000000 ? '金額太大了，請再確認一次' : null),
+      save(x) { const r = findById(state.requests, x.id); return giveRequest(r, x.amount); },
+      after() { refreshTodos(); if (state.tab === 'notes') render(); }
+    },
     'request-form': {
       read: (f) => ({
         id: f.item_id.value, title: f.title.value.trim(), amount: Number(f.amount.value), need_date: f.need_date.value,
-        given: f.given ? f.given.checked : null      // 只有家長的表單才有這個開關
+        given: f.given ? f.given.checked : null,     // 只有家長的表單才有這個開關
+        given_amount: f.given_amount ? Number(f.given_amount.value) : null
       }),
       check(r) {
         if (!r.title) return '請寫下這筆費用是做什麼的';
         if (!Number.isInteger(r.amount) || r.amount < 1) return '請輸入金額（整數，至少 1 元）';
         if (r.amount > 1000000) return '金額太大了，請再確認一次';
         if (!r.need_date) return '請選擇哪一天需要';
+        if (r.given && (!Number.isInteger(r.given_amount) || r.given_amount < 1 || r.given_amount > 1000000)) return '請輸入實際給的金額（整數，至少 1 元）';
         return null;
       },
       async save(r) {
@@ -2019,18 +2039,19 @@
         const wasGiven = old.status === 'given';
         const given = r.given === null ? wasGiven : r.given;
         const next = { ...old, title: r.title, amount: r.amount, need_date: r.need_date };
-        if (given && !wasGiven) return giveRequest(next);                 // 還沒給 → 已給：記一筆收入
+        if (given && !wasGiven) return giveRequest(next, r.given_amount);  // 還沒給 → 已給：記一筆收入
         if (!given && wasGiven) {                                          // 已給 → 取消：把那筆收入刪掉
           if (old.ledger_id) await Api.deleteLedger(old.ledger_id).catch((e) => console.warn(e));
           await Api.saveRequest({ ...next, status: 'pending' });
           return loadLedger();
         }
-        if (given && old.ledger_id && (old.amount !== r.amount || old.title !== r.title)) {
-          // 已給的申請改了金額或用途：帳本裡那一筆跟著改
+        const paid = given && r.given_amount != null ? r.given_amount : givenAmount(old);
+        if (given && old.ledger_id && (givenAmount(old) !== paid || old.title !== r.title)) {
+          // 已給的申請改了實際金額或用途：帳本裡那一筆跟著改
           const entry = findById(state.ledger, old.ledger_id);
-          if (entry) await Api.saveLedger({ ...entry, amount: r.amount, note: r.title });
+          if (entry) await Api.saveLedger({ ...entry, amount: paid, note: r.title });
         }
-        await Api.saveRequest({ ...next, status: given ? 'given' : 'pending' });
+        await Api.saveRequest({ ...next, status: given ? 'given' : 'pending', given_amount: given ? paid : null });
         return loadLedger();
       },
       remove: (id) => Api.deleteRequest(id),
@@ -2364,6 +2385,13 @@
     if (t.id === 'chat-input') state.draft = t.value;
     else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
     else if (t.form && t.form.classList.contains('reply-form')) state.postDrafts[t.form.dataset.post] = t.value;
+  });
+
+  // 費用申請表單：打開「已經給了」才出現「實際給的金額」
+  document.addEventListener('change', (ev) => {
+    const form = ev.target.form;
+    if (!form || form.getAttribute('id') !== 'request-form' || ev.target.name !== 'given') return;
+    form.querySelector('#given-amount-row').hidden = !ev.target.checked;
   });
 
   // 零用錢表單：選「申請費用」時，欄位名稱跟著換

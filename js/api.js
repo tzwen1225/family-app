@@ -14,7 +14,7 @@
 // 上線狀態 presence：{ id: UID, last_seen, online, read_at: 聊天室讀到的時間點 }
 // 零用錢 ledger： { id, kid: 小朋友的 UID, type: 'income' 給零用錢 | 'expense' 支出, amount, note, date }
 //   members 文件裡 child: true 的成員是小朋友，其他人是家長
-// 費用申請 request：{ id, kid, title, amount, need_date, status: 'pending' 還沒給 | 'given' 已給, given_by, given_at, ledger_id }
+// 費用申請 request：{ id, kid, title, amount, need_date, status: 'pending' 還沒給 | 'given' 已給, given_by, given_at, given_amount: 實際給的金額, ledger_id }
 // 以下四種用最下面的「通用讀寫」存取（watchList / addDoc / setDoc / updateDoc / deleteDoc / getDoc）：
 //   採買 shopping：  { id, text, done, added_by, done_by, created_at }
 //   投票 polls：     { id, question, options: [文字…], author, created_at, closed, deadline: 'YYYY-MM-DD' 或 '', deadline_at: 毫秒或 0 }
@@ -61,6 +61,8 @@
     status: r.status === 'given' ? 'given' : 'pending',
     given_by: r.status === 'given' ? (r.given_by || null) : null,
     given_at: r.status === 'given' ? (r.given_at || Date.now()) : null,
+    // 實際給的金額（可以和申請的金額不同）
+    given_amount: r.status === 'given' ? Math.round(Number(r.given_amount != null ? r.given_amount : r.amount)) : null,
     // 標示已給時，自動記進零用錢帳本的那一筆收入（取消已給時用它找到並刪掉）
     ledger_id: r.status === 'given' ? (r.ledger_id || null) : null
   });
@@ -296,7 +298,7 @@
       ],
       requests: [
         { id: 'q1', kid: 'm3', title: '學校舞會', amount: 1500, need_date: day(6), status: 'pending', given_by: null, given_at: null },
-        { id: 'q2', kid: 'm4', title: '校外教學費', amount: 350, need_date: day(-3), status: 'given', given_by: 'm2', given_at: ago(60 * 80) }
+        { id: 'q2', kid: 'm4', title: '校外教學費', amount: 350, need_date: day(-3), status: 'given', given_by: 'm2', given_at: ago(60 * 80), given_amount: 300 }
       ],
       profiles: {
         m1: { id: 'm1', birthday: '1980-03-12', phone: '0912-000-111', org: '', note: '' },

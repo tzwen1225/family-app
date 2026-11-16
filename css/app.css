@@ -664,6 +664,15 @@ button.bubble { text-align: left; font: inherit; }
 .request-main { text-align: left; min-width: 0; padding: 6px 0; display: block; }
 .request-title { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .request-sub { display: block; font-size: 13px; color: var(--ink-2); }
+.request-detail { display: block; font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.request-detail b { font: 600 14px/1 var(--num); color: var(--ink); }
+.request-detail em { font-style: normal; font-weight: 600; margin-left: 8px; }
+.request-detail em.less { color: var(--c-exam); }
+.request-detail em.more { color: var(--green); }
+.give-info { margin: 0 0 16px; display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; background: var(--sheet); border-radius: 14px; padding: 14px 16px; }
+.give-info dt { color: var(--ink-2); font-size: 14px; }
+.give-info dd { margin: 0; overflow-wrap: anywhere; }
+.give-info b { font: 700 18px/1 var(--num); }
 .request-amount { font: 700 17px/1.2 var(--num); white-space: nowrap; }
 .request.given .request-title, .request.given .request-amount { color: var(--ink-2); font-weight: 500; }
 .given-mark { font-size: 13px; font-weight: 700; color: var(--green); text-align: right; white-space: nowrap; }
