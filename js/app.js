@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 21:30';
+  const VERSION = '2026-11-16 22:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -581,6 +581,8 @@
   }
 
   // ---------- 月曆 ----------
+  // 放假日：人事行政總處辦公日曆表上的國定假日與補假（js/holidays.js）。回傳假日名稱，不是假日就回傳空字串。
+  const holidayName = (date) => (window.TW_HOLIDAYS && window.TW_HOLIDAYS[date]) || '';
   const eventsOn = (list, date) => list.filter((e) => e.event_date <= date && e.end_date >= date);
 
   function calSwitch() {
@@ -596,7 +598,7 @@
     const mine = (e) => e.readonly || !e.member_ids || !e.member_ids.length || e.member_ids.includes(state.userId);
     const list = eventsOn(state.upcoming, t).filter((e) => !amChild() || mine(e)).sort(byTime);
     return `
-      <h2>今天的行程<span>${shortDate(t)}</span>${list.length ? `<b>${list.length}</b>` : ''}</h2>
+      <h2>今天的行程<span>${shortDate(t)}</span>${holidayName(t) ? `<em class="holiday-tag">${esc(holidayName(t))}</em>` : ''}${list.length ? `<b>${list.length}</b>` : ''}</h2>
       ${list.length ? list.map((e) => eventRow(e)).join('')
         : `<p class="none">${amChild() ? '今天沒有你的行程，也沒有全家的行程。' : '今天沒有行程。'}</p>`}`;
   }
@@ -621,13 +623,14 @@
       const cls = [
         'day',
         d.slice(0, 7) !== state.cursor ? 'out' : '',
-        date.getDay() === 0 || date.getDay() === 6 ? 'weekend' : '',
+        date.getDay() === 0 || date.getDay() === 6 || holidayName(d) ? 'weekend' : '',
+        holidayName(d) ? 'holiday' : '',
         d === t ? 'today' : '',
         d === state.selected ? 'sel' : ''
       ].join(' ');
       const dots = evs.slice(0, 3).map((e) => `<i style="background:${esc(catOf(e.category).color)}"></i>`).join('');
       cells += `
-        <button class="${cls}" data-act="pick" data-date="${d}" aria-label="${date.getMonth() + 1}月${date.getDate()}日，${evs.length} 件事" ${d === state.selected ? 'aria-pressed="true"' : ''}>
+        <button class="${cls}" data-act="pick" data-date="${d}" aria-label="${date.getMonth() + 1}月${date.getDate()}日${holidayName(d) ? '，' + holidayName(d) + '放假' : ''}，${evs.length} 件事" ${d === state.selected ? 'aria-pressed="true"' : ''}>
           <span class="num">${date.getDate()}</span>
           <span class="dots">${dots}${evs.length > 3 ? '<b>+</b>' : ''}</span>
         </button>`;
@@ -654,6 +657,7 @@
           <div class="leaf-num">${sel.getDate()}</div>
           <div class="leaf-week">星期${WEEKDAYS[sel.getDay()]}</div>
           <div class="leaf-rel">${rel}</div>
+          ${holidayName(state.selected) ? `<div class="leaf-holiday">${esc(holidayName(state.selected))}</div>` : ''}
         </div>
         <div class="leaf-list">
           ${dayEvents.length ? dayEvents.map((e) => eventRow(e)).join('') : `
