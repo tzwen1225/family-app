@@ -514,6 +514,17 @@ button.bubble { text-align: left; font: inherit; }
 .link-btn.danger-text { color: var(--danger); font-weight: 700; }
 
 /* ---------- 投票 ---------- */
+.history { margin-top: 12px; background: var(--sheet); border-radius: 16px; padding: 2px 16px; }
+.hist { display: grid; grid-template-columns: 40px 1fr; gap: 2px 10px; width: 100%; text-align: left; padding: 12px 0; align-items: baseline; }
+.history > * + .hist { border-top: 1px solid var(--line); }
+.hist-date { font: 500 13px/1.4 var(--num); color: var(--ink-2); grid-row: span 2; }
+.hist-title { font-weight: 600; overflow-wrap: anywhere; }
+.hist-result { grid-column: 2; font-size: 14px; color: var(--green); font-weight: 600; overflow-wrap: anywhere; }
+.hist.voided { grid-template-columns: 40px 1fr auto; }
+.hist.voided .hist-date { grid-row: auto; }
+.hist.voided .hist-title { color: var(--ink-2); font-weight: 400; text-decoration: line-through; }
+.hist-tag { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.history .post { margin: 0 -8px 12px; background: var(--paper); border-top-width: 0; }
 .subtabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); margin: 8px 0 4px; }
 .subtabs button { position: relative; padding: 8px 2px 10px; font-size: 15px; color: var(--ink-2); }
 .subtabs button small { margin-left: 6px; font: 600 12px/1 var(--num); background: var(--track); border-radius: 99px; padding: 2px 7px; }

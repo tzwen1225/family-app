@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 20:30';
+  const VERSION = '2026-11-16 20:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -83,6 +83,7 @@
     scoreTerm: '',                  // 目前看哪個學期（空的代表全部）；會記在這支手機上；scoreSubject 是目前只看哪一科（空的代表全部）
     postsView: 'posts',      // posts（留言）| polls（投票）
     polls: [], votes: [],
+    pollOpen: null,          // 歷史紀錄裡點開看細節的那一則
     pollHistory: false,      // 投票頁正在看「歷史紀錄」（已結束、已截止、已作廢的投票）
     homePollId: null,        // 首頁投票區目前顯示哪一則（多則時用 1、2、3… 切換）
     pollEdit: null,          // 正在投票或改票的那一則投票；其他投票的選項都是鎖住的，避免誤觸
@@ -1047,6 +1048,35 @@
 
   const pollOrder = (a, b) => (pollOver(a) - pollOver(b)) || (b.created_at - a.created_at);
 
+  // 歷史紀錄裡的一列：只有標題和結果；作廢的只有標題。
+  // 點一下有結果的那一列，可以展開看每個選項是誰投的。
+  function pollResultText(p) {
+    const votes = state.votes.filter((v) => v.poll_id === p.id && member(v.uid));
+    const counts = p.options.map((_, i) => votes.filter((v) => v.choice === i).length);
+    const top = Math.max(0, ...counts);
+    if (!top) return '沒有人投票';
+    const winners = p.options.filter((_, i) => counts[i] === top);
+    return winners.length > 1 ? `平手：${winners.join('、')}（各 ${top} 票）` : `${winners[0]}（${top} 票）`;
+  }
+  function pollHistoryRow(p) {
+    const d = new Date(p.created_at);
+    const date = `${d.getMonth() + 1}/${d.getDate()}`;
+    if (p.voided) return `
+      <div class="hist voided">
+        <span class="hist-date">${date}</span>
+        <span class="hist-title">${esc(p.question)}</span>
+        <span class="hist-tag">已作廢</span>
+      </div>`;
+    const open = state.pollOpen === p.id;
+    return `
+      <button class="hist ${open ? 'open' : ''}" data-act="poll-open" data-id="${esc(p.id)}" aria-expanded="${open}">
+        <span class="hist-date">${date}</span>
+        <span class="hist-title">${esc(p.question)}</span>
+        <span class="hist-result">${esc(pollResultText(p))}</span>
+      </button>
+      ${open ? pollCardHtml(p, false) : ''}`;
+  }
+
   // 投票頁分成兩份：進行中的，和歷史紀錄（已結束、過了截止日、已作廢的）
   function pollListHtml() {
     const active = state.polls.filter((p) => !pollOver(p)).sort((a, b) => b.created_at - a.created_at);
@@ -1054,6 +1084,7 @@
     const tab = (history, label, n) => `<button class="${state.pollHistory === history ? 'on' : ''}" data-act="poll-history" data-history="${history ? 1 : ''}" ${state.pollHistory === history ? 'aria-pressed="true"' : ''}>${label}<small>${n}</small></button>`;
     const bar = `<div class="subtabs" role="group" aria-label="進行中或歷史紀錄">${tab(false, '進行中', active.length)}${tab(true, '歷史紀錄', past.length)}</div>`;
     const list = state.pollHistory ? past : active;
+    if (list.length && state.pollHistory) return bar + `<div class="history">${past.map(pollHistoryRow).join('')}</div>`;
     if (list.length) return bar + list.map((p) => pollCardHtml(p, false)).join('');
     return bar + (state.pollHistory
       ? '<div class="empty big"><p>還沒有歷史紀錄。投票結束、過了截止日或作廢之後，會移到這裡。</p></div>'
@@ -2242,7 +2273,8 @@
     else if (act === 'vote') onVote(el);
     else if (act === 'close-poll') onPollAction(el, 'close');
     else if (act === 'void-poll') onPollAction(el, 'void');
-    else if (act === 'poll-history') { state.pollHistory = !!el.dataset.history; state.pollEdit = null; refreshPolls(); scroller().scrollTop = 0; }
+    else if (act === 'poll-open') { state.pollOpen = state.pollOpen === el.dataset.id ? null : el.dataset.id; refreshPolls(); }
+    else if (act === 'poll-history') { state.pollHistory = !!el.dataset.history; state.pollEdit = null; state.pollOpen = null; refreshPolls(); scroller().scrollTop = 0; }
     else if (act === 'home-poll') { state.homePollId = el.dataset.id; state.pollEdit = null; refreshPolls(); }
     else if (act === 'poll-edit') { state.pollEdit = state.pollEdit === el.dataset.id ? null : el.dataset.id; refreshPolls(); }
     else if (act === 'del-poll') onPollAction(el, 'del');
