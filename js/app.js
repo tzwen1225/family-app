@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 18:05';
+  const VERSION = '2026-11-16 19:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1028,7 +1028,8 @@
   function homePollsHtml() {
     const t = today();
     // 依發起時間由舊到新排，這樣 1、2、3… 的編號不會因為有新投票而變動
-    const list = state.polls.filter((p) => !pollOver(p) || ymd(new Date(p.created_at)) === t || p.deadline === t)
+    // 作廢的投票不放在首頁（在「看全部」的列表裡還看得到）
+    const list = state.polls.filter((p) => !p.voided && (!pollOver(p) || ymd(new Date(p.created_at)) === t || p.deadline === t))
       .sort((a, b) => a.created_at - b.created_at);
     if (!list.length) return '';
     // 只用一個固定的位置顯示一則；有多則時，上方出現 1、2、3… 可以切換
