@@ -44,6 +44,13 @@ service cloud.firestore {
         && d.score is number && d.score >= 0 && d.score <= d.full;
     }
 
+    // 投票還能投嗎：沒被手動結束，而且沒過截止時間（deadline_at 是 0 或沒有，代表沒設截止日）
+    function pollOpen(pollId) {
+      let p = get(/databases/$(database)/documents/polls/$(pollId)).data;
+      return p.closed == false
+        && (p.get('deadline_at', 0) == 0 || request.time.toMillis() <= p.get('deadline_at', 0));
+    }
+
     function validRequest() {
       let d = request.resource.data;
       return d.kid is string
@@ -266,7 +273,7 @@ service cloud.firestore {
         && voteId == request.resource.data.poll_id + '_' + request.auth.uid
         && request.resource.data.choice is int
         && request.resource.data.choice >= 0 && request.resource.data.choice < 6
-        && get(/databases/$(database)/documents/polls/$(request.resource.data.poll_id)).data.closed == false;
+        && pollOpen(request.resource.data.poll_id);
       allow delete: if false;
     }
 

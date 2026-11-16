@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 16:40';
+  const VERSION = '2026-11-16 16:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -399,7 +399,9 @@
   const repliedBy = (post, uid) => state.replies.some((r) => r.post_id === post.id && r.author === uid);
   const waitingForMe = () => state.posts.some((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId));
   // 還開著、而我還沒投的投票
-  const pollsForMe = () => state.polls.filter((p) => !p.closed
+  // 投票結束了嗎：發起人手動結束，或過了截止日期（截止日當天還可以投）
+  const pollOver = (p) => !!p.closed || (!!p.deadline && p.deadline < today());
+  const pollsForMe = () => state.polls.filter((p) => !pollOver(p)
     && !state.votes.some((v) => v.poll_id === p.id && v.uid === state.userId));
   const pendingRequests = () => state.requests.filter((r) => r.status !== 'given')
     .sort((a, b) => a.need_date.localeCompare(b.need_date));
@@ -438,14 +440,6 @@
               <span class="todo-sub">${esc(p.text.length > 40 ? p.text.slice(0, 40) + '…' : p.text)}</span>
             </button>
             <button class="todo-done reply" data-act="tab" data-tab="posts">回覆</button>
-          </div>`));
-    pollsForMe().sort((a, b) => a.created_at - b.created_at).forEach((p) => items.push(`
-          <div class="todo">
-            <button class="todo-main" data-act="open-polls">
-              <span class="todo-title">${esc(nameOf(p.author))}發起了投票</span>
-              <span class="todo-sub">${esc(p.question)}</span>
-            </button>
-            <button class="todo-done reply" data-act="open-polls">投票</button>
           </div>`));
     return items.length ? `<h2>待辦事項<span>${items.length}</span></h2>${items.join('')}` : '';
   }
@@ -540,6 +534,7 @@
     const todos = todosHtml();
     return `<section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>`
       + `<section class="todos" id="todos" aria-label="待辦事項" ${todos ? '' : 'hidden'}>${todos}</section>`
+      + `<section class="home-polls" id="home-polls" aria-label="投票" ${homePollsHtml() ? '' : 'hidden'}>${homePollsHtml()}</section>`
       + `<section class="today-card" aria-label="今天的行程">${todayHtml()}</section>`
       + calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming());
   }
@@ -966,24 +961,23 @@
   }
 
   // ---------- 投票 ----------
-  function pollListHtml() {
-    if (!state.polls.length) return `
-      <div class="empty big">
-        <p>還沒有投票。「今天誰回家吃晚餐」「週末去哪裡」這種事，用投票問最快。</p>
-        <button class="link-btn" data-act="new">發起投票</button>
-      </div>`;
-    return state.polls.slice().sort((a, b) => (a.closed - b.closed) || (b.created_at - a.created_at)).map((p) => {
-      const votes = state.votes.filter((v) => v.poll_id === p.id && member(v.uid));
-      const mine = votes.find((v) => v.uid === state.userId);
-      const waiting = state.members.filter((m) => !votes.some((v) => v.uid === m.id));
-      const author = member(p.author);
-      return `
-        <article class="post poll ${!p.closed && !mine ? 'needs' : ''} ${p.closed ? 'closed' : ''}">
+  // 一則投票。home = true 時是首頁用的精簡版（沒有結束、刪除按鈕）
+  function pollCardHtml(p, home) {
+    const over = pollOver(p);
+    const votes = state.votes.filter((v) => v.poll_id === p.id && member(v.uid));
+    const mine = votes.find((v) => v.uid === state.userId);
+    const waiting = state.members.filter((m) => !votes.some((v) => v.uid === m.id));
+    const author = member(p.author);
+    const top = Math.max(0, ...p.options.map((_, i) => votes.filter((v) => v.choice === i).length));
+    const due = !p.deadline ? '' : over ? `${shortDate(p.deadline)}已截止`
+      : p.deadline === today() ? '今天截止' : `${shortDate(p.deadline)}截止`;
+    return `
+        <article class="post poll ${!over && !mine ? 'needs' : ''} ${over ? 'closed' : ''}">
           <header>
             ${author ? avatarHtml(author, 'sm') : ''}
             <b>${esc(nameOf(p.author))}</b>
             <time>${stamp(p.created_at)}</time>
-            ${p.closed ? '<span class="flag done">已結束</span>' : !mine ? '<span class="flag">等你投票</span>' : ''}
+            ${over ? '<span class="flag done">已結束</span>' : !mine ? '<span class="flag">等你投票</span>' : ''}
           </header>
           <p class="post-text">${esc(p.question)}</p>
           <div class="opts">
@@ -991,25 +985,46 @@
               const who = votes.filter((v) => v.choice === i);
               const pct = Math.round(who.length / Math.max(1, state.members.length) * 100);
               return `
-              <button class="opt ${mine && mine.choice === i ? 'mine' : ''}" data-act="vote" data-id="${esc(p.id)}" data-choice="${i}" ${p.closed ? 'disabled' : ''} ${mine && mine.choice === i ? 'aria-pressed="true"' : ''}>
+              <button class="opt ${mine && mine.choice === i ? 'mine' : ''} ${over && top > 0 && who.length === top ? 'win' : ''}" data-act="vote" data-id="${esc(p.id)}" data-choice="${i}" ${over ? 'disabled' : ''} ${mine && mine.choice === i ? 'aria-pressed="true"' : ''}>
                 <span class="opt-bar" style="width:${pct}%"></span>
                 <span class="opt-text">${esc(opt)}</span>
+                <span class="opt-count">${who.length} 票</span>
                 <span class="opt-who">${who.map((v) => `<span class="who" style="--who:${esc(colorOf(v.uid))}">${esc(nameOf(v.uid))}</span>`).join('')}</span>
               </button>`;
             }).join('')}
           </div>
-          <p class="poll-foot">${votes.length} / ${state.members.length} 人已投${waiting.length && !p.closed ? '　還沒投：' + esc(waiting.map((m) => m.display_name).join('、')) : ''}</p>
-          ${p.author === state.userId ? `
+          <p class="poll-foot">${due ? `<b>${due}</b>　` : ''}${votes.length} / ${state.members.length} 人已投${waiting.length && !over ? '　還沒投：' + esc(waiting.map((m) => m.display_name).join('、')) : ''}</p>
+          ${!home && p.author === state.userId ? `
             <div class="poll-actions">
-              ${p.closed ? '' : `<button class="link-btn del" data-act="close-poll" data-id="${esc(p.id)}">結束投票</button>`}
+              ${over ? '' : `<button class="link-btn del" data-act="close-poll" data-id="${esc(p.id)}">結束投票</button>`}
               <button class="link-btn del" data-act="del-poll" data-id="${esc(p.id)}">刪除</button>
             </div>` : ''}
         </article>`;
-    }).join('');
+  }
+
+  const pollOrder = (a, b) => (pollOver(a) - pollOver(b)) || (b.created_at - a.created_at);
+
+  function pollListHtml() {
+    if (!state.polls.length) return `
+      <div class="empty big">
+        <p>還沒有投票。「今天誰回家吃晚餐」「週末去哪裡」這種事，用投票問最快。</p>
+        <button class="link-btn" data-act="new">發起投票</button>
+      </div>`;
+    return state.polls.slice().sort(pollOrder).map((p) => pollCardHtml(p, false)).join('');
+  }
+
+  // 首頁的投票區：進行中的投票，加上今天發起或今天截止的（即使已經結束，也看得到當天的結果）
+  function homePollsHtml() {
+    const t = today();
+    const list = state.polls.filter((p) => !pollOver(p) || ymd(new Date(p.created_at)) === t || p.deadline === t).sort(pollOrder);
+    if (!list.length) return '';
+    return `<h2>投票<button class="link-btn" data-act="open-polls">看全部</button></h2>${list.map((p) => pollCardHtml(p, true)).join('')}`;
   }
 
   function refreshPolls() {
     refreshTodos();
+    const home = document.getElementById('home-polls');
+    if (home) { home.innerHTML = homePollsHtml(); home.hidden = !home.innerHTML; }
     const el = document.getElementById('poll-list');
     if (el) el.innerHTML = pollListHtml();
     document.querySelectorAll('.switcher [data-act="posts-view"]').forEach((btn) => {
@@ -1019,7 +1034,7 @@
 
   async function onVote(btn) {
     const p = findById(state.polls, btn.dataset.id);
-    if (!p || p.closed) return;
+    if (!p || pollOver(p)) return toast('這個投票已經結束了');
     try {
       await Api.setDoc('poll_votes', p.id + '_' + state.userId,
         { poll_id: p.id, uid: state.userId, choice: Number(btn.dataset.choice), voted_at: Date.now() });
@@ -1042,6 +1057,8 @@
       body: `
       <input class="title-input" name="question" placeholder="想問什麼？" maxlength="80" autocomplete="off">
       <label>選項（一行一個，2 到 6 個）<textarea name="options" rows="5" maxlength="300" placeholder="選項一&#10;選項二"></textarea></label>
+      <label>截止日期<input type="date" name="deadline" value="${today()}" min="${today()}"></label>
+      <p class="hint">到截止日當天結束前都可以投票，過了就自動結束。清空日期的話，要由你手動結束。</p>
       <p class="hint">常用的可以直接套用：</p>
       <div class="presets">
         <button type="button" class="chip-btn" data-act="poll-preset" data-q="今天誰回家吃晚餐？" data-o="回家吃|不回家吃|會晚一點">晚餐調查</button>
@@ -1881,7 +1898,8 @@
       done: '投票已送出',
       read: (f) => ({
         question: f.question.value.trim(),
-        options: f.options.value.split('\n').map((x) => x.trim()).filter(Boolean)
+        options: f.options.value.split('\n').map((x) => x.trim()).filter(Boolean),
+        deadline: f.deadline.value
       }),
       check(p) {
         if (!p.question) return '請寫下想問什麼';
@@ -1889,9 +1907,18 @@
         if (p.options.length > 6) return '選項最多 6 個';
         if (p.options.some((o) => o.length > 30)) return '每個選項最多 30 個字';
         if (new Set(p.options).size !== p.options.length) return '選項有重複';
+        if (p.deadline && p.deadline < today()) return '截止日期不能是過去';
         return null;
       },
-      save: (p) => Api.addDoc('polls', { question: p.question, options: p.options, author: state.userId, created_at: Date.now(), closed: false }),
+      save(p) {
+        // deadline_at 是截止日當天最後一刻的時間（毫秒），給資料庫規則用來擋掉逾期的票
+        const end = p.deadline ? parse(p.deadline) : null;
+        if (end) end.setHours(23, 59, 59, 999);
+        return Api.addDoc('polls', {
+          question: p.question, options: p.options, author: state.userId, created_at: Date.now(), closed: false,
+          deadline: p.deadline || '', deadline_at: end ? end.getTime() : 0
+        });
+      },
       after() { const sc = scroller(); if (sc) sc.scrollTop = 0; }
     },
     'card-form': {

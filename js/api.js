@@ -17,7 +17,7 @@
 // 費用申請 request：{ id, kid, title, amount, need_date, status: 'pending' 還沒給 | 'given' 已給, given_by, given_at }
 // 以下四種用最下面的「通用讀寫」存取（watchList / addDoc / setDoc / updateDoc / deleteDoc / getDoc）：
 //   採買 shopping：  { id, text, done, added_by, done_by, created_at }
-//   投票 polls：     { id, question, options: [文字…], author, created_at, closed }
+//   投票 polls：     { id, question, options: [文字…], author, created_at, closed, deadline: 'YYYY-MM-DD' 或 '', deadline_at: 毫秒或 0 }
 //        poll_votes：{ id: 投票id_UID, poll_id, uid, choice: 第幾個選項, voted_at }
 //   資料卡 cards：   { id, title, member: UID 或 ''（全家）, body, updated_at }
 //   成績 scores：    { id, kid: 小朋友的 UID, subject, title, date, score, full, note }

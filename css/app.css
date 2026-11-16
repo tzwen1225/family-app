@@ -523,6 +523,16 @@ button.bubble { text-align: left; font: inherit; }
 .opt-who { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; }
 .opt.mine { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
 .opt:disabled { cursor: default; }
+.opt-count { position: relative; font: 600 13px/1 var(--num); color: var(--ink-2); }
+.opt.win { border-color: var(--green); }
+.opt.win .opt-text::after { content: " ✓"; color: var(--green); }
+.poll-foot b { color: var(--c-exam); font-weight: 600; }
+.post.closed .poll-foot b { color: var(--ink-2); }
+.home-polls { margin-bottom: 12px; }
+.home-polls h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); padding: 0 4px; display: flex; align-items: center; justify-content: space-between; }
+.home-polls h2 .link-btn { min-height: 28px; font-size: 13px; }
+.home-polls .post { margin-top: 6px; }
+.home-polls .post + .post { margin-top: 10px; }
 .poll-foot { font-size: 13px; color: var(--ink-2); margin-top: 10px; }
 .poll-actions { display: flex; gap: 12px; }
 .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
