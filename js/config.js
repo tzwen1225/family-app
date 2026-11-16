@@ -11,5 +11,9 @@ window.FAMILY_CONFIG = {
     storageBucket: 'chuang-e5b8e.firebasestorage.app',
     messagingSenderId: '238056403641',
     appId: '1:238056403641:web:3e501ad4b9895f222e2168'
-  }
+  },
+
+  // 推播通知用的公開金鑰（VAPID key）。留空時 App 不會顯示開啟通知的按鈕。
+  // 來源：Firebase 後台 → 專案設定 → Cloud Messaging → 網路設定 → 網路推播憑證 → 產生金鑰組。
+  vapidKey: ''
 };

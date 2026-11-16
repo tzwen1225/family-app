@@ -237,6 +237,7 @@
       Api.watchReplies((list) => { state.replies = list; refreshPosts(); }),
       Api.watchPresence((map) => { state.presence = map; refreshPresence(); })
     ];
+    Api.refreshPush().catch((e) => console.warn('通知設定更新失敗', e));
     beat(true);
     beatTimer = setInterval(() => {
       if (document.visibilityState === 'visible') beat(true);
@@ -695,6 +696,31 @@
     return m + '月' + d + '日';
   }
 
+  function pushSectionHtml() {
+    if (Api.isDemo) return '';
+    const st = Api.pushState();
+    const body = {
+      on: '<p>這支手機會收到新訊息和被點名的通知。</p><button class="btn ghost" data-act="push-off">關閉這支手機的通知</button>',
+      off: '<p>開啟後，有人在聊天室傳訊息、在「我有話要說」點名你或回覆你，這支手機會跳出通知。</p><button class="btn primary" data-act="push-on">開啟這支手機的通知</button>',
+      denied: '<p>通知被系統封鎖了。請到 iPhone 的「設定 → 通知 → 鍾家大宅」打開「允許通知」，再回來這裡。</p>',
+      unsupported: '<p>這裡沒辦法開啟通知。iPhone 需要 iOS 16.4 以上，而且要從主畫面的「鍾家大宅」圖示開啟，不能在 Safari 裡直接開。</p>',
+      unconfigured: '<p>通知功能還沒設定完成（缺少推播金鑰）。</p>'
+    }[st];
+    return `<section class="card-list push"><h2>通知</h2>${body}</section>`;
+  }
+
+  async function onPushOn(btn) {
+    btn.disabled = true; btn.textContent = '設定中…';
+    try {
+      const result = await Api.enablePush();
+      toast(result === 'granted' ? '已開啟通知' : '沒有開啟：需要在詢問時按「允許」');
+    } catch (e) {
+      console.error(e);
+      toast('開啟通知失敗，請稍後再試');
+    }
+    render();
+  }
+
   function viewMe() {
     return `
       <header class="plain-head"><h1>設定</h1><p>${esc(me().display_name)}已登入</p></header>
@@ -717,6 +743,7 @@
             </div>`;
         }).join('')}
       </section>
+      ${pushSectionHtml()}
       ${Api.isDemo ? '<p class="demo-note">示範模式：資料只存在這台裝置。設定 Firebase 後，全家才會看到同一份資料。</p>' : ''}
       <button class="btn ghost" data-act="logout">登出</button>`;
   }
@@ -1062,9 +1089,12 @@
     else if (act === 'del-post') onDeletePost(el);
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
+    else if (act === 'push-on') onPushOn(el);
+    else if (act === 'push-off') { Api.disablePush().then(() => { toast('已關閉通知'); render(); }); }
     else if (act === 'logout') {
       stopWatching();
-      Api.beat(false).catch(() => {}).then(() => Api.signOut()).then(() => {
+      // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
+      Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state, {
           userId: null, tab: 'cal', messages: [], notes: [], posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''

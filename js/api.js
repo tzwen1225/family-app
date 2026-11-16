@@ -10,11 +10,13 @@
 //   回覆 reply：  { id, post_id, text, author, created_at }
 // 基本資料 profile：{ id: UID, birthday, phone, org, note }
 // 上線狀態 presence：{ id: UID, last_seen, online }
+// 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
 
 (function () {
   const cfg = window.FAMILY_CONFIG || {};
   const isDemo = !(cfg.firebase && cfg.firebase.apiKey);
+  const TOKEN_KEY = 'family-push-token';
 
   const cleanEvent = (ev) => ({
     title: ev.title,
@@ -140,8 +142,48 @@
       async beat(online) {
         await F.setDoc(F.doc(db, 'presence', uid()), { last_seen: Date.now(), online: !!online });
       },
-      watchPresence: (cb) => watch('上線狀態', col('presence'), (rows) => cb(toMap(rows)))
+      watchPresence: (cb) => watch('上線狀態', col('presence'), (rows) => cb(toMap(rows))),
+
+      // ----- 推播通知 -----
+      // 每支手機開啟通知後會拿到一組「裝置代碼」，存進 push_tokens/{代碼} = { uid }。
+      // 伺服器端的程式（functions/index.js）依這張表決定要通知哪些手機。
+      // 回傳：unconfigured 沒設定金鑰｜unsupported 這個環境不支援｜denied 被系統封鎖｜on 已開啟｜off 未開啟
+      pushState() {
+        if (!cfg.vapidKey) return 'unconfigured';
+        if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return 'unsupported';
+        if (Notification.permission === 'denied') return 'denied';
+        return Notification.permission === 'granted' && savedToken() ? 'on' : 'off';
+      },
+      // 必須在使用者按下按鈕的當下呼叫，iPhone 才會跳出詢問
+      async enablePush() {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return permission;
+        await registerToken();
+        return 'granted';
+      },
+      // 每次開啟 App 時更新一次代碼（代碼偶爾會換）
+      async refreshPush() {
+        if (this.pushState() === 'on') await registerToken();
+      },
+      async disablePush() {
+        const token = savedToken();
+        saveToken('');
+        if (!token) return;
+        try { await F.deleteDoc(F.doc(db, 'push_tokens', token)); } catch (e) { console.warn(e); }
+        try { await F.deleteToken(F.getMessaging(app)); } catch (e) { console.warn(e); }
+      }
     };
+
+    function savedToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
+    function saveToken(t) { try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); } catch (e) { /* 忽略 */ } }
+    async function registerToken() {
+      const registration = await navigator.serviceWorker.ready;
+      const token = await F.getToken(F.getMessaging(app), { vapidKey: cfg.vapidKey, serviceWorkerRegistration: registration });
+      const old = savedToken();
+      await F.setDoc(F.doc(db, 'push_tokens', token), { uid: uid(), updated_at: Date.now() });
+      if (old && old !== token) { try { await F.deleteDoc(F.doc(db, 'push_tokens', old)); } catch (e) { console.warn(e); } }
+      saveToken(token);
+    }
   }
 
   // ---------- 示範模式（localStorage） ----------
@@ -273,7 +315,12 @@
         db.presence[db.user] = { id: db.user, last_seen: Date.now(), online: !!online };
         persist(); emit('presence');
       },
-      watchPresence: watch('presence')
+      watchPresence: watch('presence'),
+
+      pushState() { return 'unsupported'; },
+      async enablePush() { return 'denied'; },
+      async refreshPush() {},
+      async disablePush() {}
     };
   }
 

@@ -122,6 +122,13 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/members/$(uid));
     }
 
+    // 推播用的裝置代碼：只能登記在自己名下，App 讀不到（只有伺服器端程式會讀）
+    match /push_tokens/{token} {
+      allow read: if false;
+      allow create, update: if isFamily() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isFamily() && resource.data.uid == request.auth.uid;
+    }
+
     // 上線狀態：每個人只能更新自己的
     match /presence/{uid} {
       allow read: if isFamily();
