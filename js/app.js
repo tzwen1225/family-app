@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 22:55';
+  const VERSION = '2026-11-16 23:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -583,6 +583,13 @@
   // ---------- 月曆 ----------
   // 放假日：人事行政總處辦公日曆表上的國定假日與補假（js/holidays.js）。回傳假日名稱，不是假日就回傳空字串。
   const holidayName = (date) => (window.TW_HOLIDAYS && window.TW_HOLIDAYS[date]) || '';
+  // 補班日：星期六、日但要上班（目前政府已取消補班，萬一以後又有，月曆上那天不會標紅）
+  const isWorkday = (date) => !!(window.TW_WORKDAYS && window.TW_WORKDAYS[date]);
+  // 自動向網路上的辦公日曆表確認這幾年的放假日；有更新就重畫月曆
+  function syncHolidays(years) {
+    if (!window.refreshHolidays) return;
+    window.refreshHolidays(years).then((changed) => { if (changed && state.tab === 'cal' && !$sheet.innerHTML) render(); });
+  }
   const eventsOn = (list, date) => list.filter((e) => e.event_date <= date && e.end_date >= date);
 
   function calSwitch() {
@@ -623,7 +630,7 @@
       const cls = [
         'day',
         d.slice(0, 7) !== state.cursor ? 'out' : '',
-        date.getDay() === 0 || date.getDay() === 6 || holidayName(d) ? 'weekend' : '',
+        ((date.getDay() === 0 || date.getDay() === 6) && !isWorkday(d)) || holidayName(d) ? 'weekend' : '',
         holidayName(d) ? 'holiday' : '',
         d === t ? 'today' : '',
         d === state.selected ? 'sel' : ''
@@ -658,6 +665,7 @@
           <div class="leaf-week">星期${WEEKDAYS[sel.getDay()]}</div>
           <div class="leaf-rel">${rel}</div>
           ${holidayName(state.selected) ? `<div class="leaf-holiday">${esc(holidayName(state.selected))}</div>` : ''}
+          ${isWorkday(state.selected) ? '<div class="leaf-workday">補行上班</div>' : ''}
         </div>
         <div class="leaf-list">
           ${dayEvents.length ? dayEvents.map((e) => eventRow(e)).join('') : `
@@ -2289,6 +2297,7 @@
     state.selected = state.cursor === today().slice(0, 7) ? today() : state.cursor + '-01';
     render();
     loadEvents();
+    syncHolidays([state.cursor.slice(0, 4)]);
   }
 
   document.addEventListener('click', (ev) => {
@@ -2593,4 +2602,5 @@
 
   syncThemeColor();
   boot();
+  syncHolidays([new Date().getFullYear(), new Date().getFullYear() + 1]);
 })();
