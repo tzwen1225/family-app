@@ -376,17 +376,14 @@ body.kb-open .fab { display: none; }
   border-radius: 50%; background: var(--online); box-shadow: 0 0 0 2px var(--sheet);
 }
 
-/* ---------- 首頁：家人上線狀態 ---------- */
-.presence {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
-  background: var(--sheet); border-radius: 16px; padding: 12px 6px 10px; margin-bottom: 12px;
-}
-.pres { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
-.pres .avatar { opacity: .45; }
+/* ---------- 首頁：家人上線狀態（精簡的一排：小頭像＋名字，上線的有綠點、不在線的變淡） ---------- */
+.presence { display: flex; gap: 4px 14px; flex-wrap: wrap; align-items: center; padding: 0 4px; margin-bottom: 10px; }
+.pres { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.pres .avatar { opacity: .4; }
 .pres.on .avatar { opacity: 1; }
-.pres-name { font-size: 13px; font-weight: 600; margin-top: 5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pres-status { font-size: 11px; color: var(--ink-2); white-space: nowrap; }
-.pres.on .pres-status { color: var(--online); font-weight: 600; }
+.pres .avatar.online::after { box-shadow: 0 0 0 2px var(--paper); width: 9px; height: 9px; }
+.pres-name { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.pres.on .pres-name { color: var(--ink); font-weight: 600; }
 
 /* ---------- 聊天：搜尋與收回 ---------- */
 .plain-head.with-action { align-items: center; }

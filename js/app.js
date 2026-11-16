@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 17:20';
+  const VERSION = '2026-11-16 17:30';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -155,10 +155,9 @@
   }
   function presenceHtml() {
     return state.members.map((m) => `
-      <div class="pres ${isOnline(m.id) ? 'on' : ''}">
-        ${avatarHtml(m)}
+      <div class="pres ${isOnline(m.id) ? 'on' : ''}" aria-label="${esc(m.display_name)}：${statusText(m.id)}">
+        ${avatarHtml(m, 'sm')}
         <span class="pres-name">${esc(m.display_name)}</span>
-        <span class="pres-status">${statusText(m.id)}</span>
       </div>`).join('');
   }
   function refreshPresence() {
@@ -536,8 +535,8 @@
     const todos = todosHtml();
     return `<section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>`
       + `<section class="todos" id="todos" aria-label="待辦事項" ${todos ? '' : 'hidden'}>${todos}</section>`
-      + `<section class="home-polls" id="home-polls" aria-label="投票" ${homePollsHtml() ? '' : 'hidden'}>${homePollsHtml()}</section>`
       + `<section class="today-card" aria-label="今天的行程">${todayHtml()}</section>`
+      + `<section class="home-polls" id="home-polls" aria-label="投票" ${homePollsHtml() ? '' : 'hidden'}>${homePollsHtml()}</section>`
       + calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming());
   }
 
