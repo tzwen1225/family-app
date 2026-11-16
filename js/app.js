@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 21:05';
+  const VERSION = '2026-11-16 21:30';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -235,6 +235,7 @@
       ]);
       state.monthEvents = expand(month, from, to);
       state.upcoming = expand(upcoming, today(), addDays(today(), 90));
+      if (state.cursor === today().slice(0, 7)) saveCache();
     } catch (e) {
       console.error(e);
       toast('讀取失敗，請確認網路連線');
@@ -285,28 +286,71 @@
     Api.beat(online, readAt).catch((e) => console.warn('上線狀態更新失敗', e));
   }
 
+  // ---------- 啟動快取 ----------
+  // 上次看到的成員、基本資料、月曆存一份在手機上。下次打開時先用它立刻畫出畫面，
+  // 同時在背景向伺服器拿最新的資料；不用等連線建立好才看得到東西。
+  const CACHE_KEY = 'family-cache-v1';
+  function readCache() {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY)) || null; } catch (e) { return null; }
+  }
+  function saveCache() {
+    if (!state.userId || !state.members.length) return;
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        userId: state.userId, members: state.members, profiles: state.profiles,
+        cursor: state.cursor, day: today(), monthEvents: state.monthEvents, upcoming: state.upcoming
+      }));
+    } catch (e) { /* 空間不夠就不存，只是下次開啟會慢一點 */ }
+  }
+  function clearCache() { try { localStorage.removeItem(CACHE_KEY); } catch (e) { /* 忽略 */ } }
+
   async function boot() {
     try {
       state.userId = await Api.currentUserId();
-      if (state.userId) await enter();
-      else renderLogin();
+      if (!state.userId) return renderLogin();
+      const c = readCache();
+      if (c && c.userId === state.userId && (c.members || []).some((m) => m.id === state.userId)) {
+        // 有上次的資料：馬上顯示，最新資料在背景更新
+        state.members = c.members;
+        state.profiles = c.profiles || {};
+        if (c.cursor === state.cursor && c.day === today()) {
+          state.monthEvents = c.monthEvents || [];
+          state.upcoming = c.upcoming || [];
+        }
+        render();
+        startWatching();
+        await enter(true);
+      } else {
+        await enter(false);
+      }
     } catch (e) {
       console.error(e);
-      renderLogin('連線失敗，請確認網路後再試一次');
+      // 已經用快取畫出畫面的話就留著，等網路恢復；否則回到登入畫面
+      if (!state.members.length) renderLogin('連線失敗，請確認網路後再試一次');
+      else toast('連線不穩，顯示的是上次的資料');
     }
   }
 
-  async function enter() {
-    state.members = await Api.listMembers();
+  // warm = true：畫面已經用快取顯示了，這裡只負責把資料換成最新的
+  async function enter(warm) {
+    const [members, profiles] = await Promise.all([Api.listMembers(), Api.listProfiles().catch(() => null)]);
+    state.members = members;
+    if (profiles) state.profiles = profiles;
     if (!me()) {
+      stopWatching();
+      clearCache();
       await Api.signOut();
       state.userId = null;
       renderLogin('這個帳號不在家庭成員名單裡');
       return;
     }
-    await loadProfiles();
-    render();
+    if (!$sheet.innerHTML) render();
+    if (!warm) startWatching();
     await loadEvents();
+    saveCache();
+  }
+
+  function startWatching() {
     stopWatching();
     stopWatchers = [
       Api.watchEvents(() => { if (state.userId) loadEvents(); }),
@@ -2341,6 +2385,7 @@
     else if (act === 'push-off') { Api.disablePush().then(() => { toast('已關閉通知'); render(); }); }
     else if (act === 'logout') {
       stopWatching();
+      clearCache();
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state, {
@@ -2506,6 +2551,18 @@
   // ---------- 自動更新 ----------
   // 比對伺服器上的 version.txt；有新版而且沒有正在打字或編輯時，自動重新載入。
   // 每個版本只嘗試一次，避免萬一抓不到新檔案時不停重新載入。
+  // 請 service worker 把手機上存的程式檔換成最新的，換好（或等太久）才繼續
+  function refreshShell() {
+    return new Promise((resolve) => {
+      const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+      if (!sw) return resolve();
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => resolve();
+      setTimeout(resolve, 10000);
+      sw.postMessage({ type: 'refresh' }, [channel.port2]);
+    });
+  }
+
   async function checkVersion() {
     if (!location.protocol.startsWith('http')) return;
     try {
@@ -2518,6 +2575,7 @@
       const busy = $sheet.innerHTML || state.draft || (a && /^(INPUT|TEXTAREA)$/.test(a.tagName));
       if (busy) return;
       sessionStorage.setItem('family-update-tried', latest);
+      await refreshShell();
       location.reload();
     } catch (e) { /* 離線時略過 */ }
   }

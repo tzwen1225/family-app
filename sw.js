@@ -1,15 +1,21 @@
-// 讓 App 在沒有網路時也能打開畫面。
-// 策略：優先走網路（確保拿到最新版程式），失敗才用快取。
+// 讓 App 一點開就有畫面，沒有網路時也能打開。
+// 策略：程式檔先用手機上存的那一份（馬上顯示），同時在背景向伺服器拿新的，存起來給下次用。
+// 有新版本時，App 會比對 version.txt，通知這裡把檔案全部換新，再重新載入。
 // 只處理本站的檔案，Firebase 的資料請求完全不經過這裡。
-const CACHE = 'family-shell-v41';
+const CACHE = 'family-shell-v42';
 const SHELL = [
   './', 'index.html', 'css/app.css',
   'js/config.js', 'js/api.js', 'js/app.js', 'vendor/firebase.js',
   'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png'
 ];
 
+// cache: 'no-cache' = 一定向伺服器確認有沒有更新（GitHub Pages 的檔案否則會被瀏覽器留用約十分鐘）
+const fresh = (url) => fetch(url, { cache: 'no-cache', credentials: 'same-origin' });
+const refill = () => caches.open(CACHE).then((c) =>
+  Promise.all(SHELL.map((u) => fresh(u).then((res) => { if (!res.ok) throw new Error(u); return c.put(u, res); }))));
+
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(refill().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -22,19 +28,23 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   // version.txt 永遠直接問伺服器，不放進快取
-  if (new URL(req.url).pathname.endsWith('/version.txt')) return;
-  e.respondWith(
-    // cache: 'no-cache' 讓瀏覽器每次都向伺服器確認檔案有沒有更新，
-    // 否則 GitHub Pages 的檔案會被瀏覽器留用約十分鐘，更新後還是看到舊版
-    fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' })
-      .then((res) => {
-        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
-        return res;
-      })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match('index.html')))
-  );
+  if (url.pathname.endsWith('/version.txt')) return;
+  e.respondWith(caches.open(CACHE).then(async (cache) => {
+    const hit = await cache.match(req, { ignoreSearch: true });
+    const update = fresh(req.url).then((res) => { if (res.ok) cache.put(req, res.clone()); return res; });
+    if (hit) { e.waitUntil(update.catch(() => {})); return hit; }      // 有存：馬上給，背景更新
+    return update.catch(() => cache.match('index.html'));               // 沒存過：等網路
+  }));
+});
+
+// App 發現有新版本時會叫這裡把所有程式檔換新，換好後回報
+self.addEventListener('message', (e) => {
+  if (!e.data || e.data.type !== 'refresh') return;
+  const reply = (msg) => { if (e.ports && e.ports[0]) e.ports[0].postMessage(msg); };
+  e.waitUntil(refill().then(() => reply('done'), () => reply('failed')));
 });
 
 // ---------- 推播通知 ----------
