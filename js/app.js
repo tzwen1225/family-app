@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 20:10';
+  const VERSION = '2026-11-16 20:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -313,7 +313,7 @@
       Api.watchReplies((list) => { state.replies = list; refreshPosts(); }),
       Api.watchPresence((map) => {
         state.presence = map; refreshPresence();
-        if (state.tab === 'chat' && !state.chatSearch) refreshChat(false);     // 有人讀了訊息：更新「已讀」
+        if (state.tab === 'chat') refreshChat(false);     // 有人讀了訊息：更新「已讀」
       }),
       Api.watchList('subjects', (list) => {
         state.subjects = list.sort((a, b) => a.created_at - b.created_at);
@@ -702,7 +702,7 @@
     if (!list.length) return '<div class="empty big"><p>還沒有訊息。說聲嗨吧。</p></div>';
 
     let html = q ? `<p class="found">找到 ${list.length} 則</p>` : '';
-    const seen = q ? {} : readMarkers();
+    const pos = readPositions();
     let lastDay = '', lastSender = '';
     list.forEach((m) => {
       const day = ymd(new Date(m.sent_at));
@@ -722,13 +722,9 @@
       html += `
         <div class="msg ${mine ? 'mine' : ''}" style="--who:${esc(colorOf(m.sender))}">
           ${showName ? `<div class="msg-name">${esc(nameOf(m.sender))}</div>` : ''}
-          <div class="msg-row">${bubble}<time>${clock(m.sent_at)}</time></div>
+          <div class="msg-row">${bubble}<span class="msg-meta"><time>${clock(m.sent_at)}</time>${m.recalled ? '' : readersHtml(m, pos)}</span></div>
           ${state.menuMsg === m.id && canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回這則訊息</button>` : ''}
-        </div>
-        ${seen[m.id] ? `
-        <div class="seen" aria-label="${esc(seen[m.id].map((x) => x.display_name).join('、'))}已讀到這裡">
-          <span>已讀</span>${seen[m.id].map((x) => `<span class="avatar xs" style="background:${esc(x.color)}" title="${esc(x.display_name)}">${esc(x.display_name.slice(0, 1))}</span>`).join('')}
-        </div>` : ''}`;
+        </div>`;
       lastSender = m.sender;
     });
     return html;
@@ -766,20 +762,24 @@
   }
 
   // ---------- 已讀 ----------
-  // 每個人「讀到哪一則」= 他最後一次打開聊天室時的最新訊息，或他自己傳的最後一則（取較新的）。
-  // 回傳 { 訊息 id: [讀到這一則為止的成員…] }，畫面上在那一則下面顯示他們的小頭像。
-  function readMarkers() {
-    const out = {};
+  // 每個人「讀到哪個時間點」= 他最後一次打開聊天室時的最新訊息，或他自己傳的最後一則（取較新的）。
+  // 我自己正在看，所以全部算已讀。回傳 { UID: 時間點 }。
+  function readPositions() {
+    const pos = {};
     state.members.forEach((m) => {
-      if (m.id === state.userId) return;
+      if (m.id === state.userId) { pos[m.id] = Infinity; return; }
       const p = state.presence[m.id];
       let at = (p && p.read_at) || 0;
       state.messages.forEach((x) => { if (x.sender === m.id && x.sent_at > at) at = x.sent_at; });
-      let last = null;
-      for (const x of state.messages) { if (x.sent_at <= at) last = x; else break; }
-      if (last) (out[last.id] = out[last.id] || []).push(m);
+      pos[m.id] = at;
     });
-    return out;
+    return pos;
+  }
+  // 某一則訊息有誰讀過（不含傳送的人）。每一則訊息的時間下面都會列出來。
+  function readersHtml(m, pos) {
+    const who = state.members.filter((x) => x.id !== m.sender && pos[x.id] >= m.sent_at);
+    if (!who.length) return m.sender === state.userId ? '<span class="readers none">還沒有人讀</span>' : '';
+    return `<span class="readers" aria-label="已讀：${esc(who.map((x) => x.display_name).join('、'))}">已讀${who.map((x) => `<span class="avatar xs" style="background:${esc(x.color)}" title="${esc(x.display_name)}">${esc(x.display_name.slice(0, 1))}</span>`).join('')}</span>`;
   }
 
   function onMessages(list) {

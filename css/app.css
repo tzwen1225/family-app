@@ -473,10 +473,13 @@ button.bubble { text-align: left; font: inherit; }
 .todo-done.reply { background: var(--sheet); color: var(--green); border: 1px solid var(--green); }
 .todo-done:disabled { opacity: .5; }
 
-/* ---------- 聊天：已讀 ---------- */
-.seen { display: flex; justify-content: flex-end; align-items: center; gap: 3px; margin: 3px 2px 6px; font-size: 11px; color: var(--ink-2); }
-.seen span:first-child { margin-right: 2px; }
-.avatar.xs { width: 18px; height: 18px; font-size: 10px; font-weight: 700; }
+/* ---------- 聊天：每一則訊息的已讀紀錄（在時間下面） ---------- */
+.msg-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex: none; }
+.msg.mine .msg-meta { align-items: flex-end; }
+.readers { display: inline-flex; align-items: center; gap: 2px; font-size: 10px; color: var(--ink-2); line-height: 1; }
+.readers .avatar { margin-left: 1px; }
+.readers.none { opacity: .7; }
+.avatar.xs { width: 16px; height: 16px; font-size: 9px; font-weight: 700; }
 
 /* ---------- 聊天照片 ---------- */
 .attach { flex: none; width: 42px; height: 46px; margin: 0; display: grid; place-items: center; color: var(--ink-2); border-radius: 50%; }
