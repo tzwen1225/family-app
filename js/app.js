@@ -7,11 +7,11 @@
     family:   { label: '家庭活動', color: 'var(--c-family)' },
     other:    { label: '其他', color: 'var(--c-other)' },     // 不能再選；只用來顯示舊行程，和類型被刪掉的行程
     birthday: { label: '生日', color: 'var(--c-birthday)' },  // 由成員基本資料自動產生，不能手動新增
-    trip:     { label: '旅遊', color: 'var(--c-trip)' }        // 由金庫裡的家庭旅遊自動產生
+    trip:     { label: '旅遊', color: 'var(--c-trip)' }        // 由鍾家生活裡的家庭旅遊自動產生
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 23:55';
+  const VERSION = '2026-11-17 00:05';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -454,7 +454,7 @@
     send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M12.500 6l6 6-6 6"/></svg>',
     phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.500 4h3l1.500 4-2 1.500a11 11 0 0 0 5.500 5.500l1.500-2 4 1.500v3a2 2 0 0 1-2 2A15.500 15.500 0 0 1 4.500 6a2 2 0 0 1 2-2z"/></svg>'
   };
-  const TABS = [['cal', '首頁'], ['chat', '聊天'], ['posts', '我有話要說'], ['notes', '金庫'], ['me', '設定']];
+  const TABS = [['cal', '首頁'], ['chat', '聊天'], ['notes', '鍾家生活'], ['posts', '我有話要說'], ['me', '設定']];
   // 右下角的新增鈕在這個畫面要做什麼；沒有東西可新增時不顯示
   function fabLabel() {
     if (state.tab === 'cal') return '新增行程';
@@ -1390,7 +1390,7 @@
   }
 
   // ---------- 家庭旅遊 ----------
-  // 金庫 →「旅遊」。每趟旅程底下有四個分頁：行程（每天要去哪）、日誌（文字和照片）、行李（要帶的東西）、花費。
+  // 鍾家生活 →「旅遊」。每趟旅程底下有四個分頁：行程（每天要去哪）、日誌（文字和照片）、行李（要帶的東西）、花費。
   // 資料：trips = 旅程；trip_items = 旅程底下的每一筆，用 kind 區分 plan / journal / pack / cost。
   const tripOf = (id) => findById(state.trips, id);
   const itemsOf = (tripId, kind) => state.tripItems.filter((x) => x.trip_id === tripId && x.kind === kind);
@@ -1822,7 +1822,7 @@
   function viewNotes() {
     const b = (v, label) => `<button class="${state.notesView === v ? 'on' : ''}" data-act="notes-view" data-view="${v}" ${state.notesView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
     const views = { ledger: viewLedger, scores: viewScores, notes: viewTravel, shop: viewShop, cards: viewCards };
-    return `<div class="switcher five" role="group" aria-label="金庫的內容">${b('ledger', '零用錢')}${b('scores', '成績')}${b('notes', '旅遊')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
+    return `<div class="switcher five" role="group" aria-label="鍾家生活的內容">${b('ledger', '零用錢')}${b('scores', '成績')}${b('notes', '旅遊')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
       + (views[state.notesView] || viewLedger)();
   }
 
