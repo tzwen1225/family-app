@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 17:55';
+  const VERSION = '2026-11-16 18:05';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1104,6 +1104,7 @@
   const pct = (sc) => Math.round(sc.score / sc.full * 100);
   // 成績依「年級＋學期」分開：國中一到三年級，各有上、下學期
   const TERMS = ['國一上', '國一下', '國二上', '國二下', '國三上', '國三下'];
+  const GRADES = ['國一', '國二', '國三'];          // 學期 = 年級 + 上／下，例如「國二上」
   const TERM_KEY = 'family-score-term';
   function setScoreTerm(term) {
     state.scoreTerm = term;
@@ -1126,10 +1127,20 @@
     const mineAll = state.scores.filter((x) => x.kid === kidId).sort((a, b) => b.date.localeCompare(a.date));
     if (state.scoreTerm && !TERMS.includes(state.scoreTerm)) state.scoreTerm = '';
     const all = state.scoreTerm ? mineAll.filter((x) => x.term === state.scoreTerm) : mineAll;
+    // 學期選擇：三個年級並排，每個年級下面是「上｜下」一組；最左邊是「全部」
     const termBar = `
-      <div class="terms" role="group" aria-label="選擇學期">
-        <button class="${state.scoreTerm ? '' : 'on'}" data-act="score-term" data-term="" ${state.scoreTerm ? '' : 'aria-pressed="true"'}>全部</button>
-        ${TERMS.map((t) => `<button class="${state.scoreTerm === t ? 'on' : ''} ${mineAll.some((x) => x.term === t) ? 'has' : ''}" data-act="score-term" data-term="${t}" ${state.scoreTerm === t ? 'aria-pressed="true"' : ''}>${t}</button>`).join('')}
+      <div class="termgrid" role="group" aria-label="選擇年級與學期">
+        <button class="term-all ${state.scoreTerm ? '' : 'on'}" data-act="score-term" data-term="" ${state.scoreTerm ? '' : 'aria-pressed="true"'}>全部</button>
+        ${GRADES.map((g) => `
+          <div class="grade ${state.scoreTerm.startsWith(g) ? 'on' : ''}">
+            <span class="grade-name">${g}</span>
+            <span class="pair">
+              ${['上', '下'].map((h) => {
+                const t = g + h;
+                return `<button class="${state.scoreTerm === t ? 'on' : ''} ${mineAll.some((x) => x.term === t) ? 'has' : ''}" data-act="score-term" data-term="${t}" aria-label="${g}${h}學期${mineAll.some((x) => x.term === t) ? '，有紀錄' : ''}" ${state.scoreTerm === t ? 'aria-pressed="true"' : ''}>${h}</button>`;
+              }).join('')}
+            </span>
+          </div>`).join('')}
       </div>`;
 
     const picker = !amChild() && list.length > 1 ? `
@@ -1190,10 +1201,17 @@
       body: `
       <input type="hidden" name="item_id" value="${esc(x.id || '')}">
       <input type="hidden" name="kid" value="${esc(kid.id)}">
-      <fieldset class="seg terms-pick">
+      <fieldset class="terms-pick">
         <legend>年級與學期</legend>
-        ${TERMS.map((t) => `
-          <label style="--cat:var(--ink)"><input type="radio" name="term" value="${t}" ${x.term === t ? 'checked' : ''}><span>${t}</span></label>`).join('')}
+        <div class="termgrid in-form">
+          ${GRADES.map((g) => `
+            <div class="grade">
+              <span class="grade-name">${g}</span>
+              <span class="pair">
+                ${['上', '下'].map((h) => `<label><input type="radio" name="term" value="${g + h}" aria-label="${g}${h}學期" ${x.term === g + h ? 'checked' : ''}><span>${h}</span></label>`).join('')}
+              </span>
+            </div>`).join('')}
+        </div>
       </fieldset>
       <fieldset class="seg">
         <legend>科目</legend>
