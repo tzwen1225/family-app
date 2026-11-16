@@ -2,15 +2,15 @@
   'use strict';
 
   const CATEGORIES = {
-    schedule: { label: '行程', color: 'var(--c-schedule)' },
+    schedule: { label: '補習', color: 'var(--c-schedule)' },
     exam:     { label: '考試', color: 'var(--c-exam)' },
     family:   { label: '家庭活動', color: 'var(--c-family)' },
-    other:    { label: '其他', color: 'var(--c-other)' },
+    other:    { label: '其他', color: 'var(--c-other)' },     // 不能再選；只用來顯示舊行程，和類型被刪掉的行程
     birthday: { label: '生日', color: 'var(--c-birthday)' }   // 由成員基本資料自動產生，不能手動新增
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 15:10';
+  const VERSION = '2026-11-16 15:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -34,7 +34,7 @@
     const paper = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim();
     if (meta && paper) meta.setAttribute('content', paper);
   }
-  const EVENT_CATS = ['schedule', 'exam', 'family', 'other'];   // 內建類型，不能刪除
+  const EVENT_CATS = ['schedule', 'exam', 'family'];   // 內建類型（補習、考試、家庭活動），不能刪除
   // 自訂類型可以選的顏色
   const CAT_COLORS = ['#2F6FDE', '#0E7C86', '#1F8A5F', '#5B6B2A', '#B8860B', '#E67E00', '#D4282C', '#C2478B', '#8A4FD0', '#7A847F'];
   const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
@@ -1089,6 +1089,8 @@
     };
     const allDay = !e.start_time;
     if (!eventCatIds().includes(e.category)) e.category = 'other';
+    // 舊行程如果是「其他」，編輯時保留這個選項，不強迫改類型
+    const catChoices = eventCatIds().concat(ev && e.category === 'other' ? ['other'] : []);
     showSheet('event-form', {
       title: ev ? '編輯' : '新增', focus: !ev,
       body: `
@@ -1097,7 +1099,7 @@
 
       <fieldset class="seg">
         <legend>類型</legend>
-        ${eventCatIds().map((k) => `
+        ${catChoices.map((k) => `
           <label style="--cat:${esc(catOf(k).color)}">
             <input type="radio" name="category" value="${k}" ${e.category === k ? 'checked' : ''}>
             <span>${esc(catOf(k).label)}</span>

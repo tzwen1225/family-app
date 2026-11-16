@@ -1,7 +1,7 @@
 // 資料存取層。App 只呼叫 Api.xxx，不直接碰 Firebase。
 //
 // 行事曆 event：{ id, title, category, event_date, end_date, start_time, end_time, member_ids, note }
-//   category: 'schedule' 行程 | 'exam' 考試 | 'family' 家庭活動 | 'other' 其他，或自訂類型的 id
+//   category: 'schedule' 補習 | 'exam' 考試 | 'family' 家庭活動，或自訂類型的 id（'other' 其他：只有舊資料會有）
 // 自訂類型 category：{ id, label, color, created_at }（只有家長能新增、刪除）
 //   日期 'YYYY-MM-DD'，時間 'HH:MM' 或 null（全天）；member_ids 空陣列代表「全家」
 //   created_by 是新增的人：行程全家都看得到，但只有新增的人可以修改或刪除
@@ -240,11 +240,11 @@
     const seed = () => ({
       user: null,
       events: [
-        { id: 's1', title: '鋼琴課', category: 'schedule', event_date: day(0), end_date: day(0), start_time: '18:30', end_time: '19:30', member_ids: ['m3'], note: null },
+        { id: 's1', title: '數學補習', category: 'schedule', event_date: day(0), end_date: day(0), start_time: '18:30', end_time: '19:30', member_ids: ['m3'], note: null },
         { id: 's2', title: '數學段考', category: 'exam', event_date: day(5), end_date: day(6), start_time: null, end_time: null, member_ids: ['m3'], note: '範圍：第三、四章' },
         { id: 's3', title: '阿嬤家吃飯', category: 'family', event_date: day(2), end_date: day(2), start_time: '12:00', end_time: null, member_ids: [], note: '記得帶水果', created_by: 'm2' },
         { id: 's4', title: '英文單字小考', category: 'exam', event_date: day(3), end_date: day(3), start_time: null, end_time: null, member_ids: ['m4'], note: 'Unit 5' },
-        { id: 's5', title: '牙醫回診', category: 'schedule', event_date: day(9), end_date: day(9), start_time: '16:00', end_time: null, member_ids: ['m2', 'm4'], note: null }
+        { id: 's5', title: '牙醫回診', category: 'other', event_date: day(9), end_date: day(9), start_time: '16:00', end_time: null, member_ids: ['m2', 'm4'], note: null }
       ],
       notes: [
         { id: 'n1', title: 'Wi-Fi 密碼', body: '客廳：home-5G\n密碼寫在冰箱上的便條', pinned: true, updated_at: ago(60 * 30), updated_by: 'm1' },
