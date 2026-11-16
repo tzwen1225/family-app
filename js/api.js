@@ -190,7 +190,7 @@
   function demoApi() {
     const KEY = 'family-demo-v1';
     const members = [
-      { id: 'm1', display_name: '爸爸', color: '#2F6FDE', sort: 1 },
+      { id: 'm1', display_name: '爸爸', color: '#2F6FDE', sort: 1, admin: true },
       { id: 'm2', display_name: '媽媽', color: '#C2478B', sort: 2 },
       { id: 'm3', display_name: '姊姊', color: '#E67E00', sort: 3 },
       { id: 'm4', display_name: '弟弟', color: '#1F8A5F', sort: 4 }

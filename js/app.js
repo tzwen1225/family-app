@@ -73,6 +73,9 @@
   }
 
   const me = () => state.members.find((m) => m.id === state.userId);
+  // 管理員：members 文件裡有 admin: true 的人，可以編輯所有人的基本資料；其他人只能改自己的
+  const isAdmin = () => { const m = me(); return !!(m && m.admin === true); };
+  const canEditProfile = (id) => id === state.userId || isAdmin();
   const member = (id) => state.members.find((m) => m.id === id);
   const nameOf = (id) => { const m = member(id); return m ? m.display_name : '已離開的成員'; };
   const colorOf = (id) => { const m = member(id); return m ? m.color : '#7A847F'; };
@@ -543,7 +546,11 @@
       <div class="chat" id="chat-list" aria-live="polite">${chatListHtml()}</div>`;
   }
 
-  function scrollChat() { const s = scroller(); if (s) s.scrollTop = s.scrollHeight; }
+  // 捲到最新一則。畫面高度可能還在變（鍵盤彈出、新訊息剛畫上去），所以隔一下再補捲兩次。
+  function scrollChat() {
+    const go = () => { const s = scroller(); if (s && state.tab === 'chat' && !state.chatSearch) s.scrollTop = s.scrollHeight; };
+    go(); requestAnimationFrame(go); setTimeout(go, 150); setTimeout(go, 400);
+  }
 
   function refreshChat(toBottom) {
     const el = document.getElementById('chat-list');
@@ -576,7 +583,8 @@
     if (!text) return;
     input.value = ''; state.draft = '';
     input.focus();
-    try { await Api.sendMessage(text); }
+    scrollChat();
+    try { await Api.sendMessage(text); scrollChat(); }
     catch (e) {
       console.error(e);
       state.draft = text; input.value = text;
@@ -725,20 +733,20 @@
     return `
       <header class="plain-head"><h1>設定</h1><p>${esc(me().display_name)}已登入</p></header>
       <section class="card-list">
-        <h2>家庭成員<small>點名字可以編輯基本資料</small></h2>
+        <h2>家庭成員<small>${isAdmin() ? '點名字可以編輯基本資料' : '點自己的名字可以編輯基本資料'}</small></h2>
         ${state.members.map((m) => {
           const p = state.profiles[m.id] || {};
           const facts = [p.birthday ? '生日 ' + birthdayText(p.birthday) : '', p.phone, p.org].filter(Boolean);
           return `
             <div class="member">
-              <button class="member-main" data-act="edit-profile" data-id="${esc(m.id)}">
+              <${canEditProfile(m.id) ? `button data-act="edit-profile" data-id="${esc(m.id)}"` : 'div'} class="member-main">
                 ${avatarHtml(m)}
                 <span class="member-text">
-                  <span class="member-name">${esc(m.display_name)}${m.id === state.userId ? '<em>這是你</em>' : ''}</span>
+                  <span class="member-name">${esc(m.display_name)}${m.id === state.userId ? '<em>這是你</em>' : ''}${m.admin === true ? '<em>管理員</em>' : ''}</span>
                   <span class="member-sub">${facts.length ? esc(facts.join('　')) : '還沒填基本資料'}</span>
                   <span class="member-status ${isOnline(m.id) ? 'on' : ''}">${statusText(m.id)}</span>
                 </span>
-              </button>
+              </${canEditProfile(m.id) ? 'button' : 'div'}>
               ${p.phone ? `<a class="call" href="${esc(telHref(p.phone))}" aria-label="撥打給${esc(m.display_name)}">${ICON.phone}</a>` : ''}
             </div>`;
         }).join('')}
@@ -1077,7 +1085,7 @@
     }
     else if (act === 'skip-day') onSkipDay(el);
     else if (act === 'edit-note') { const n = findById(state.notes, el.dataset.id); if (n) openNoteSheet(n); }
-    else if (act === 'edit-profile') openProfileSheet(el.dataset.id);
+    else if (act === 'edit-profile') { if (canEditProfile(el.dataset.id)) openProfileSheet(el.dataset.id); }
     else if (act === 'chat-search') {
       state.chatSearch = !state.chatSearch;
       state.chatQuery = ''; state.menuMsg = null;
@@ -1169,7 +1177,10 @@
       const h = height();
       if (h > full) full = h;
       const open = typing() && full - h > 120;
+      const changed = open !== document.body.classList.contains('kb-open');
       document.body.classList.toggle('kb-open', open);
+      // 鍵盤彈出或收起時畫面高度變了，聊天室要重新貼到最新一則
+      if (changed) setTimeout(scrollChat, 0);
       if (open) root.style.setProperty('--vh', h + 'px'); else root.style.removeProperty('--vh');
       // 鍵盤收起後，把被系統推上去的頁面拉回原位
       if (window.scrollX || window.scrollY) window.scrollTo(0, 0);

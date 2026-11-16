@@ -14,6 +14,10 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/members/$(request.auth.uid));
     }
 
+    function isAdmin() {
+      return get(/databases/$(database)/documents/members/$(request.auth.uid)).data.get('admin', false) == true;
+    }
+
     function validEvent() {
       let d = request.resource.data;
       return d.title is string && d.title.size() >= 1 && d.title.size() <= 80
@@ -115,11 +119,13 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // 成員基本資料：家人可以互相編輯，但只能建立在現有成員名下
+    // 成員基本資料：每個人只能改自己的；管理員可以改所有人的。
+    // 管理員 = members 文件裡有 admin: true 的成員（只能在 Firebase 後台設定）。
     match /profiles/{uid} {
       allow read: if isFamily();
       allow write: if isFamily()
-        && exists(/databases/$(database)/documents/members/$(uid));
+        && exists(/databases/$(database)/documents/members/$(uid))
+        && (uid == request.auth.uid || isAdmin());
     }
 
     // 推播用的裝置代碼：只能登記在自己名下，App 讀不到（只有伺服器端程式會讀）
