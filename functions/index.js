@@ -39,6 +39,7 @@ async function notify(uids, title, body, tag) {
   const result = await getMessaging().sendEachForMulticast({
     tokens: snap.docs.map((d) => d.id),
     notification: { title, body },
+    // 手機點通知後要開哪一頁，由 sw.js 依 tag 決定（chat → 聊天，post-… → 我有話要說）
     data: { title, body, tag, url: APP_URL },
     webpush: {
       headers: { Urgency: 'high', TTL: '86400' },

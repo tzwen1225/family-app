@@ -1,7 +1,7 @@
 // 讓 App 在沒有網路時也能打開畫面。
 // 策略：優先走網路（確保拿到最新版程式），失敗才用快取。
 // 只處理本站的檔案，Firebase 的資料請求完全不經過這裡。
-const CACHE = 'family-shell-v12';
+const CACHE = 'family-shell-v13';
 const SHELL = [
   './', 'index.html', 'css/app.css',
   'js/config.js', 'js/api.js', 'js/app.js', 'vendor/firebase.js',
@@ -40,6 +40,9 @@ self.addEventListener('fetch', (e) => {
 // ---------- 推播通知 ----------
 // 伺服器（functions/index.js）送來的通知會在這裡收到，即使 App 沒有開著。
 // 每一則都一定要顯示出來：iPhone 對「收到卻不顯示」的推播會取消訂閱。
+// 通知要帶使用者去哪一頁：聊天訊息 → 聊天；「我有話要說」的點名與回覆 → 我有話要說
+const tabFor = (tag) => (String(tag || '').startsWith('post') ? 'posts' : 'chat');
+
 self.addEventListener('push', (e) => {
   let payload = {};
   try { payload = e.data ? e.data.json() : {}; } catch (err) { /* 不是 JSON 就用預設文字 */ }
@@ -50,18 +53,20 @@ self.addEventListener('push', (e) => {
     body: n.body || d.body || '有新的訊息',
     icon: 'icons/icon-192.png',
     tag: d.tag || undefined,
-    data: { url: d.url || self.registration.scope }
+    data: { tab: tabFor(d.tag) }
   }));
 });
 
-// 點通知：App 已經開著就切過去，否則開啟 App
+// 點通知：App 已經開著就切過去並跳到對應的分頁；沒開就直接開在那個分頁
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const url = (e.notification.data && e.notification.data.url) || self.registration.scope;
+  const tab = (e.notification.data && e.notification.data.tab) || 'chat';
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       const open = list.find((c) => c.url.startsWith(self.registration.scope));
-      return open ? open.focus() : self.clients.openWindow(url);
+      if (!open) return self.clients.openWindow(self.registration.scope + '#' + tab);
+      open.postMessage({ type: 'open-tab', tab });
+      return open.focus();
     })
   );
 });

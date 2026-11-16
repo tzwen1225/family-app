@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 13:35';
+  const VERSION = '2026-11-16 13:45';
   const EVENT_CATS = ['schedule', 'exam', 'family', 'other'];
   const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
   const READ_KEY = 'family-chat-read';
@@ -1216,6 +1216,34 @@
     document.addEventListener('visibilitychange', settle);
     apply();
   })();
+
+  // ---------- 從通知進來 ----------
+  // 點了手機上的通知後，直接跳到對應的分頁（聊天，或我有話要說）。
+  // App 沒開著時，分頁名稱放在網址的 # 後面；App 開著時，由 service worker 傳訊息過來。
+  function goTab(tab) {
+    if (!TABS.some(([id]) => id === tab)) return;
+    state.tab = tab;
+    state.chatSearch = false; state.chatQuery = ''; state.menuMsg = null;
+    if (!state.userId) return;            // 還沒登入：登入後會直接顯示這個分頁
+    closeSheet();
+    if (tab === 'chat') markRead();
+    render();
+    loadTab();
+    if (tab === 'chat') scrollChat();
+  }
+  function tabFromHash() {
+    const tab = location.hash.slice(1);
+    if (!tab) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    goTab(tab);
+  }
+  tabFromHash();
+  window.addEventListener('hashchange', tabFromHash);
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (ev) => {
+      if (ev.data && ev.data.type === 'open-tab') goTab(ev.data.tab);
+    });
+  }
 
   // ---------- 自動更新 ----------
   // 比對伺服器上的 version.txt；有新版而且沒有正在打字或編輯時，自動重新載入。
