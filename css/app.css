@@ -191,13 +191,18 @@ textarea { resize: vertical; }
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
   height: calc(var(--tabbar) + var(--safe-b)); padding-bottom: var(--safe-b);
-  display: grid; grid-template-columns: repeat(3, 1fr);
+  display: grid; grid-template-columns: repeat(5, 1fr);
   background: rgba(255, 255, 255, .94); border-top: 1px solid var(--line);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
 }
 .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; color: var(--ink-2); }
 .tab svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .tab.on { color: var(--red); font-weight: 700; }
+.tab { position: relative; }
+.tab.unread::after {
+  content: ""; position: absolute; top: 8px; left: calc(50% + 8px);
+  width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px #fff;
+}
 
 .fab {
   position: fixed; z-index: 6; right: max(16px, calc(50vw - 244px));
@@ -263,6 +268,77 @@ legend small { margin-left: 8px; font-size: 12px; }
   transition: opacity .2s, transform .2s; white-space: nowrap;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- 月曆／近期切換 ---------- */
+.switcher {
+  display: grid; grid-template-columns: 1fr 1fr; padding: 3px; margin-bottom: 10px;
+  background: #E7ECE6; border-radius: 12px;
+}
+.switcher button { min-height: 34px; border-radius: 9px; font-size: 14px; color: var(--ink-2); }
+.switcher button.on { background: var(--sheet); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(23, 35, 31, .12); }
+
+/* ---------- 聊天 ---------- */
+.screen.chat-screen { padding-bottom: calc(var(--tabbar) + var(--safe-b) + 76px); }
+.chat { padding-top: 6px; }
+.chat-day { text-align: center; font-size: 12px; color: var(--ink-2); margin: 16px 0 8px; }
+.msg { margin-top: 4px; display: flex; flex-direction: column; align-items: flex-start; }
+.msg.mine { align-items: flex-end; }
+.msg-name { font-size: 12px; font-weight: 600; color: var(--who); margin: 10px 0 2px 12px; }
+.msg-row { display: flex; align-items: flex-end; gap: 6px; max-width: 86%; }
+.msg.mine .msg-row { flex-direction: row-reverse; }
+.bubble {
+  padding: 9px 13px; border-radius: 18px; background: var(--sheet);
+  border-left: 3px solid var(--who);
+  white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0;
+}
+.msg.mine .bubble { background: var(--green); color: #fff; border-left: 0; }
+.msg time { font: 400 11px/1.8 var(--num); color: var(--ink-2); flex: none; }
+
+.chat-bar {
+  position: fixed; z-index: 7; left: 0; right: 0; bottom: calc(var(--tabbar) + var(--safe-b));
+  display: flex; gap: 8px; align-items: center; padding: 8px 12px;
+  background: rgba(246, 248, 244, .96); border-top: 1px solid var(--line);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.chat-bar input { margin: 0; border-radius: 99px; padding: 11px 16px; }
+.send {
+  flex: none; width: 46px; height: 46px; border-radius: 50%; background: var(--green);
+  display: grid; place-items: center;
+}
+.send svg { width: 22px; height: 22px; fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+body.kb-open .tabbar { display: none; }
+body.kb-open .chat-bar { bottom: var(--kb, 0px); }
+
+/* ---------- 雜記 ---------- */
+.notes { display: grid; gap: 10px; margin-top: 12px; }
+.note {
+  display: block; width: 100%; text-align: left; padding: 14px 16px; border-radius: 16px;
+  background: var(--sheet); border-left: 5px solid var(--line);
+}
+.note.pinned { border-left-color: var(--red); }
+.note:active { background: #FBFCFA; }
+.pin { float: right; font-size: 12px; color: var(--red); font-weight: 600; margin-left: 8px; }
+.note-title { display: block; font-weight: 700; overflow-wrap: anywhere; }
+.note-body {
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); font-size: 15px; margin-top: 4px;
+}
+.note-meta { display: block; font-size: 12px; color: var(--ink-2); margin-top: 8px; }
+
+/* ---------- 通訊錄 ---------- */
+.search { margin: 10px 0 0; border-radius: 12px; }
+.contact-group { margin-top: 16px; background: var(--sheet); border-radius: 16px; padding: 4px 6px 4px 16px; }
+.contact-group h2 { font-size: 13px; font-weight: 500; color: var(--ink-2); padding: 10px 0 2px; }
+.contact { display: flex; align-items: center; gap: 8px; }
+.contact + .contact { border-top: 1px solid var(--line); }
+.contact-main { flex: 1; min-width: 0; text-align: left; padding: 11px 0; }
+.contact-name { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.contact-sub { display: block; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.call {
+  flex: none; width: 44px; height: 44px; border-radius: 50%; background: #E6F0EA;
+  display: grid; place-items: center;
+}
+.call svg { width: 20px; height: 20px; fill: none; stroke: var(--green); stroke-width: 1.8; stroke-linejoin: round; }
 
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { transform: translateY(40%); opacity: 0; } }

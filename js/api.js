@@ -1,17 +1,18 @@
-// 資料存取層。App 只呼叫 Api.xxx，不直接碰 Firebase，
-// 之後要加雜記、通訊錄、聊天室時，在這裡照樣增加函式即可。
+// 資料存取層。App 只呼叫 Api.xxx，不直接碰 Firebase。
 //
-// 事件資料格式：
-// { id, title, category, event_date, end_date, start_time, end_time, member_ids, note }
+// 行事曆 event：{ id, title, category, event_date, end_date, start_time, end_time, member_ids, note }
 //   category: 'schedule' 行程 | 'exam' 考試 | 'family' 家庭活動 | 'other' 其他
-//   日期為 'YYYY-MM-DD'，時間為 'HH:MM' 或 null（全天）
-//   member_ids 為空陣列代表「全家」
+//   日期 'YYYY-MM-DD'，時間 'HH:MM' 或 null（全天）；member_ids 空陣列代表「全家」
+// 雜記 note：    { id, title, body, pinned, updated_at, updated_by }
+// 通訊錄 contact：{ id, name, group, phone, address, note }
+// 訊息 message： { id, text, sender, sent_at }
+//   updated_at、sent_at 是毫秒時間戳（Date.now()）
 
 (function () {
   const cfg = window.FAMILY_CONFIG || {};
   const isDemo = !(cfg.firebase && cfg.firebase.apiKey);
 
-  const clean = (ev) => ({
+  const cleanEvent = (ev) => ({
     title: ev.title,
     category: ev.category,
     event_date: ev.event_date,
@@ -21,20 +22,43 @@
     member_ids: ev.member_ids || [],
     note: ev.note || null
   });
+  const cleanNote = (n, uid) => ({
+    title: n.title || '', body: n.body || '', pinned: !!n.pinned,
+    updated_at: Date.now(), updated_by: uid
+  });
+  const cleanContact = (c) => ({
+    name: c.name, group: c.group || '其他', phone: c.phone || '',
+    address: c.address || '', note: c.note || ''
+  });
+  const byTime = (a, b) =>
+    (a.event_date + (a.start_time || '')).localeCompare(b.event_date + (b.start_time || ''));
+  const notesOrder = (a, b) => (b.pinned - a.pinned) || (b.updated_at - a.updated_at);
+  const byName = (a, b) => a.name.localeCompare(b.name, 'zh-Hant');
 
   // ---------- Firebase（Authentication + Firestore） ----------
-  // 資料結構：
-  //   members/{使用者 UID}  → { display_name, color, sort }
-  //   events/{自動 ID}      → 事件欄位 + created_by, created_at
+  // 集合：members/{UID}、events、notes、contacts、messages
   function firebaseApi() {
     const F = window.FirebaseSDK;
     const app = F.initializeApp(cfg.firebase);
     const auth = F.getAuth(app);
     const db = F.getFirestore(app);
-    const events = F.collection(db, 'events');
+    const col = (name) => F.collection(db, name);
     const row = (d) => ({ id: d.id, ...d.data() });
-    const byTime = (a, b) =>
-      (a.event_date + (a.start_time || '')).localeCompare(b.event_date + (b.start_time || ''));
+    const uid = () => auth.currentUser.uid;
+
+    async function list(name, ...constraints) {
+      const snap = await F.getDocs(F.query(col(name), ...constraints));
+      return snap.docs.map(row);
+    }
+    async function save(name, id, data) {
+      if (id) {
+        await F.updateDoc(F.doc(db, name, id), data);
+        return { id, ...data };
+      }
+      const ref = await F.addDoc(col(name), { ...data, created_by: uid(), created_at: F.serverTimestamp() });
+      return { id: ref.id, ...data };
+    }
+    const remove = (name, id) => F.deleteDoc(F.doc(db, name, id));
 
     return {
       isDemo: false,
@@ -49,40 +73,50 @@
       async signOut() { await F.signOut(auth); },
       async listMembers() {
         try {
-          const snap = await F.getDocs(F.query(F.collection(db, 'members'), F.orderBy('sort')));
-          return snap.docs.map(row);
+          return await list('members', F.orderBy('sort'));
         } catch (e) {
           // 不在成員名單裡的帳號會被安全規則擋下
           if (e && e.code === 'permission-denied') return [];
           throw e;
         }
       },
+
       // 只用 end_date 一個條件查詢（不需要另外建立索引），開始日期在這裡過濾
       async listEvents(from, to) {
-        const snap = await F.getDocs(F.query(events, F.where('end_date', '>=', from), F.orderBy('end_date')));
-        return snap.docs.map(row).filter((e) => e.event_date <= to).sort(byTime);
+        const rows = await list('events', F.where('end_date', '>=', from), F.orderBy('end_date'));
+        return rows.filter((e) => e.event_date <= to).sort(byTime);
       },
-      async saveEvent(ev) {
-        const data = clean(ev);
-        if (ev.id) {
-          await F.updateDoc(F.doc(db, 'events', ev.id), data);
-          return { id: ev.id, ...data };
-        }
-        const ref = await F.addDoc(events, {
-          ...data, created_by: auth.currentUser.uid, created_at: F.serverTimestamp()
-        });
-        return { id: ref.id, ...data };
-      },
-      async deleteEvent(id) { await F.deleteDoc(F.doc(db, 'events', id)); },
-      // 登入後呼叫：家人新增或修改時通知畫面重新讀取。回傳停止監聽的函式。
+      saveEvent: (ev) => save('events', ev.id, cleanEvent(ev)),
+      deleteEvent: (id) => remove('events', id),
+      // 家人新增或修改行程時通知畫面重新讀取。回傳停止監聽的函式。
       watchEvents(cb) {
         const d = new Date(); d.setDate(d.getDate() - 45);
         const since = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
         let first = true;
         return F.onSnapshot(
-          F.query(events, F.where('end_date', '>=', since)),
+          F.query(col('events'), F.where('end_date', '>=', since)),
           () => { if (first) { first = false; return; } cb(); },
-          (err) => console.warn('即時同步中斷', err)
+          (err) => console.warn('行事曆即時同步中斷', err)
+        );
+      },
+
+      async listNotes() { return (await list('notes')).sort(notesOrder); },
+      saveNote: (n) => save('notes', n.id, cleanNote(n, uid())),
+      deleteNote: (id) => remove('notes', id),
+
+      async listContacts() { return (await list('contacts')).sort(byName); },
+      saveContact: (c) => save('contacts', c.id, cleanContact(c)),
+      deleteContact: (id) => remove('contacts', id),
+
+      async sendMessage(text) {
+        await F.addDoc(col('messages'), { text, sender: uid(), sent_at: Date.now() });
+      },
+      // 每次有新訊息就把最近 200 則整份交給 cb。回傳停止監聽的函式。
+      watchMessages(cb) {
+        return F.onSnapshot(
+          F.query(col('messages'), F.orderBy('sent_at'), F.limitToLast(200)),
+          (snap) => cb(snap.docs.map(row)),
+          (err) => console.warn('聊天室即時同步中斷', err)
         );
       }
     };
@@ -101,6 +135,7 @@
       const d = new Date(); d.setDate(d.getDate() + offset);
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     };
+    const ago = (min) => Date.now() - min * 60000;
     const seed = () => ({
       user: null,
       events: [
@@ -109,42 +144,74 @@
         { id: 's3', title: '阿嬤家吃飯', category: 'family', event_date: day(2), end_date: day(2), start_time: '12:00', end_time: null, member_ids: [], note: null },
         { id: 's4', title: '英文單字小考', category: 'exam', event_date: day(3), end_date: day(3), start_time: null, end_time: null, member_ids: ['m4'], note: 'Unit 5' },
         { id: 's5', title: '牙醫回診', category: 'schedule', event_date: day(9), end_date: day(9), start_time: '16:00', end_time: null, member_ids: ['m2', 'm4'], note: null }
+      ],
+      notes: [
+        { id: 'n1', title: 'Wi-Fi 密碼', body: '客廳：home-5G\n密碼寫在冰箱上的便條', pinned: true, updated_at: ago(60 * 30), updated_by: 'm1' },
+        { id: 'n2', title: '週末採買', body: '牛奶、雞蛋、吐司\n洗衣精\n弟弟的美術用品', pinned: false, updated_at: ago(90), updated_by: 'm2' }
+      ],
+      contacts: [
+        { id: 'c1', name: '阿嬤', group: '親戚', phone: '02-2345-6789', address: '', note: '' },
+        { id: 'c2', name: '王老師（姊姊導師）', group: '學校', phone: '0912-345-678', address: '', note: '晚上八點前可聯絡' },
+        { id: 'c3', name: '陳牙醫診所', group: '醫療', phone: '02-8765-4321', address: '中山路 100 號', note: '週日休診' }
+      ],
+      messages: [
+        { id: 'g1', text: '今天晚餐吃什麼？', sender: 'm3', sent_at: ago(42) },
+        { id: 'g2', text: '咖哩飯，六點半開飯', sender: 'm2', sent_at: ago(40) },
+        { id: 'g3', text: '我鋼琴課下課會晚一點', sender: 'm3', sent_at: ago(38) }
       ]
     });
     let mem = null;
     const load = () => {
       if (mem) return mem;
       try { mem = JSON.parse(localStorage.getItem(KEY)); } catch (e) { /* 無法使用儲存空間時只留在記憶體 */ }
-      if (!mem) mem = seed();
+      const fresh = seed();
+      if (!mem) mem = fresh;
+      ['notes', 'contacts', 'messages'].forEach((k) => { if (!mem[k]) mem[k] = fresh[k]; });
       return mem;
     };
-    const save = () => { try { localStorage.setItem(KEY, JSON.stringify(mem)); } catch (e) { /* 同上 */ } };
+    const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(mem)); } catch (e) { /* 同上 */ } };
+    const upsert = (key, id, data, prefix) => {
+      const db = load();
+      const item = { ...data, id: id || prefix + Date.now() };
+      const i = db[key].findIndex((x) => x.id === item.id);
+      if (i >= 0) db[key][i] = item; else db[key].push(item);
+      persist();
+      return item;
+    };
+    const drop = (key, id) => { const db = load(); db[key] = db[key].filter((x) => x.id !== id); persist(); };
+    const listeners = [];
 
     return {
       isDemo: true,
       async currentUserId() { return load().user; },
-      async signIn() { load().user = 'm1'; save(); return 'm1'; },
-      async signOut() { load().user = null; save(); },
+      async signIn() { load().user = 'm1'; persist(); return 'm1'; },
+      async signOut() { load().user = null; persist(); },
       async listMembers() { return members; },
+
       async listEvents(from, to) {
-        return load().events
-          .filter((e) => e.event_date <= to && e.end_date >= from)
-          .sort((a, b) => (a.event_date + (a.start_time || '')).localeCompare(b.event_date + (b.start_time || '')));
+        return load().events.filter((e) => e.event_date <= to && e.end_date >= from).sort(byTime);
       },
-      async saveEvent(ev) {
-        const db = load();
-        const row = { ...clean(ev), id: ev.id || 'e' + Date.now() };
-        const i = db.events.findIndex((e) => e.id === row.id);
-        if (i >= 0) db.events[i] = row; else db.events.push(row);
-        save();
-        return row;
+      async saveEvent(ev) { return upsert('events', ev.id, cleanEvent(ev), 'e'); },
+      async deleteEvent(id) { drop('events', id); },
+      watchEvents() { return function () {}; },
+
+      async listNotes() { return load().notes.slice().sort(notesOrder); },
+      async saveNote(n) { return upsert('notes', n.id, cleanNote(n, load().user), 'n'); },
+      async deleteNote(id) { drop('notes', id); },
+
+      async listContacts() { return load().contacts.slice().sort(byName); },
+      async saveContact(c) { return upsert('contacts', c.id, cleanContact(c), 'c'); },
+      async deleteContact(id) { drop('contacts', id); },
+
+      async sendMessage(text) {
+        upsert('messages', null, { text, sender: load().user, sent_at: Date.now() }, 'g');
+        listeners.forEach((cb) => cb(load().messages.slice()));
       },
-      async deleteEvent(id) {
-        const db = load();
-        db.events = db.events.filter((e) => e.id !== id);
-        save();
-      },
-      watchEvents() { return function () {}; }
+      watchMessages(cb) {
+        listeners.push(cb);
+        setTimeout(() => cb(load().messages.slice()), 0);
+        return () => { const i = listeners.indexOf(cb); if (i >= 0) listeners.splice(i, 1); };
+      }
     };
   }
 

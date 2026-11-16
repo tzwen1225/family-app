@@ -4,7 +4,7 @@ rules_version = '2';
 // 用法：Firebase 後台 → Firestore Database → 規則 → 整份貼上 → 發布
 //
 // 只有 UID 出現在 members 集合裡的帳號才能讀寫，
-// 其他人即使登入（或自己註冊了帳號）也什麼都看不到。
+// 其他人即使登入也什麼都看不到。
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -23,6 +23,26 @@ service cloud.firestore {
         && d.member_ids is list;
     }
 
+    function validNote() {
+      let d = request.resource.data;
+      return d.title is string && d.title.size() <= 100
+        && d.body is string && d.body.size() <= 20000
+        && d.pinned is bool;
+    }
+
+    function validContact() {
+      let d = request.resource.data;
+      return d.name is string && d.name.size() >= 1 && d.name.size() <= 60
+        && d.phone is string && d.phone.size() <= 30;
+    }
+
+    function validMessage() {
+      let d = request.resource.data;
+      return d.text is string && d.text.size() >= 1 && d.text.size() <= 2000
+        && d.sender == request.auth.uid
+        && d.sent_at is number;
+    }
+
     // 成員名單：只能在 Firebase 後台手動維護
     match /members/{uid} {
       allow read: if isFamily();
@@ -30,9 +50,28 @@ service cloud.firestore {
     }
 
     // 行事曆
-    match /events/{eventId} {
+    match /events/{id} {
       allow read, delete: if isFamily();
       allow create, update: if isFamily() && validEvent();
+    }
+
+    // 雜記
+    match /notes/{id} {
+      allow read, delete: if isFamily();
+      allow create, update: if isFamily() && validNote();
+    }
+
+    // 通訊錄
+    match /contacts/{id} {
+      allow read, delete: if isFamily();
+      allow create, update: if isFamily() && validContact();
+    }
+
+    // 聊天室：只能以自己的名義發言，送出後不能修改或刪除
+    match /messages/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily() && validMessage();
+      allow update, delete: if false;
     }
   }
 }
