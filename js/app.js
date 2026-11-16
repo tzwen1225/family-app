@@ -664,6 +664,7 @@
     const text = input.value.trim();
     if (!text) return;
     input.value = ''; delete state.postDrafts[postId];
+    input.focus();
     try { await Api.addReply(postId, text); }
     catch (e) {
       console.error(e);
@@ -1122,6 +1123,19 @@
     else if (FORMS[id]) onSave(form);
   });
 
+  // 送出鈕：手指一碰到就送出，而且不讓按鈕搶走輸入框的焦點。
+  // 否則 iPhone 會先收起鍵盤、畫面跟著移動，第一下按不到按鈕，要按第二次才送得出去。
+  // 之後瀏覽器補發的 click／submit 會因為輸入框已清空而被忽略，不會重複送出。
+  document.addEventListener('pointerdown', (ev) => {
+    const btn = ev.target.closest('.send');
+    if (!btn) return;
+    ev.preventDefault();
+    const form = btn.closest('form');
+    if (form.getAttribute('id') === 'chat-form') onSend(form);
+    else if (form.classList.contains('reply-form')) onReply(form);
+  });
+  document.addEventListener('mousedown', (ev) => { if (ev.target.closest('.send')) ev.preventDefault(); });
+
   document.addEventListener('input', (ev) => {
     const t = ev.target;
     if (t.id === 'chat-input') state.draft = t.value;
@@ -1190,7 +1204,8 @@
     window.addEventListener('resize', apply);
     window.addEventListener('orientationchange', () => { full = 0; settle(); });
     document.addEventListener('focusin', settle);
-    document.addEventListener('focusout', settle);
+    // 焦點離開時稍等一下再判斷：按送出鈕時焦點會馬上回到輸入框，不必讓畫面跳一下
+    document.addEventListener('focusout', () => { setTimeout(apply, 60); setTimeout(apply, 400); });
     document.addEventListener('visibilitychange', settle);
     apply();
   })();
