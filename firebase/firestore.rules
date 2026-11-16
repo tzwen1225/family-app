@@ -1,0 +1,38 @@
+rules_version = '2';
+
+// 我們家 App 的 Firestore 安全規則
+// 用法：Firebase 後台 → Firestore Database → 規則 → 整份貼上 → 發布
+//
+// 只有 UID 出現在 members 集合裡的帳號才能讀寫，
+// 其他人即使登入（或自己註冊了帳號）也什麼都看不到。
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isFamily() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/members/$(request.auth.uid));
+    }
+
+    function validEvent() {
+      let d = request.resource.data;
+      return d.title is string && d.title.size() >= 1 && d.title.size() <= 80
+        && d.category in ['schedule', 'exam', 'family', 'other']
+        && d.event_date is string && d.end_date is string
+        && d.end_date >= d.event_date
+        && d.member_ids is list;
+    }
+
+    // 成員名單：只能在 Firebase 後台手動維護
+    match /members/{uid} {
+      allow read: if isFamily();
+      allow write: if false;
+    }
+
+    // 行事曆
+    match /events/{eventId} {
+      allow read, delete: if isFamily();
+      allow create, update: if isFamily() && validEvent();
+    }
+  }
+}
