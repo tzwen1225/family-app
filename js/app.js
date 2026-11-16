@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 15:30';
+  const VERSION = '2026-11-16 15:35';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1037,7 +1037,7 @@
       ${pushSectionHtml()}
       ${Api.isDemo ? '<p class="demo-note">示範模式：資料只存在這台裝置。設定 Firebase 後，全家才會看到同一份資料。</p>' : ''}
       <button class="btn ghost" data-act="logout">登出</button>
-      <p class="version">版本 ${VERSION}</p>`;
+      <p class="version">鍾家大宅把拔製作<small>版本 ${VERSION}</small></p>`;
   }
 
   // ---------- 表單面板（共用外框） ----------
