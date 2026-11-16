@@ -536,6 +536,18 @@ button.bubble { text-align: left; font: inherit; }
 .post.closed .poll-foot b { color: var(--ink-2); }
 .home-polls { margin-bottom: 12px; }
 .home-polls h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); padding: 0 4px; display: flex; align-items: center; justify-content: space-between; }
+.home-polls h2 { gap: 10px; }
+.home-polls h2 .link-btn { margin-left: auto; }
+.pager { display: inline-flex; gap: 6px; }
+.pager button {
+  position: relative; min-width: 34px; height: 34px; border-radius: 50%; font: 700 15px/1 var(--num);
+  background: var(--sheet); border: 1px solid var(--line); color: var(--ink-2);
+}
+.pager button.on { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.pager button.dot::after {
+  content: ""; position: absolute; top: -2px; right: -2px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--red); box-shadow: 0 0 0 2px var(--paper);
+}
 .home-polls h2 .link-btn { min-height: 28px; font-size: 13px; }
 .home-polls .post { margin-top: 6px; }
 .home-polls .post + .post { margin-top: 10px; }
