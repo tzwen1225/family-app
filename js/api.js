@@ -3,6 +3,7 @@
 // 行事曆 event：{ id, title, category, event_date, end_date, start_time, end_time, member_ids, note }
 //   category: 'schedule' 行程 | 'exam' 考試 | 'family' 家庭活動 | 'other' 其他
 //   日期 'YYYY-MM-DD'，時間 'HH:MM' 或 null（全天）；member_ids 空陣列代表「全家」
+//   每週重複的行程只存一筆，另有 repeat、repeat_days、skip_dates（見 cleanEvent）
 // 雜記 note：    { id, title, body, pinned, updated_at, updated_by }
 // 通訊錄 contact：{ id, name, group, phone, address, note }
 // 訊息 message： { id, text, sender, sent_at }
@@ -20,7 +21,12 @@
     start_time: ev.start_time || null,
     end_time: ev.end_time || null,
     member_ids: ev.member_ids || [],
-    note: ev.note || null
+    note: ev.note || null,
+    // 每週重複：event_date 是開始日、end_date 是「重複到」的日期，
+    // repeat_days 是星期幾（0=日 … 6=六），skip_dates 是被單獨取消的日期
+    repeat: ev.repeat || null,
+    repeat_days: ev.repeat ? (ev.repeat_days || []) : [],
+    skip_dates: ev.repeat ? (ev.skip_dates || []) : []
   });
   const cleanNote = (n, uid) => ({
     title: n.title || '', body: n.body || '', pinned: !!n.pinned,

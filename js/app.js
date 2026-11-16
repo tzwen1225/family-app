@@ -72,6 +72,29 @@
     return { from: ymd(start), to: ymd(end) };
   }
 
+  // ---------- 每週重複 ----------
+  // 重複行程在資料庫只有一筆；這裡把它展開成範圍內每一天各一筆「場次」。
+  // 場次的 id 和原始行程相同，並用 series 指回原始那一筆。
+  function occurrenceDates(ev, from, to) {
+    const out = [];
+    const start = ev.event_date > from ? ev.event_date : from;
+    const end = ev.end_date < to ? ev.end_date : to;
+    const skip = ev.skip_dates || [];
+    for (let d = start; d <= end; d = addDays(d, 1)) {
+      if (ev.repeat_days.includes(parse(d).getDay()) && !skip.includes(d)) out.push(d);
+    }
+    return out;
+  }
+
+  function expand(list, from, to) {
+    const out = [];
+    list.forEach((ev) => {
+      if (ev.repeat !== 'weekly') { out.push(ev); return; }
+      occurrenceDates(ev, from, to).forEach((d) => out.push({ ...ev, event_date: d, end_date: d, series: ev }));
+    });
+    return out.sort((a, b) => (a.event_date + (a.start_time || '')).localeCompare(b.event_date + (b.start_time || '')));
+  }
+
   // ---------- 載入資料 ----------
   async function loadEvents() {
     const { from, to } = gridRange(state.cursor);
@@ -80,8 +103,8 @@
         Api.listEvents(from, to),
         Api.listEvents(today(), addDays(today(), 90))
       ]);
-      state.monthEvents = month;
-      state.upcoming = upcoming;
+      state.monthEvents = expand(month, from, to);
+      state.upcoming = expand(upcoming, today(), addDays(today(), 90));
     } catch (e) {
       console.error(e);
       toast('讀取失敗，請確認網路連線');
@@ -293,11 +316,11 @@
   function eventRow(e, showDate) {
     const cat = CATEGORIES[e.category];
     return `
-      <button class="event" data-act="edit-event" data-id="${esc(e.id)}" style="--cat:${cat.color}">
+      <button class="event" data-act="edit-event" data-id="${esc(e.id)}" data-date="${e.event_date}" style="--cat:${cat.color}">
         <span class="event-time">${timeHtml(e, showDate)}</span>
         <span class="event-main">
           <span class="event-title">${esc(e.title)}</span>
-          <span class="event-meta"><span class="cat">${cat.label}</span>${whoHtml(e)}</span>
+          <span class="event-meta"><span class="cat">${cat.label}</span>${e.series ? '<span class="rep">每週</span>' : ''}${whoHtml(e)}</span>
           ${e.note ? `<span class="event-note">${esc(e.note)}</span>` : ''}
         </span>
       </button>`;
@@ -317,7 +340,7 @@
         ${exams.slice(0, 4).map((e) => {
           const n = Math.max(0, daysBetween(t, e.event_date));
           return `
-            <button class="exam" data-act="edit-event" data-id="${esc(e.id)}">
+            <button class="exam" data-act="edit-event" data-id="${esc(e.id)}" data-date="${e.event_date}">
               <span class="exam-days">${n === 0 ? '今天' : n + '<small>天後</small>'}</span>
               <span class="exam-title">${esc(e.title)}</span>
               <span class="exam-who">${whoHtml(e)}</span>
@@ -494,7 +517,7 @@
   }
 
   // ---------- 表單面板（新增／編輯共用外框） ----------
-  function showSheet(formId, isNew, body) {
+  function showSheet(formId, isNew, body, footer) {
     $sheet.innerHTML = `
       <div class="backdrop" data-act="close"></div>
       <form class="sheet" id="${formId}" role="dialog" aria-modal="true" aria-label="${isNew ? '新增' : '編輯'}" novalidate>
@@ -506,7 +529,7 @@
         <div class="sheet-body">
           ${body}
           <p class="form-error" id="form-error" role="alert" hidden></p>
-          ${isNew ? '' : '<button type="button" class="btn danger" data-act="delete">刪除</button>'}
+          ${isNew ? '' : (footer || '<button type="button" class="btn danger" data-act="delete">刪除</button>')}
         </div>
       </form>`;
     document.body.classList.add('sheet-open');
@@ -518,7 +541,11 @@
     document.body.classList.remove('sheet-open');
   }
 
-  function openEventSheet(ev) {
+  let sheetOccurrence = null;   // 從哪一天的場次打開重複行程（用來「只取消這一天」）
+
+  function openEventSheet(ev, occDate) {
+    sheetOccurrence = ev && ev.repeat ? occDate : null;
+    const weekly = !!(ev && ev.repeat === 'weekly');
     const e = ev || {
       title: '', category: 'schedule', event_date: state.calView === 'month' ? state.selected : today(),
       end_date: null, start_time: null, end_time: null, member_ids: [], note: ''
@@ -539,8 +566,21 @@
 
       <div class="row two">
         <label>開始日期<input type="date" name="event_date" value="${esc(e.event_date)}"></label>
-        <label>結束日期<input type="date" name="end_date" value="${esc(e.end_date || e.event_date)}"></label>
+        <label><span id="end-label">${weekly ? '重複到' : '結束日期'}</span><input type="date" name="end_date" value="${esc(e.end_date || e.event_date)}"></label>
       </div>
+
+      <label class="switch">
+        <span>每週重複</span>
+        <input type="checkbox" name="weekly" ${weekly ? 'checked' : ''}>
+      </label>
+      <fieldset class="people days" id="days-row" ${weekly ? '' : 'hidden'}>
+        <legend>星期幾？<small>從開始日期到「重複到」之間，每週的這幾天</small></legend>
+        ${WEEKDAYS.map((w, i) => `
+          <label style="--who:var(--green)">
+            <input type="checkbox" name="weekday" value="${i}" ${weekly && e.repeat_days.includes(i) ? 'checked' : ''}>
+            <span>${w}</span>
+          </label>`).join('')}
+      </fieldset>
 
       <label class="switch">
         <span>全天</span>
@@ -560,7 +600,11 @@
           </label>`).join('')}
       </fieldset>
 
-      <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="範圍、地點、要帶的東西…">${esc(e.note || '')}</textarea></label>`);
+      <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="範圍、地點、要帶的東西…">${esc(e.note || '')}</textarea></label>`,
+      weekly ? `
+        ${occDate ? `<button type="button" class="btn ghost skip" data-act="skip-day">只取消 ${shortDate(occDate)} 這一次</button>` : ''}
+        <button type="button" class="btn danger" data-act="delete">刪除全部重複行程</button>` : '');
+    $sheet.querySelector('form').dataset.skips = JSON.stringify((ev && ev.skip_dates) || []);
   }
 
   function openNoteSheet(note) {
@@ -610,20 +654,38 @@
           note: f.note.value.trim()
         };
         if (!ev.start_time) ev.end_time = null;
+        if (f.weekly.checked) {
+          ev.repeat = 'weekly';
+          ev.repeat_days = Array.from(f.weekday).filter((i) => i.checked).map((i) => Number(i.value));
+          ev.skip_dates = JSON.parse(f.item_id.form.dataset.skips || '[]');
+        }
         return ev;
       },
       check(ev, f) {
         if (!ev.title) return '請輸入標題';
         if (!ev.event_date) return '請選擇日期';
-        if (ev.end_date < ev.event_date) return '結束日期不能早於開始日期';
+        if (ev.end_date < ev.event_date) return (ev.repeat ? '「重複到」' : '結束日期') + '不能早於開始日期';
+        if (ev.repeat) {
+          if (!ev.repeat_days.length) return '請選擇每週的星期幾';
+          if (daysBetween(ev.event_date, ev.end_date) > 731) return '重複期間最長兩年';
+          if (!occurrenceDates(ev, ev.event_date, ev.end_date).length) return '這段期間裡沒有符合的日子，請檢查日期和星期';
+        }
         if (!f.all_day.checked && !ev.start_time) return '請選擇開始時間，或打開「全天」';
-        if (ev.start_time && ev.end_time && ev.end_date === ev.event_date && ev.end_time < ev.start_time) return '結束時間不能早於開始時間';
+        if (ev.start_time && ev.end_time && (ev.repeat || ev.end_date === ev.event_date) && ev.end_time < ev.start_time) return '結束時間不能早於開始時間';
         return null;
       },
       save: (x) => Api.saveEvent(x),
       remove: (id) => Api.deleteEvent(id),
       after(ev) {
-        if (ev) { state.selected = ev.event_date; state.cursor = ev.event_date.slice(0, 7); }
+        // 存檔後跳到那一天；重複行程則跳到今天之後最近的一次
+        if (ev) {
+          let day = ev.event_date;
+          if (ev.repeat) {
+            const all = occurrenceDates(ev, ev.event_date, ev.end_date);
+            day = all.find((d) => d >= today()) || all[all.length - 1] || day;
+          }
+          state.selected = day; state.cursor = day.slice(0, 7);
+        }
         return loadEvents();
       }
     },
@@ -687,6 +749,32 @@
     }
   }
 
+  const findById = (list, id) => list.find((x) => String(x.id) === id);
+
+  // 重複行程：只取消某一次（把那天記進 skip_dates，其他場次不動）
+  async function onSkipDay(btn) {
+    if (!btn.dataset.armed) {
+      btn.dataset.armed = '1';
+      btn.textContent = '再按一次確定取消這一次';
+      return;
+    }
+    const id = btn.closest('form').elements.item_id.value;
+    const hit = findById(state.monthEvents.concat(state.upcoming), id);
+    const series = hit && (hit.series || hit);
+    if (!series || !sheetOccurrence) return;
+    btn.disabled = true;
+    try {
+      await Api.saveEvent({ ...series, skip_dates: (series.skip_dates || []).concat(sheetOccurrence) });
+      closeSheet();
+      toast('已取消這一次');
+      await loadEvents();
+    } catch (e) {
+      console.error(e);
+      btn.disabled = false;
+      toast('取消失敗，請再試一次');
+    }
+  }
+
   // ---------- 事件處理 ----------
   function shiftMonth(n) {
     const d = parse(state.cursor + '-01');
@@ -697,7 +785,6 @@
     loadEvents();
   }
 
-  const findById = (list, id) => list.find((x) => String(x.id) === id);
 
   document.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-act]');
@@ -724,7 +811,11 @@
       else if (state.tab === 'contacts') openContactSheet(null);
       else openEventSheet(null);
     }
-    else if (act === 'edit-event') { const e = findById(state.monthEvents.concat(state.upcoming), el.dataset.id); if (e) openEventSheet(e); }
+    else if (act === 'edit-event') {
+      const e = findById(state.monthEvents.concat(state.upcoming), el.dataset.id);
+      if (e) openEventSheet(e.series || e, el.dataset.date);
+    }
+    else if (act === 'skip-day') onSkipDay(el);
     else if (act === 'edit-note') { const n = findById(state.notes, el.dataset.id); if (n) openNoteSheet(n); }
     else if (act === 'edit-contact') { const c = findById(state.contacts, el.dataset.id); if (c) openContactSheet(c); }
     else if (act === 'close') closeSheet();
@@ -760,6 +851,15 @@
     const f = form.elements;
     if (ev.target.name === 'all_day') form.querySelector('#time-row').hidden = ev.target.checked;
     if (ev.target.name === 'event_date' && f.end_date.value < f.event_date.value) f.end_date.value = f.event_date.value;
+    if (ev.target.name === 'weekly') {
+      const on = ev.target.checked;
+      form.querySelector('#days-row').hidden = !on;
+      form.querySelector('#end-label').textContent = on ? '重複到' : '結束日期';
+      // 預設勾選開始日期那天的星期
+      if (on && f.event_date.value && !Array.from(f.weekday).some((i) => i.checked)) {
+        f.weekday[parse(f.event_date.value).getDay()].checked = true;
+      }
+    }
   });
 
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && $sheet.innerHTML) closeSheet(); });

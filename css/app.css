@@ -147,6 +147,7 @@ textarea { resize: vertical; }
 .event-title { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .event-meta { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 3px; font-size: 12px; }
 .cat { color: var(--cat); font-weight: 600; }
+.rep { color: var(--ink-2); border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; }
 .who {
   padding: 1px 8px; border-radius: 99px; color: var(--who);
   background: color-mix(in srgb, var(--who) 13%, white);
@@ -242,6 +243,11 @@ legend small { margin-left: 8px; font-size: 12px; }
 .seg input:checked + span { background: var(--cat); border-color: var(--cat); color: #fff; font-weight: 600; }
 .people input:checked + span { background: var(--who); border-color: var(--who); color: #fff; font-weight: 600; }
 
+.days { margin-top: 12px; }
+.days span { padding: 9px 0; width: 42px; text-align: center; }
+.days legend small { display: block; margin: 2px 0 0; }
+.btn.skip { margin-top: 8px; }
+.switch + .switch, .row.two + .switch { margin-top: 0; }
 .row.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .row.two label { min-width: 0; }
 .switch {
