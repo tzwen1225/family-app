@@ -518,6 +518,12 @@ div.member-main { cursor: default; }
 .member-status.on { color: var(--online); font-weight: 600; }
 .version { text-align: center; font-size: 12px; color: var(--ink-2); margin-top: 16px; }
 .send { touch-action: manipulation; }
+.view h3 { margin: 0; font-size: 22px; font-weight: 700; padding-left: 12px; border-left: 5px solid var(--cat); overflow-wrap: anywhere; }
+.view .event-meta { margin: 10px 0 0; font-size: 13px; }
+.view dl { margin: 16px 0; display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; background: var(--sheet); border-radius: 14px; padding: 14px 16px; }
+.view dt { color: var(--ink-2); font-size: 14px; }
+.view dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.view dd small { color: var(--ink-2); }
 .hint { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
 .card-list.push { padding-bottom: 16px; }
 .card-list.push p { font-size: 14px; color: var(--ink-2); }

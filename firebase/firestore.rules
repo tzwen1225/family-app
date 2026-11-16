@@ -53,6 +53,10 @@ service cloud.firestore {
       return d.kid == request.auth.uid && d.type == 'expense';
     }
 
+    function ownsEvent() {
+      return resource.data.get('created_by', request.auth.uid) == request.auth.uid;
+    }
+
     function validEvent() {
       let d = request.resource.data;
       return d.title is string && d.title.size() >= 1 && d.title.size() <= 80
@@ -130,10 +134,15 @@ service cloud.firestore {
         && (!isChild() || ownExpense(resource.data));
     }
 
-    // 行事曆
+    // 行事曆：全家都看得到，但只有新增的人可以修改或刪除。
+    // （沒有記錄新增者的舊行程不限制；修改時不能把新增者換成別人）
     match /events/{id} {
-      allow read, delete: if isFamily();
-      allow create, update: if isFamily() && validEvent();
+      allow read: if isFamily();
+      allow create: if isFamily() && validEvent()
+        && request.resource.data.get('created_by', request.auth.uid) == request.auth.uid;
+      allow update: if isFamily() && validEvent() && ownsEvent()
+        && request.resource.data.get('created_by', null) == resource.data.get('created_by', null);
+      allow delete: if isFamily() && ownsEvent();
     }
 
     // 雜記

@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 14:45';
+  const VERSION = '2026-11-16 14:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -107,6 +107,8 @@
   const me = () => state.members.find((m) => m.id === state.userId);
   // 管理員：members 文件裡有 admin: true 的人，可以編輯所有人的基本資料；其他人只能改自己的
   const isAdmin = () => { const m = me(); return !!(m && m.admin === true); };
+  // 行程：全家都看得到，但只有新增的人可以修改或刪除（很舊、沒有記錄新增者的行程不限制）
+  const canEditEvent = (e) => !e.created_by || e.created_by === state.userId;
   const canEditProfile = (id) => id === state.userId || isAdmin();
   // 小朋友：members 文件裡有 child: true 的成員。其他人都算家長。
   const kids = () => state.members.filter((m) => m.child === true);
@@ -1008,9 +1010,9 @@
       <div class="backdrop" data-act="close"></div>
       <form class="sheet" id="${formId}" role="dialog" aria-modal="true" aria-label="${esc(opts.title)}" novalidate>
         <div class="sheet-head">
-          <button type="button" class="link-btn" data-act="close">取消</button>
+          <button type="button" class="link-btn" data-act="close">${opts.readonly ? '關閉' : '取消'}</button>
           <strong>${esc(opts.title)}</strong>
-          <button type="submit" class="link-btn strong">${opts.submit || '儲存'}</button>
+          ${opts.readonly ? '<span class="link-btn" aria-hidden="true"></span>' : `<button type="submit" class="link-btn strong">${opts.submit || '儲存'}</button>`}
         </div>
         <div class="sheet-body">
           ${opts.body}
@@ -1030,7 +1032,32 @@
   const DELETE_BTN = '<button type="button" class="btn danger" data-act="delete">刪除</button>';
   let sheetOccurrence = null;   // 從哪一天的場次打開重複行程（用來「只取消這一次」）
 
+  // 別人新增的行程：只能看，不能改
+  function openEventView(ev, occDate) {
+    const cat = CATEGORIES[ev.category];
+    const weekly = ev.repeat === 'weekly';
+    const when = weekly
+      ? `每週${ev.repeat_days.map((d) => WEEKDAYS[d]).join('、')}，${shortDate(ev.event_date)} 到 ${shortDate(ev.end_date)}`
+      : ev.end_date !== ev.event_date ? `${shortDate(ev.event_date)} 到 ${shortDate(ev.end_date)}` : shortDate(ev.event_date);
+    const time = ev.start_time ? ev.start_time + (ev.end_time ? '–' + ev.end_time : '') : '全天';
+    showSheet('event-view', {
+      title: '行程', readonly: true,
+      body: `
+      <div class="view" style="--cat:${cat.color}">
+        <h3>${esc(ev.title)}</h3>
+        <p class="event-meta"><span class="cat">${cat.label}</span>${whoHtml(ev)}</p>
+        <dl>
+          <dt>日期</dt><dd>${when}${weekly && occDate ? `<br><small>這一次是 ${shortDate(occDate)}</small>` : ''}</dd>
+          <dt>時間</dt><dd>${time}</dd>
+          ${ev.note ? `<dt>備註</dt><dd>${esc(ev.note)}</dd>` : ''}
+        </dl>
+        <p class="hint">這是${esc(nameOf(ev.created_by))}新增的行程，只有${esc(nameOf(ev.created_by))}可以修改或刪除。</p>
+      </div>`
+    });
+  }
+
   function openEventSheet(ev, occDate) {
+    if (ev && !canEditEvent(ev)) return openEventView(ev, occDate);
     sheetOccurrence = ev && ev.repeat ? occDate : null;
     const weekly = !!(ev && ev.repeat === 'weekly');
     const e = ev || {

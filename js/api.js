@@ -3,6 +3,7 @@
 // 行事曆 event：{ id, title, category, event_date, end_date, start_time, end_time, member_ids, note }
 //   category: 'schedule' 行程 | 'exam' 考試 | 'family' 家庭活動 | 'other' 其他
 //   日期 'YYYY-MM-DD'，時間 'HH:MM' 或 null（全天）；member_ids 空陣列代表「全家」
+//   created_by 是新增的人：行程全家都看得到，但只有新增的人可以修改或刪除
 //   每週重複的行程只存一筆，另有 repeat、repeat_days、skip_dates（見 cleanEvent）
 // 雜記 note：     { id, title, body, pinned, updated_at, updated_by }
 // 訊息 message：  { id, text, sender, sent_at, recalled }
@@ -235,7 +236,7 @@
       events: [
         { id: 's1', title: '鋼琴課', category: 'schedule', event_date: day(0), end_date: day(0), start_time: '18:30', end_time: '19:30', member_ids: ['m3'], note: null },
         { id: 's2', title: '數學段考', category: 'exam', event_date: day(5), end_date: day(6), start_time: null, end_time: null, member_ids: ['m3'], note: '範圍：第三、四章' },
-        { id: 's3', title: '阿嬤家吃飯', category: 'family', event_date: day(2), end_date: day(2), start_time: '12:00', end_time: null, member_ids: [], note: null },
+        { id: 's3', title: '阿嬤家吃飯', category: 'family', event_date: day(2), end_date: day(2), start_time: '12:00', end_time: null, member_ids: [], note: '記得帶水果', created_by: 'm2' },
         { id: 's4', title: '英文單字小考', category: 'exam', event_date: day(3), end_date: day(3), start_time: null, end_time: null, member_ids: ['m4'], note: 'Unit 5' },
         { id: 's5', title: '牙醫回診', category: 'schedule', event_date: day(9), end_date: day(9), start_time: '16:00', end_time: null, member_ids: ['m2', 'm4'], note: null }
       ],
@@ -316,7 +317,12 @@
       async listEvents(from, to) {
         return load().events.filter((e) => e.event_date <= to && e.end_date >= from).sort(byTime);
       },
-      async saveEvent(ev) { return upsert('events', ev.id, cleanEvent(ev), 'e'); },
+      async saveEvent(ev) {
+        const old = ev.id ? load().events.find((e) => e.id === ev.id) : null;
+        const owner = old ? old.created_by : load().user;
+        if (old && owner && owner !== load().user) throw new Error('permission-denied');
+        return upsert('events', ev.id, { ...cleanEvent(ev), created_by: owner }, 'e');
+      },
       async deleteEvent(id) { drop('events', id); },
       watchEvents() { return function () {}; },
 

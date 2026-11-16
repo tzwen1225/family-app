@@ -1,7 +1,7 @@
 // 讓 App 在沒有網路時也能打開畫面。
 // 策略：優先走網路（確保拿到最新版程式），失敗才用快取。
 // 只處理本站的檔案，Firebase 的資料請求完全不經過這裡。
-const CACHE = 'family-shell-v18';
+const CACHE = 'family-shell-v19';
 const SHELL = [
   './', 'index.html', 'css/app.css',
   'js/config.js', 'js/api.js', 'js/app.js', 'vendor/firebase.js',
