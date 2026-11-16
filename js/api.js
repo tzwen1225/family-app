@@ -11,7 +11,7 @@
 // 我有話要說 post：{ id, text, author, to: [UID…], created_at }
 //   回覆 reply：  { id, post_id, text, author, created_at }
 // 基本資料 profile：{ id: UID, birthday, phone, org, note }
-// 上線狀態 presence：{ id: UID, last_seen, online }
+// 上線狀態 presence：{ id: UID, last_seen, online, read_at: 聊天室讀到的時間點 }
 // 零用錢 ledger： { id, kid: 小朋友的 UID, type: 'income' 給零用錢 | 'expense' 支出, amount, note, date }
 //   members 文件裡 child: true 的成員是小朋友，其他人是家長
 // 費用申請 request：{ id, kid, title, amount, need_date, status: 'pending' 還沒給 | 'given' 已給, given_by, given_at }
@@ -185,8 +185,9 @@
       watchRequests: (cb, onlyKid) => watch('費用申請',
         onlyKid ? F.query(col('requests'), F.where('kid', '==', onlyKid)) : col('requests'), cb),
 
-      async beat(online) {
-        await F.setDoc(F.doc(db, 'presence', uid()), { last_seen: Date.now(), online: !!online });
+      // readAt：這個人聊天室讀到哪個時間點（給「已讀」用），跟上線狀態存在同一份文件裡
+      async beat(online, readAt) {
+        await F.setDoc(F.doc(db, 'presence', uid()), { last_seen: Date.now(), online: !!online, read_at: readAt || 0 });
       },
       watchPresence: (cb) => watch('上線狀態', col('presence'), (rows) => cb(toMap(rows))),
 
@@ -300,8 +301,8 @@
         m3: { id: 'm3', birthday: day(4).replace(/^\d+/, '2013'), phone: '', org: '國中二年級', note: '' }
       },
       presence: {
-        m2: { id: 'm2', last_seen: ago(0), online: true },
-        m3: { id: 'm3', last_seen: ago(25), online: false },
+        m2: { id: 'm2', last_seen: ago(0), online: true, read_at: ago(0) },
+        m3: { id: 'm3', last_seen: ago(25), online: false, read_at: ago(39) },
         m4: { id: 'm4', last_seen: ago(60 * 20), online: false }
       }
     });
@@ -440,10 +441,10 @@
         return watch('requests')((rows) => cb(rows.filter((r) => !onlyKid || r.kid === onlyKid)));
       },
 
-      async beat(online) {
+      async beat(online, readAt) {
         const db = load();
         if (!db.user) return;
-        db.presence[db.user] = { id: db.user, last_seen: Date.now(), online: !!online };
+        db.presence[db.user] = { id: db.user, last_seen: Date.now(), online: !!online, read_at: readAt || 0 };
         persist(); emit('presence');
       },
       watchPresence: watch('presence'),

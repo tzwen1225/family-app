@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 19:55';
+  const VERSION = '2026-11-16 20:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -276,7 +276,12 @@
     stopWatchers = [];
     clearInterval(beatTimer);
   }
-  function beat(online) { Api.beat(online).catch((e) => console.warn('上線狀態更新失敗', e)); }
+  // 回報上線狀態，順便帶上「聊天室讀到哪裡」。換手機時取兩邊較新的那個，已讀不會倒退。
+  function beat(online) {
+    const mine = state.presence[state.userId];
+    const readAt = Math.max(state.lastRead, (mine && mine.read_at) || 0);
+    Api.beat(online, readAt).catch((e) => console.warn('上線狀態更新失敗', e));
+  }
 
   async function boot() {
     try {
@@ -306,7 +311,10 @@
       Api.watchMessages(onMessages),
       Api.watchPosts((list) => { state.posts = list; refreshPosts(); }),
       Api.watchReplies((list) => { state.replies = list; refreshPosts(); }),
-      Api.watchPresence((map) => { state.presence = map; refreshPresence(); }),
+      Api.watchPresence((map) => {
+        state.presence = map; refreshPresence();
+        if (state.tab === 'chat' && !state.chatSearch) refreshChat(false);     // 有人讀了訊息：更新「已讀」
+      }),
       Api.watchList('subjects', (list) => {
         state.subjects = list.sort((a, b) => a.created_at - b.created_at);
         if (state.tab === 'me' && !$sheet.innerHTML) render();
@@ -694,6 +702,7 @@
     if (!list.length) return '<div class="empty big"><p>還沒有訊息。說聲嗨吧。</p></div>';
 
     let html = q ? `<p class="found">找到 ${list.length} 則</p>` : '';
+    const seen = q ? {} : readMarkers();
     let lastDay = '', lastSender = '';
     list.forEach((m) => {
       const day = ymd(new Date(m.sent_at));
@@ -715,7 +724,11 @@
           ${showName ? `<div class="msg-name">${esc(nameOf(m.sender))}</div>` : ''}
           <div class="msg-row">${bubble}<time>${clock(m.sent_at)}</time></div>
           ${state.menuMsg === m.id && canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回這則訊息</button>` : ''}
-        </div>`;
+        </div>
+        ${seen[m.id] ? `
+        <div class="seen" aria-label="${esc(seen[m.id].map((x) => x.display_name).join('、'))}已讀到這裡">
+          <span>已讀</span>${seen[m.id].map((x) => `<span class="avatar xs" style="background:${esc(x.color)}" title="${esc(x.display_name)}">${esc(x.display_name.slice(0, 1))}</span>`).join('')}
+        </div>` : ''}`;
       lastSender = m.sender;
     });
     return html;
@@ -749,6 +762,24 @@
     if (!last || last.sent_at <= state.lastRead) return;
     state.lastRead = last.sent_at;
     try { localStorage.setItem(READ_KEY, String(state.lastRead)); } catch (e) { /* 忽略 */ }
+    beat(true);      // 馬上讓其他人看到「已讀」
+  }
+
+  // ---------- 已讀 ----------
+  // 每個人「讀到哪一則」= 他最後一次打開聊天室時的最新訊息，或他自己傳的最後一則（取較新的）。
+  // 回傳 { 訊息 id: [讀到這一則為止的成員…] }，畫面上在那一則下面顯示他們的小頭像。
+  function readMarkers() {
+    const out = {};
+    state.members.forEach((m) => {
+      if (m.id === state.userId) return;
+      const p = state.presence[m.id];
+      let at = (p && p.read_at) || 0;
+      state.messages.forEach((x) => { if (x.sender === m.id && x.sent_at > at) at = x.sent_at; });
+      let last = null;
+      for (const x of state.messages) { if (x.sent_at <= at) last = x; else break; }
+      if (last) (out[last.id] = out[last.id] || []).push(m);
+    });
+    return out;
   }
 
   function onMessages(list) {
