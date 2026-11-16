@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 21:00';
+  const VERSION = '2026-11-16 21:05';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1501,7 +1501,7 @@
                 givenAmount(r) < r.amount ? `<em class="less">少給 ${money(r.amount - givenAmount(r))}</em>`
                 : givenAmount(r) > r.amount ? `<em class="more">多給 ${money(givenAmount(r) - r.amount)}</em>` : ''}</span>` : ''}
             </${editable ? 'button' : 'div'}>
-            <span class="request-amount">${money(given ? givenAmount(r) : r.amount)}</span>
+            ${given ? '<span></span>' : `<span class="request-amount">${money(r.amount)}</span>`}
             ${given ? `<span class="given-mark">已給 ✓${r.given_by && member(r.given_by) ? '<small>' + esc(nameOf(r.given_by)) + '</small>' : ''}</span>`
               : amChild() ? '<span class="wait-mark">等家長給</span>'
               : `<button class="todo-done" data-act="req-given" data-id="${esc(r.id)}">已給</button>`}

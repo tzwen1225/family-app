@@ -666,7 +666,7 @@ button.bubble { text-align: left; font: inherit; }
 .request-sub { display: block; font-size: 13px; color: var(--ink-2); }
 .request-detail { display: block; font-size: 13px; color: var(--ink-2); margin-top: 2px; }
 .request-detail b { font: 600 14px/1 var(--num); color: var(--ink); }
-.request-detail em { font-style: normal; font-weight: 600; margin-left: 8px; }
+.request-detail em { font-style: normal; font-weight: 600; margin-left: 8px; white-space: nowrap; display: inline-block; }
 .request-detail em.less { color: var(--c-exam); }
 .request-detail em.more { color: var(--green); }
 .give-info { margin: 0 0 16px; display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; background: var(--sheet); border-radius: 14px; padding: 14px 16px; }
