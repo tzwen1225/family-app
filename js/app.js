@@ -5,11 +5,15 @@
     schedule: { label: '行程', color: 'var(--c-schedule)' },
     exam:     { label: '考試', color: 'var(--c-exam)' },
     family:   { label: '家庭活動', color: 'var(--c-family)' },
-    other:    { label: '其他', color: 'var(--c-other)' }
+    other:    { label: '其他', color: 'var(--c-other)' },
+    birthday: { label: '生日', color: 'var(--c-birthday)' }   // 由成員基本資料自動產生，不能手動新增
   };
-  const CONTACT_GROUPS = ['家人', '親戚', '學校', '醫療', '其他'];
+  const EVENT_CATS = ['schedule', 'exam', 'family', 'other'];
   const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
   const READ_KEY = 'family-chat-read';
+  const RECALL_MS = 60 * 60 * 1000;     // 訊息送出後多久內可以收回
+  const BEAT_MS = 60 * 1000;            // 每隔多久回報一次「我在線上」
+  const ONLINE_MS = 150 * 1000;         // 多久沒回報就視為離線
 
   // ---------- 日期工具（一律用本地日期字串，避免時區問題） ----------
   const pad = (n) => String(n).padStart(2, '0');
@@ -25,25 +29,33 @@
     const n = daysBetween(day, today());
     return (n === 0 ? '今天' : n === 1 ? '昨天' : shortDate(day).replace(/（.*/, '')) + ' ' + clock(ms);
   };
+  const byTime = (a, b) => (a.event_date + (a.start_time || '')).localeCompare(b.event_date + (b.start_time || ''));
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const telHref = (phone) => 'tel:' + String(phone).replace(/[^\d+#*]/g, '');
 
   // ---------- 狀態 ----------
   const state = {
     userId: null,
     members: [],
-    tab: 'cal',              // cal | chat | notes | contacts | me
+    profiles: {},            // { UID: { birthday, phone, org, note } }
+    presence: {},            // { UID: { last_seen, online } }
+    tab: 'cal',              // cal | chat | posts | notes | me
     calView: 'month',        // month | list
     cursor: today().slice(0, 7), // 目前顯示的月份 'YYYY-MM'
     selected: today(),
     monthEvents: [],
     upcoming: [],
     notes: [],
-    contacts: [],
-    contactQuery: '',
     messages: [],
     draft: '',
+    chatSearch: false,
+    chatQuery: '',
+    menuMsg: null,           // 正在顯示「收回」按鈕的訊息
+    posts: [],
+    replies: [],
+    postDrafts: {},
     lastRead: 0
   };
   try { state.lastRead = Number(localStorage.getItem(READ_KEY)) || 0; } catch (e) { /* 忽略 */ }
@@ -62,14 +74,39 @@
 
   const me = () => state.members.find((m) => m.id === state.userId);
   const member = (id) => state.members.find((m) => m.id === id);
+  const nameOf = (id) => { const m = member(id); return m ? m.display_name : '已離開的成員'; };
+  const colorOf = (id) => { const m = member(id); return m ? m.color : '#7A847F'; };
+  const findById = (list, id) => list.find((x) => String(x.id) === id);
 
-  // ---------- 月曆格子範圍 ----------
-  function gridRange(cursor) {
-    const first = parse(cursor + '-01');
-    const start = new Date(first); start.setDate(1 - first.getDay());
-    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
-    const end = new Date(last); end.setDate(last.getDate() + (6 - last.getDay()));
-    return { from: ymd(start), to: ymd(end) };
+  // ---------- 上線狀態 ----------
+  function isOnline(id) {
+    if (id === state.userId) return true;
+    const p = state.presence[id];
+    return !!(p && p.online && Date.now() - p.last_seen < ONLINE_MS);
+  }
+  function statusText(id) {
+    if (isOnline(id)) return '上線中';
+    const p = state.presence[id];
+    if (!p) return '尚未上線';
+    const min = Math.floor((Date.now() - p.last_seen) / 60000);
+    if (min < 1) return '剛剛離開';
+    return min < 60 ? min + ' 分鐘前' : stamp(p.last_seen);
+  }
+  function avatarHtml(m, cls) {
+    return `<span class="avatar ${cls || ''} ${isOnline(m.id) ? 'online' : ''}" style="background:${esc(m.color)}">${esc(m.display_name.slice(0, 1))}</span>`;
+  }
+  function presenceHtml() {
+    return state.members.map((m) => `
+      <div class="pres ${isOnline(m.id) ? 'on' : ''}">
+        ${avatarHtml(m)}
+        <span class="pres-name">${esc(m.display_name)}</span>
+        <span class="pres-status">${statusText(m.id)}</span>
+      </div>`).join('');
+  }
+  function refreshPresence() {
+    const el = document.getElementById('presence');
+    if (el) el.innerHTML = presenceHtml();
+    else if (state.tab === 'me' && !$sheet.innerHTML) render();
   }
 
   // ---------- 每週重複 ----------
@@ -86,13 +123,45 @@
     return out;
   }
 
-  function expand(list, from, to) {
+  // ---------- 生日 ----------
+  // 從成員基本資料算出範圍內的生日，當成唯讀的全天行程顯示在月曆上。
+  function birthdayEvents(from, to) {
     const out = [];
+    state.members.forEach((m) => {
+      const b = (state.profiles[m.id] || {}).birthday;
+      if (!b) return;
+      const [by, bm, bd] = b.split('-').map(Number);
+      for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) {
+        // 2/29 生日在平年顯示於 2/28
+        const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+        const d = y + '-' + pad(bm) + '-' + pad(bm === 2 && bd === 29 && !leap ? 28 : bd);
+        if (d < from || d > to) continue;
+        out.push({
+          id: 'bday-' + m.id + '-' + y, readonly: true, category: 'birthday',
+          title: m.display_name + '生日', note: y > by ? '滿 ' + (y - by) + ' 歲' : '',
+          event_date: d, end_date: d, start_time: null, end_time: null, member_ids: [m.id]
+        });
+      }
+    });
+    return out;
+  }
+
+  function expand(list, from, to) {
+    const out = birthdayEvents(from, to);
     list.forEach((ev) => {
       if (ev.repeat !== 'weekly') { out.push(ev); return; }
       occurrenceDates(ev, from, to).forEach((d) => out.push({ ...ev, event_date: d, end_date: d, series: ev }));
     });
-    return out.sort((a, b) => (a.event_date + (a.start_time || '')).localeCompare(b.event_date + (b.start_time || '')));
+    return out.sort(byTime);
+  }
+
+  // ---------- 月曆格子範圍 ----------
+  function gridRange(cursor) {
+    const first = parse(cursor + '-01');
+    const start = new Date(first); start.setDate(1 - first.getDay());
+    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+    const end = new Date(last); end.setDate(last.getDate() + (6 - last.getDay()));
+    return { from: ymd(start), to: ymd(end) };
   }
 
   // ---------- 載入資料 ----------
@@ -118,21 +187,25 @@
     if (state.tab === 'notes') render();
   }
 
-  async function loadContacts() {
-    try { state.contacts = await Api.listContacts(); }
-    catch (e) { console.error(e); toast('通訊錄讀取失敗'); }
-    if (state.tab === 'contacts') render();
+  async function loadProfiles() {
+    try { state.profiles = await Api.listProfiles(); }
+    catch (e) { console.error(e); }
   }
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
     else if (state.tab === 'notes') loadNotes();
-    else if (state.tab === 'contacts') loadContacts();
   }
 
   // ---------- 啟動 ----------
   let stopWatchers = [];
-  function stopWatching() { stopWatchers.forEach((fn) => fn()); stopWatchers = []; }
+  let beatTimer = null;
+  function stopWatching() {
+    stopWatchers.forEach((fn) => fn());
+    stopWatchers = [];
+    clearInterval(beatTimer);
+  }
+  function beat(online) { Api.beat(online).catch((e) => console.warn('上線狀態更新失敗', e)); }
 
   async function boot() {
     try {
@@ -153,34 +226,46 @@
       renderLogin('這個帳號不在家庭成員名單裡');
       return;
     }
+    await loadProfiles();
     render();
     await loadEvents();
     stopWatching();
     stopWatchers = [
       Api.watchEvents(() => { if (state.userId) loadEvents(); }),
-      Api.watchMessages(onMessages)
+      Api.watchMessages(onMessages),
+      Api.watchPosts((list) => { state.posts = list; refreshPosts(); }),
+      Api.watchReplies((list) => { state.replies = list; refreshPosts(); }),
+      Api.watchPresence((map) => { state.presence = map; refreshPresence(); })
     ];
+    beat(true);
+    beatTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') beat(true);
+      refreshPresence();
+    }, BEAT_MS);
   }
 
   // ---------- 登入畫面 ----------
   function renderLogin(error) {
+    renderedTab = null;
     $app.innerHTML = `
-      <main class="login">
-        <div class="login-mark" aria-hidden="true">家</div>
-        <h1>鍾家大宅</h1>
-        <p class="login-sub">行程、雜記、通訊錄、聊天，都在這裡。</p>
-        <form id="login-form" novalidate>
-          <label>電子郵件
-            <input type="email" name="email" autocomplete="username" inputmode="email" autocapitalize="off" required>
-          </label>
-          <label>密碼
-            <input type="password" name="password" autocomplete="current-password" required>
-          </label>
-          ${error ? `<p class="form-error" role="alert">${esc(error)}</p>` : ''}
-          <button class="btn primary" type="submit">登入</button>
-        </form>
-        ${Api.isDemo ? '<p class="demo-note">目前是示範模式：直接按「登入」即可試用，資料只存在這台裝置。</p>' : ''}
-      </main>`;
+      <div class="scroller">
+        <main class="login">
+          <div class="login-mark" aria-hidden="true">家</div>
+          <h1>鍾家大宅</h1>
+          <p class="login-sub">行程、聊天、雜記，都在這裡。</p>
+          <form id="login-form" novalidate>
+            <label>電子郵件
+              <input type="email" name="email" autocomplete="username" inputmode="email" autocapitalize="off" required>
+            </label>
+            <label>密碼
+              <input type="password" name="password" autocomplete="current-password" required>
+            </label>
+            ${error ? `<p class="form-error" role="alert">${esc(error)}</p>` : ''}
+            <button class="btn primary" type="submit">登入</button>
+          </form>
+          ${Api.isDemo ? '<p class="demo-note">目前是示範模式：直接按「登入」即可試用，資料只存在這台裝置。</p>' : ''}
+        </main>
+      </div>`;
   }
 
   async function onLogin(form) {
@@ -202,34 +287,59 @@
   const ICON = {
     cal: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
     chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/></svg>',
+    posts: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l7 4.5v-13L7 10zM17.500 9.500a4 4 0 0 1 0 5M7.500 14l1 5h2.500"/></svg>',
     notes: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3.5h8l4 4v11a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2z"/><path d="M14.5 3.5v4h4M8.5 12h7M8.5 16h5"/></svg>',
-    contacts: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="2.5"/><circle cx="12" cy="10" r="2.5"/><path d="M8 17c.6-2 2.1-3 4-3s3.400 1 4 3M3 8h2M3 12h2M3 16h2"/></svg>',
-    me: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="4"/><path d="M4.500 20c1-4 4-5.500 7.500-5.500s6.500 1.500 7.500 5.500"/></svg>'
+    me: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h10M18 17h2"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="16" cy="17" r="2"/></svg>',
+    search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.500"/><path d="M16 16l4.500 4.500"/></svg>',
+    send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M12.500 6l6 6-6 6"/></svg>',
+    phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.500 4h3l1.500 4-2 1.500a11 11 0 0 0 5.500 5.500l1.500-2 4 1.500v3a2 2 0 0 1-2 2A15.500 15.500 0 0 1 4.500 6a2 2 0 0 1 2-2z"/></svg>'
   };
-  const FAB_LABEL = { cal: '新增行程', notes: '新增雜記', contacts: '新增聯絡人' };
+  const TABS = [['cal', '月曆'], ['chat', '聊天'], ['posts', '我有話要說'], ['notes', '雜記'], ['me', '設定']];
+  const FAB_LABEL = { cal: '新增行程', posts: '我有話要說', notes: '新增雜記' };
 
   const hasUnread = () => state.messages.some((m) => m.sender !== state.userId && m.sent_at > state.lastRead);
+  const repliedBy = (post, uid) => state.replies.some((r) => r.post_id === post.id && r.author === uid);
+  const waitingForMe = () => state.posts.some((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId));
+  const badge = (tab) => (tab === 'chat' ? hasUnread() : tab === 'posts' ? waitingForMe() : false);
+
+  function refreshBadges() {
+    TABS.forEach(([id]) => {
+      const el = document.querySelector('.tab[data-tab="' + id + '"]');
+      if (el) el.classList.toggle('unread', badge(id));
+    });
+  }
+
+  let renderedTab = null;
+  const scroller = () => document.getElementById('scroller');
 
   function render() {
     if (!state.userId) return;
-    const focusId = document.activeElement && document.activeElement.id;
-    const views = { cal: viewCalendar, chat: viewChat, notes: viewNotes, contacts: viewContacts, me: viewMe };
-    const tab = (id, label) => `
-      <button class="tab ${state.tab === id ? 'on' : ''} ${id === 'chat' && hasUnread() ? 'unread' : ''}" data-act="tab" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ''}>
-        ${ICON[id]}<span>${label}</span>
-      </button>`;
+    const active = document.activeElement;
+    const focusId = active && /^(INPUT|TEXTAREA)$/.test(active.tagName) && !$sheet.contains(active) ? active.id : '';
+    const sameTab = renderedTab === state.tab;
+    const keepTop = sameTab && scroller() ? scroller().scrollTop : 0;
+    const views = { cal: viewCalendar, chat: viewChat, posts: viewPosts, notes: viewNotes, me: viewMe };
+
     $app.innerHTML = `
-      <div class="screen ${state.tab === 'chat' ? 'chat-screen' : ''}">${views[state.tab]()}</div>
+      <div class="scroller" id="scroller"><div class="screen">${views[state.tab]()}</div></div>
+      ${state.tab === 'chat' && !state.chatSearch ? `
+        <form class="chat-bar" id="chat-form">
+          <input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息">
+          <button type="submit" class="send" aria-label="傳送">${ICON.send}</button>
+        </form>` : ''}
       ${FAB_LABEL[state.tab] ? `<button class="fab" data-act="new" aria-label="${FAB_LABEL[state.tab]}">＋</button>` : ''}
       <nav class="tabbar" aria-label="主選單">
-        ${tab('cal', '月曆')}${tab('chat', '聊天')}${tab('notes', '雜記')}${tab('contacts', '通訊錄')}${tab('me', '我')}
+        ${TABS.map(([id, label]) => `
+          <button class="tab ${state.tab === id ? 'on' : ''} ${badge(id) ? 'unread' : ''}" data-act="tab" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ''}>
+            ${ICON[id]}<span>${label}</span>
+          </button>`).join('')}
       </nav>`;
-    // 重畫後把輸入焦點放回原本的欄位（聊天輸入框、通訊錄搜尋）
-    if (focusId === 'chat-input' || focusId === 'contact-q') {
-      const el = document.getElementById(focusId);
-      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-    }
-    if (state.tab === 'chat') scrollChat();
+    renderedTab = state.tab;
+
+    // 重畫後恢復捲動位置與輸入焦點
+    if (state.tab === 'chat' && !sameTab) scrollChat(); else scroller().scrollTop = keepTop;
+    const el = focusId && document.getElementById(focusId);
+    if (el) { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) { /* 某些欄位不支援 */ } }
   }
 
   // ---------- 月曆 ----------
@@ -241,7 +351,8 @@
   }
 
   function viewCalendar() {
-    return calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming());
+    return `<section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>`
+      + calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming());
   }
 
   function viewMonth() {
@@ -315,15 +426,16 @@
 
   function eventRow(e, showDate) {
     const cat = CATEGORIES[e.category];
-    return `
-      <button class="event" data-act="edit-event" data-id="${esc(e.id)}" data-date="${e.event_date}" style="--cat:${cat.color}">
+    const inner = `
         <span class="event-time">${timeHtml(e, showDate)}</span>
         <span class="event-main">
           <span class="event-title">${esc(e.title)}</span>
-          <span class="event-meta"><span class="cat">${cat.label}</span>${e.series ? '<span class="rep">每週</span>' : ''}${whoHtml(e)}</span>
+          <span class="event-meta"><span class="cat">${cat.label}</span>${e.series ? '<span class="rep">每週</span>' : ''}${e.readonly ? '' : whoHtml(e)}</span>
           ${e.note ? `<span class="event-note">${esc(e.note)}</span>` : ''}
-        </span>
-      </button>`;
+        </span>`;
+    // 生日是自動產生的，不能點開編輯
+    if (e.readonly) return `<div class="event" style="--cat:${cat.color}">${inner}</div>`;
+    return `<button class="event" data-act="edit-event" data-id="${esc(e.id)}" data-date="${e.event_date}" style="--cat:${cat.color}">${inner}</button>`;
   }
 
   function viewUpcoming() {
@@ -369,10 +481,34 @@
   }
 
   // ---------- 聊天 ----------
+  // 把符合搜尋字的部分標出來
+  function markText(text, q) {
+    if (!q) return esc(text);
+    const lower = text.toLowerCase(), needle = q.toLowerCase();
+    let out = '', i = 0;
+    for (;;) {
+      const hit = lower.indexOf(needle, i);
+      if (hit < 0) break;
+      out += esc(text.slice(i, hit)) + '<mark>' + esc(text.slice(hit, hit + q.length)) + '</mark>';
+      i = hit + q.length;
+    }
+    return out + esc(text.slice(i));
+  }
+
+  const canRecall = (m) => m.sender === state.userId && !m.recalled && Date.now() - m.sent_at < RECALL_MS;
+
   function chatListHtml() {
-    if (!state.messages.length) return '<div class="empty big"><p>還沒有訊息。說聲嗨吧。</p></div>';
-    let html = '', lastDay = '', lastSender = '';
-    state.messages.forEach((m) => {
+    const q = state.chatSearch ? state.chatQuery.trim() : '';
+    if (state.chatSearch && !q) return '<div class="empty big"><p>輸入關鍵字，搜尋最近 300 則訊息。</p></div>';
+    const list = q
+      ? state.messages.filter((m) => !m.recalled && m.text.toLowerCase().includes(q.toLowerCase()))
+      : state.messages;
+    if (q && !list.length) return '<div class="empty big"><p>找不到含有「' + esc(q) + '」的訊息。</p></div>';
+    if (!list.length) return '<div class="empty big"><p>還沒有訊息。說聲嗨吧。</p></div>';
+
+    let html = q ? `<p class="found">找到 ${list.length} 則</p>` : '';
+    let lastDay = '', lastSender = '';
+    list.forEach((m) => {
       const day = ymd(new Date(m.sent_at));
       if (day !== lastDay) {
         const n = daysBetween(day, today());
@@ -380,12 +516,16 @@
         lastDay = day; lastSender = '';
       }
       const mine = m.sender === state.userId;
-      const who = member(m.sender);
-      const showName = !mine && m.sender !== lastSender;
+      const showName = !mine && (q || m.sender !== lastSender);
+      let bubble;
+      if (m.recalled) bubble = `<div class="bubble recalled">${mine ? '你' : esc(nameOf(m.sender))}收回了訊息</div>`;
+      else if (!q && canRecall(m)) bubble = `<button class="bubble" data-act="msg-menu" data-id="${esc(m.id)}" aria-label="${esc(m.text)}，點一下可以收回">${esc(m.text)}</button>`;
+      else bubble = `<div class="bubble">${markText(m.text, q)}</div>`;
       html += `
-        <div class="msg ${mine ? 'mine' : ''}" style="--who:${esc(who ? who.color : '#7A847F')}">
-          ${showName ? `<div class="msg-name">${esc(who ? who.display_name : '已離開的成員')}</div>` : ''}
-          <div class="msg-row"><div class="bubble">${esc(m.text)}</div><time>${clock(m.sent_at)}</time></div>
+        <div class="msg ${mine ? 'mine' : ''}" style="--who:${esc(colorOf(m.sender))}">
+          ${showName ? `<div class="msg-name">${esc(nameOf(m.sender))}</div>` : ''}
+          <div class="msg-row">${bubble}<time>${clock(m.sent_at)}</time></div>
+          ${state.menuMsg === m.id && canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回這則訊息</button>` : ''}
         </div>`;
       lastSender = m.sender;
     });
@@ -394,17 +534,22 @@
 
   function viewChat() {
     return `
-      <header class="plain-head"><h1>聊天</h1><p>全家四個人</p></header>
-      <div class="chat" id="chat-list" aria-live="polite">${chatListHtml()}</div>
-      <form class="chat-bar" id="chat-form">
-        <input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息">
-        <button type="submit" class="send" aria-label="傳送">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M12.500 6l6 6-6 6"/></svg>
-        </button>
-      </form>`;
+      <header class="plain-head with-action">
+        <h1>聊天</h1><p>全家 ${state.members.length} 個人</p>
+        <button class="icon-btn ${state.chatSearch ? 'on' : ''}" data-act="chat-search" aria-label="${state.chatSearch ? '關閉搜尋' : '搜尋訊息'}" aria-pressed="${state.chatSearch}">${ICON.search}</button>
+      </header>
+      ${state.chatSearch ? `<input id="chat-q" class="search" type="search" placeholder="搜尋訊息" value="${esc(state.chatQuery)}" autocomplete="off" aria-label="搜尋訊息">` : ''}
+      <div class="chat" id="chat-list" aria-live="polite">${chatListHtml()}</div>`;
   }
 
-  function scrollChat() { window.scrollTo(0, document.documentElement.scrollHeight); }
+  function scrollChat() { const s = scroller(); if (s) s.scrollTop = s.scrollHeight; }
+
+  function refreshChat(toBottom) {
+    const el = document.getElementById('chat-list');
+    if (!el) return;
+    el.innerHTML = chatListHtml();
+    if (toBottom) scrollChat();
+  }
 
   function markRead() {
     const last = state.messages[state.messages.length - 1];
@@ -414,14 +559,14 @@
   }
 
   function onMessages(list) {
+    const grew = list.length !== state.messages.length
+      || (list.length && state.messages.length && list[list.length - 1].id !== state.messages[state.messages.length - 1].id);
     state.messages = list;
     if (state.tab === 'chat' && document.visibilityState === 'visible') {
       markRead();
-      const el = document.getElementById('chat-list');
-      if (el) { el.innerHTML = chatListHtml(); scrollChat(); }
+      refreshChat(grew && !state.chatSearch);
     }
-    const tabEl = document.querySelector('.tab[data-tab="chat"]');
-    if (tabEl) tabEl.classList.toggle('unread', hasUnread());
+    refreshBadges();
   }
 
   async function onSend(form) {
@@ -438,18 +583,102 @@
     }
   }
 
+  async function onRecall(id) {
+    state.menuMsg = null;
+    try { await Api.recallMessage(id); toast('已收回'); }
+    catch (e) {
+      console.error(e);
+      refreshChat(false);
+      toast('收回失敗：超過一小時的訊息不能收回');
+    }
+  }
+
+  // ---------- 我有話要說 ----------
+  function postListHtml() {
+    if (!state.posts.length) return `
+      <div class="empty big">
+        <p>還沒有人發話。有事要某個人回答時，從這裡說。</p>
+        <button class="link-btn" data-act="new">我有話要說</button>
+      </div>`;
+    return state.posts.slice().sort((a, b) => b.created_at - a.created_at).map((p) => {
+      const mine = p.author === state.userId;
+      const tagged = p.to.includes(state.userId);
+      const needsMe = tagged && !repliedBy(p, state.userId);
+      const replies = state.replies.filter((r) => r.post_id === p.id);
+      const author = member(p.author);
+      return `
+        <article class="post ${needsMe ? 'needs' : ''}">
+          <header>
+            ${author ? avatarHtml(author, 'sm') : ''}
+            <b>${esc(nameOf(p.author))}</b>
+            <time>${stamp(p.created_at)}</time>
+            ${needsMe ? '<span class="flag">等你回覆</span>' : ''}
+          </header>
+          <p class="post-text">${esc(p.text)}</p>
+          <div class="post-to">給
+            ${p.to.map((id) => `<span class="who ${repliedBy(p, id) ? 'done' : ''}" style="--who:${esc(colorOf(id))}">${esc(nameOf(id))}${repliedBy(p, id) ? ' ✓' : ''}</span>`).join('')}
+          </div>
+          ${replies.map((r) => `
+            <div class="reply" style="--who:${esc(colorOf(r.author))}">
+              <b>${esc(nameOf(r.author))}</b><span>${esc(r.text)}</span><time>${stamp(r.created_at)}</time>
+            </div>`).join('')}
+          ${tagged ? `
+            <form class="reply-form" data-post="${esc(p.id)}">
+              <input id="reply-${esc(p.id)}" name="text" type="text" placeholder="回覆${esc(nameOf(p.author))}" value="${esc(state.postDrafts[p.id] || '')}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="回覆">
+              <button type="submit" class="send sm" aria-label="送出回覆">${ICON.send}</button>
+            </form>` : ''}
+          ${mine ? `<button class="link-btn del" data-act="del-post" data-id="${esc(p.id)}">刪除</button>` : ''}
+        </article>`;
+    }).join('');
+  }
+
+  function viewPosts() {
+    return `
+      <header class="plain-head"><h1>我有話要說</h1><p>被標註的人才能回覆</p></header>
+      <div id="post-list">${postListHtml()}</div>`;
+  }
+
+  function refreshPosts() {
+    refreshBadges();
+    const el = document.getElementById('post-list');
+    if (!el) return;
+    const active = document.activeElement;
+    const focusId = active && el.contains(active) ? active.id : '';
+    el.innerHTML = postListHtml();
+    const again = focusId && document.getElementById(focusId);
+    if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+  }
+
+  async function onReply(form) {
+    const postId = form.dataset.post;
+    const input = form.elements.text;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = ''; delete state.postDrafts[postId];
+    try { await Api.addReply(postId, text); }
+    catch (e) {
+      console.error(e);
+      state.postDrafts[postId] = text; input.value = text;
+      toast('回覆沒有送出，請再試一次');
+    }
+  }
+
+  async function onDeletePost(btn) {
+    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = '再按一次確定刪除'; return; }
+    btn.disabled = true;
+    try { await Api.deletePost(btn.dataset.id); toast('已刪除'); }
+    catch (e) { console.error(e); btn.disabled = false; toast('刪除失敗，請再試一次'); }
+  }
+
   // ---------- 雜記 ----------
   function viewNotes() {
-    const cards = state.notes.map((n) => {
-      const who = member(n.updated_by);
-      return `
+    const cards = state.notes.map((n) => `
         <button class="note ${n.pinned ? 'pinned' : ''}" data-act="edit-note" data-id="${esc(n.id)}">
           ${n.pinned ? '<span class="pin">置頂</span>' : ''}
           <span class="note-title">${esc(n.title || '（沒有標題）')}</span>
           ${n.body ? `<span class="note-body">${esc(n.body)}</span>` : ''}
-          <span class="note-meta">${who ? esc(who.display_name) + '　' : ''}${stamp(n.updated_at)}</span>
-        </button>`;
-    }).join('');
+          <span class="note-meta">${member(n.updated_by) ? esc(nameOf(n.updated_by)) + '　' : ''}${stamp(n.updated_at)}</span>
+        </button>`).join('');
     return `
       <header class="plain-head"><h1>雜記</h1><p>全家都看得到</p></header>
       ${cards ? `<div class="notes">${cards}</div>` : `
@@ -459,81 +688,58 @@
         </div>`}`;
   }
 
-  // ---------- 通訊錄 ----------
-  function contactListHtml() {
-    const q = state.contactQuery.trim().toLowerCase();
-    const list = state.contacts.filter((c) =>
-      !q || [c.name, c.phone, c.group, c.note, c.address].join(' ').toLowerCase().includes(q));
-    if (!state.contacts.length) return `
-      <div class="empty big">
-        <p>通訊錄是空的。親戚、老師、診所的電話都可以存在這裡。</p>
-        <button class="link-btn" data-act="new">新增聯絡人</button>
-      </div>`;
-    if (!list.length) return '<div class="empty big"><p>找不到符合的聯絡人。</p></div>';
-    const groups = CONTACT_GROUPS.concat(list.map((c) => c.group).filter((g) => !CONTACT_GROUPS.includes(g)));
-    return Array.from(new Set(groups)).map((g) => {
-      const rows = list.filter((c) => c.group === g);
-      if (!rows.length) return '';
-      return `
-        <section class="contact-group">
-          <h2>${esc(g)}</h2>
-          ${rows.map((c) => `
-            <div class="contact">
-              <button class="contact-main" data-act="edit-contact" data-id="${esc(c.id)}">
-                <span class="contact-name">${esc(c.name)}</span>
-                <span class="contact-sub">${esc([c.phone, c.note].filter(Boolean).join('　'))}</span>
-              </button>
-              ${c.phone ? `<a class="call" href="tel:${esc(c.phone.replace(/[^\d+#*]/g, ''))}" aria-label="撥打給${esc(c.name)}">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.500 4h3l1.500 4-2 1.500a11 11 0 0 0 5.500 5.500l1.500-2 4 1.500v3a2 2 0 0 1-2 2A15.500 15.500 0 0 1 4.500 6a2 2 0 0 1 2-2z"/></svg>
-              </a>` : ''}
-            </div>`).join('')}
-        </section>`;
-    }).join('');
+  // ---------- 設定 ----------
+  function birthdayText(b) {
+    if (!b) return '';
+    const [, m, d] = b.split('-').map(Number);
+    return m + '月' + d + '日';
   }
 
-  function viewContacts() {
-    return `
-      <header class="plain-head"><h1>通訊錄</h1><p>${state.contacts.length} 位</p></header>
-      ${state.contacts.length ? `<input id="contact-q" class="search" type="search" placeholder="搜尋姓名或電話" value="${esc(state.contactQuery)}" autocomplete="off" aria-label="搜尋聯絡人">` : ''}
-      <div id="contact-list">${contactListHtml()}</div>`;
-  }
-
-  // ---------- 我 ----------
   function viewMe() {
-    const m = me();
     return `
-      <header class="plain-head"><h1>${esc(m.display_name)}</h1><p>已登入</p></header>
+      <header class="plain-head"><h1>設定</h1><p>${esc(me().display_name)}已登入</p></header>
       <section class="card-list">
-        <h2>家庭成員</h2>
-        ${state.members.map((x) => `
-          <div class="member">
-            <span class="avatar" style="background:${esc(x.color)}">${esc(x.display_name.slice(0, 1))}</span>
-            <span>${esc(x.display_name)}</span>
-            ${x.id === state.userId ? '<em>這是你</em>' : ''}
-          </div>`).join('')}
+        <h2>家庭成員<small>點名字可以編輯基本資料</small></h2>
+        ${state.members.map((m) => {
+          const p = state.profiles[m.id] || {};
+          const facts = [p.birthday ? '生日 ' + birthdayText(p.birthday) : '', p.phone, p.org].filter(Boolean);
+          return `
+            <div class="member">
+              <button class="member-main" data-act="edit-profile" data-id="${esc(m.id)}">
+                ${avatarHtml(m)}
+                <span class="member-text">
+                  <span class="member-name">${esc(m.display_name)}${m.id === state.userId ? '<em>這是你</em>' : ''}</span>
+                  <span class="member-sub">${facts.length ? esc(facts.join('　')) : '還沒填基本資料'}</span>
+                  <span class="member-status ${isOnline(m.id) ? 'on' : ''}">${statusText(m.id)}</span>
+                </span>
+              </button>
+              ${p.phone ? `<a class="call" href="${esc(telHref(p.phone))}" aria-label="撥打給${esc(m.display_name)}">${ICON.phone}</a>` : ''}
+            </div>`;
+        }).join('')}
       </section>
       ${Api.isDemo ? '<p class="demo-note">示範模式：資料只存在這台裝置。設定 Firebase 後，全家才會看到同一份資料。</p>' : ''}
       <button class="btn ghost" data-act="logout">登出</button>`;
   }
 
-  // ---------- 表單面板（新增／編輯共用外框） ----------
-  function showSheet(formId, isNew, body, footer) {
+  // ---------- 表單面板（共用外框） ----------
+  // opts: { title, submit, body, footer }；footer 是放在最下面的按鈕（例如刪除）
+  function showSheet(formId, opts) {
     $sheet.innerHTML = `
       <div class="backdrop" data-act="close"></div>
-      <form class="sheet" id="${formId}" role="dialog" aria-modal="true" aria-label="${isNew ? '新增' : '編輯'}" novalidate>
+      <form class="sheet" id="${formId}" role="dialog" aria-modal="true" aria-label="${esc(opts.title)}" novalidate>
         <div class="sheet-head">
           <button type="button" class="link-btn" data-act="close">取消</button>
-          <strong>${isNew ? '新增' : '編輯'}</strong>
-          <button type="submit" class="link-btn strong">儲存</button>
+          <strong>${esc(opts.title)}</strong>
+          <button type="submit" class="link-btn strong">${opts.submit || '儲存'}</button>
         </div>
         <div class="sheet-body">
-          ${body}
+          ${opts.body}
           <p class="form-error" id="form-error" role="alert" hidden></p>
-          ${isNew ? '' : (footer || '<button type="button" class="btn danger" data-act="delete">刪除</button>')}
+          ${opts.footer || ''}
         </div>
       </form>`;
     document.body.classList.add('sheet-open');
-    if (isNew) setTimeout(() => { const i = $sheet.querySelector('.title-input'); if (i) i.focus(); }, 60);
+    if (opts.focus) setTimeout(() => { const i = $sheet.querySelector('.title-input'); if (i) i.focus(); }, 60);
   }
 
   function closeSheet() {
@@ -541,7 +747,8 @@
     document.body.classList.remove('sheet-open');
   }
 
-  let sheetOccurrence = null;   // 從哪一天的場次打開重複行程（用來「只取消這一天」）
+  const DELETE_BTN = '<button type="button" class="btn danger" data-act="delete">刪除</button>';
+  let sheetOccurrence = null;   // 從哪一天的場次打開重複行程（用來「只取消這一次」）
 
   function openEventSheet(ev, occDate) {
     sheetOccurrence = ev && ev.repeat ? occDate : null;
@@ -551,13 +758,15 @@
       end_date: null, start_time: null, end_time: null, member_ids: [], note: ''
     };
     const allDay = !e.start_time;
-    showSheet('event-form', !ev, `
+    showSheet('event-form', {
+      title: ev ? '編輯' : '新增', focus: !ev,
+      body: `
       <input type="hidden" name="item_id" value="${esc(e.id || '')}">
       <input class="title-input" name="title" placeholder="要做什麼？" value="${esc(e.title)}" maxlength="80" autocomplete="off">
 
       <fieldset class="seg">
         <legend>類型</legend>
-        ${Object.keys(CATEGORIES).map((k) => `
+        ${EVENT_CATS.map((k) => `
           <label style="--cat:${CATEGORIES[k].color}">
             <input type="radio" name="category" value="${k}" ${e.category === k ? 'checked' : ''}>
             <span>${CATEGORIES[k].label}</span>
@@ -601,46 +810,67 @@
       </fieldset>
 
       <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="範圍、地點、要帶的東西…">${esc(e.note || '')}</textarea></label>`,
-      weekly ? `
+      footer: !ev ? '' : weekly ? `
         ${occDate ? `<button type="button" class="btn ghost skip" data-act="skip-day">只取消 ${shortDate(occDate)} 這一次</button>` : ''}
-        <button type="button" class="btn danger" data-act="delete">刪除全部重複行程</button>` : '');
+        <button type="button" class="btn danger" data-act="delete">刪除全部重複行程</button>` : DELETE_BTN
+    });
     $sheet.querySelector('form').dataset.skips = JSON.stringify((ev && ev.skip_dates) || []);
   }
 
   function openNoteSheet(note) {
     const n = note || { title: '', body: '', pinned: false };
-    showSheet('note-form', !note, `
+    showSheet('note-form', {
+      title: note ? '編輯' : '新增', focus: !note, footer: note ? DELETE_BTN : '',
+      body: `
       <input type="hidden" name="item_id" value="${esc(n.id || '')}">
       <input class="title-input" name="title" placeholder="標題" value="${esc(n.title)}" maxlength="100" autocomplete="off">
       <label>內容<textarea name="body" rows="9" maxlength="20000" placeholder="想記下來的事…">${esc(n.body)}</textarea></label>
       <label class="switch">
         <span>置頂</span>
         <input type="checkbox" name="pinned" ${n.pinned ? 'checked' : ''}>
-      </label>`);
+      </label>`
+    });
   }
 
-  function openContactSheet(contact) {
-    const c = contact || { name: '', group: '其他', phone: '', address: '', note: '' };
-    showSheet('contact-form', !contact, `
-      <input type="hidden" name="item_id" value="${esc(c.id || '')}">
-      <input class="title-input" name="name" placeholder="姓名或稱呼" value="${esc(c.name)}" maxlength="60" autocomplete="off">
-      <fieldset class="seg">
-        <legend>分類</legend>
-        ${CONTACT_GROUPS.map((g) => `
-          <label style="--cat:var(--green)">
-            <input type="radio" name="group" value="${g}" ${c.group === g ? 'checked' : ''}>
-            <span>${g}</span>
+  function openPostSheet() {
+    const others = state.members.filter((m) => m.id !== state.userId);
+    showSheet('post-form', {
+      title: '我有話要說', submit: '送出', focus: true,
+      body: `
+      <textarea class="title-input" name="text" rows="4" maxlength="2000" placeholder="想說什麼？"></textarea>
+      <fieldset class="people">
+        <legend>要給誰？<small>只有被選到的人可以回覆</small></legend>
+        ${others.map((m) => `
+          <label style="--who:${esc(m.color)}">
+            <input type="checkbox" name="to" value="${esc(m.id)}">
+            <span>${esc(m.display_name)}</span>
           </label>`).join('')}
-      </fieldset>
-      <label>電話<input type="tel" name="phone" value="${esc(c.phone)}" maxlength="30" autocomplete="off" inputmode="tel"></label>
-      <label>地址<input type="text" name="address" value="${esc(c.address)}" maxlength="200" autocomplete="off"></label>
-      <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="關係、方便聯絡的時間…">${esc(c.note)}</textarea></label>`);
+      </fieldset>`
+    });
   }
 
-  // 每種表單：怎麼讀欄位、怎麼驗證、存到哪、存完重新載入什麼
+  function openProfileSheet(id) {
+    const m = member(id);
+    const p = state.profiles[id] || {};
+    showSheet('profile-form', {
+      title: m.display_name + '的基本資料',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(id)}">
+      <label>生日<input type="date" name="birthday" value="${esc(p.birthday || '')}" max="${today()}"></label>
+      <label>電話<input type="tel" name="phone" value="${esc(p.phone || '')}" maxlength="30" autocomplete="off" inputmode="tel"></label>
+      <label>學校或公司<input type="text" name="org" value="${esc(p.org || '')}" maxlength="60" autocomplete="off"></label>
+      <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="血型、過敏、班級座號…">${esc(p.note || '')}</textarea></label>
+      <p class="hint">填了生日，月曆上每年會自動出現。填了電話，設定頁可以直接撥打。</p>`
+    });
+  }
+
+  const checkedValues = (form, name) =>
+    Array.from(form.querySelectorAll('input[name="' + name + '"]:checked')).map((i) => i.value);
+
+  // 每種表單：怎麼讀欄位、怎麼驗證、存到哪、存完做什麼
   const FORMS = {
     'event-form': {
-      read(f) {
+      read(f, form) {
         const allDay = f.all_day.checked;
         const ev = {
           id: f.item_id.value || null,
@@ -650,14 +880,14 @@
           end_date: f.end_date.value || f.event_date.value,
           start_time: allDay ? null : (f.start_time.value || null),
           end_time: allDay ? null : (f.end_time.value || null),
-          member_ids: Array.from(f.member.length === undefined ? [f.member] : f.member).filter((i) => i.checked).map((i) => i.value),
+          member_ids: checkedValues(form, 'member'),
           note: f.note.value.trim()
         };
         if (!ev.start_time) ev.end_time = null;
         if (f.weekly.checked) {
           ev.repeat = 'weekly';
-          ev.repeat_days = Array.from(f.weekday).filter((i) => i.checked).map((i) => Number(i.value));
-          ev.skip_dates = JSON.parse(f.item_id.form.dataset.skips || '[]');
+          ev.repeat_days = checkedValues(form, 'weekday').map(Number);
+          ev.skip_dates = JSON.parse(form.dataset.skips || '[]');
         }
         return ev;
       },
@@ -696,12 +926,18 @@
       remove: (id) => Api.deleteNote(id),
       after: () => loadNotes()
     },
-    'contact-form': {
-      read: (f) => ({ id: f.item_id.value || null, name: f.name.value.trim(), group: f.group.value, phone: f.phone.value.trim(), address: f.address.value.trim(), note: f.note.value.trim() }),
-      check: (c) => (!c.name ? '請輸入姓名或稱呼' : null),
-      save: (x) => Api.saveContact(x),
-      remove: (id) => Api.deleteContact(id),
-      after: () => loadContacts()
+    'post-form': {
+      done: '已送出',
+      read: (f, form) => ({ text: f.text.value.trim(), to: checkedValues(form, 'to') }),
+      check: (p) => (!p.text ? '請寫下想說的話' : !p.to.length ? '請選擇要給誰' : null),
+      save: (x) => Api.addPost(x),
+      after: () => { const s = scroller(); if (s) s.scrollTop = 0; }
+    },
+    'profile-form': {
+      read: (f) => ({ id: f.item_id.value, birthday: f.birthday.value, phone: f.phone.value.trim(), org: f.org.value.trim(), note: f.note.value.trim() }),
+      check: (p) => (p.birthday && p.birthday > today() ? '生日不能是未來的日期' : null),
+      save: (p) => Api.saveProfile(p.id, p),
+      async after() { await loadProfiles(); await loadEvents(); render(); }
     }
   };
 
@@ -709,7 +945,7 @@
     const spec = FORMS[form.id];
     const err = form.querySelector('#form-error');
     const fail = (msg) => { err.textContent = msg; err.hidden = false; };
-    const item = spec.read(form.elements);
+    const item = spec.read(form.elements, form);
     const problem = spec.check(item, form.elements);
     if (problem) return fail(problem);
 
@@ -718,12 +954,12 @@
     try {
       await spec.save(item);
       closeSheet();
-      toast('已儲存');
+      toast(spec.done || '已儲存');
       await spec.after(item);
     } catch (e) {
       console.error(e);
       btn.disabled = false;
-      fail('儲存失敗，請確認網路後再試一次');
+      fail('沒有成功，請確認網路後再試一次');
     }
   }
 
@@ -748,8 +984,6 @@
       toast('刪除失敗，請再試一次');
     }
   }
-
-  const findById = (list, id) => list.find((x) => String(x.id) === id);
 
   // 重複行程：只取消某一次（把那天記進 skip_dates，其他場次不動）
   async function onSkipDay(btn) {
@@ -785,19 +1019,18 @@
     loadEvents();
   }
 
-
   document.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-act]');
     if (!el) return;
     const act = el.dataset.act;
     if (act === 'tab') {
       state.tab = el.dataset.tab;
+      state.menuMsg = null;
       if (state.tab === 'chat') markRead();
       render();
-      if (state.tab !== 'chat') window.scrollTo(0, 0);
       loadTab();
     }
-    else if (act === 'cal-view') { state.calView = el.dataset.view; render(); window.scrollTo(0, 0); }
+    else if (act === 'cal-view') { state.calView = el.dataset.view; render(); scroller().scrollTop = 0; }
     else if (act === 'prev') shiftMonth(-1);
     else if (act === 'next') shiftMonth(1);
     else if (act === 'today') { state.cursor = today().slice(0, 7); state.selected = today(); render(); loadEvents(); }
@@ -808,7 +1041,7 @@
     }
     else if (act === 'new') {
       if (state.tab === 'notes') openNoteSheet(null);
-      else if (state.tab === 'contacts') openContactSheet(null);
+      else if (state.tab === 'posts') openPostSheet();
       else openEventSheet(null);
     }
     else if (act === 'edit-event') {
@@ -817,13 +1050,25 @@
     }
     else if (act === 'skip-day') onSkipDay(el);
     else if (act === 'edit-note') { const n = findById(state.notes, el.dataset.id); if (n) openNoteSheet(n); }
-    else if (act === 'edit-contact') { const c = findById(state.contacts, el.dataset.id); if (c) openContactSheet(c); }
+    else if (act === 'edit-profile') openProfileSheet(el.dataset.id);
+    else if (act === 'chat-search') {
+      state.chatSearch = !state.chatSearch;
+      state.chatQuery = ''; state.menuMsg = null;
+      render();
+      if (state.chatSearch) document.getElementById('chat-q').focus(); else scrollChat();
+    }
+    else if (act === 'msg-menu') { state.menuMsg = state.menuMsg === el.dataset.id ? null : el.dataset.id; refreshChat(false); }
+    else if (act === 'recall') onRecall(el.dataset.id);
+    else if (act === 'del-post') onDeletePost(el);
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
     else if (act === 'logout') {
       stopWatching();
-      Api.signOut().then(() => {
-        Object.assign(state, { userId: null, tab: 'cal', messages: [], notes: [], contacts: [], draft: '' });
+      Api.beat(false).catch(() => {}).then(() => Api.signOut()).then(() => {
+        Object.assign(state, {
+          userId: null, tab: 'cal', messages: [], notes: [], posts: [], replies: [],
+          profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
+        });
         renderLogin();
       });
     }
@@ -831,18 +1076,19 @@
 
   document.addEventListener('submit', (ev) => {
     ev.preventDefault();
-    const id = ev.target.id;
-    if (id === 'login-form') onLogin(ev.target);
-    else if (id === 'chat-form') onSend(ev.target);
-    else if (FORMS[id]) onSave(ev.target);
+    const form = ev.target;
+    const id = form.getAttribute('id');
+    if (id === 'login-form') onLogin(form);
+    else if (id === 'chat-form') onSend(form);
+    else if (form.classList.contains('reply-form')) onReply(form);
+    else if (FORMS[id]) onSave(form);
   });
 
   document.addEventListener('input', (ev) => {
-    if (ev.target.id === 'chat-input') state.draft = ev.target.value;
-    if (ev.target.id === 'contact-q') {
-      state.contactQuery = ev.target.value;
-      document.getElementById('contact-list').innerHTML = contactListHtml();
-    }
+    const t = ev.target;
+    if (t.id === 'chat-input') state.draft = t.value;
+    else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
+    else if (t.form && t.form.classList.contains('reply-form')) state.postDrafts[t.form.dataset.post] = t.value;
   });
 
   document.addEventListener('change', (ev) => {
@@ -856,7 +1102,7 @@
       form.querySelector('#days-row').hidden = !on;
       form.querySelector('#end-label').textContent = on ? '重複到' : '結束日期';
       // 預設勾選開始日期那天的星期
-      if (on && f.event_date.value && !Array.from(f.weekday).some((i) => i.checked)) {
+      if (on && f.event_date.value && !checkedValues(form, 'weekday').length) {
         f.weekday[parse(f.event_date.value).getDay()].checked = true;
       }
     }
@@ -864,23 +1110,31 @@
 
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && $sheet.innerHTML) closeSheet(); });
 
-  // App 從背景回來時重新讀取目前的分頁
+  // App 切到背景時標成離線；回來時標成上線並重新讀取目前的分頁
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible' || !state.userId || $sheet.innerHTML) return;
-    if (state.tab === 'chat') { markRead(); render(); } else loadTab();
+    if (!state.userId) return;
+    const visible = document.visibilityState === 'visible';
+    beat(visible);
+    if (!visible || $sheet.innerHTML) return;
+    if (state.tab === 'chat') { markRead(); refreshChat(false); refreshBadges(); }
+    else loadTab();
   });
 
-  // 鍵盤彈出時，把聊天輸入列貼在鍵盤上方，並收起底部選單
-  if (window.visualViewport) {
+  // 整個 App 的高度跟著「看得到的範圍」走：鍵盤彈出時畫面縮短，
+  // 底部選單與輸入列永遠貼在可見範圍的最下方，不會跟著頁面捲動。
+  (function trackViewport() {
     const vv = window.visualViewport;
-    const onViewport = () => {
-      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      document.documentElement.style.setProperty('--kb', kb + 'px');
-      document.body.classList.toggle('kb-open', kb > 120);
+    const apply = () => {
+      const h = vv ? vv.height : window.innerHeight;
+      document.documentElement.style.setProperty('--vh', h + 'px');
+      document.body.classList.toggle('kb-open', window.innerHeight - h > 120);
+      if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
     };
-    vv.addEventListener('resize', onViewport);
-    vv.addEventListener('scroll', onViewport);
-  }
+    if (vv) { vv.addEventListener('resize', apply); vv.addEventListener('scroll', apply); }
+    window.addEventListener('resize', apply);
+    window.addEventListener('orientationchange', apply);
+    apply();
+  })();
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

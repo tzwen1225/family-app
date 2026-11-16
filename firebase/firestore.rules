@@ -43,6 +43,33 @@ service cloud.firestore {
         && d.sent_at is number;
     }
 
+    function validPost() {
+      let d = request.resource.data;
+      return d.text is string && d.text.size() >= 1 && d.text.size() <= 2000
+        && d.author == request.auth.uid
+        && d.to is list && d.to.size() >= 1 && d.to.size() <= 10
+        && d.created_at is number;
+    }
+
+    // 回覆：必須是被那則發言標註的人
+    function validReply() {
+      let d = request.resource.data;
+      return d.text is string && d.text.size() >= 1 && d.text.size() <= 2000
+        && d.author == request.auth.uid
+        && d.post_id is string
+        && d.created_at is number
+        && request.auth.uid in get(/databases/$(database)/documents/posts/$(d.post_id)).data.to;
+    }
+
+    // 收回訊息：只能收回自己的、送出一小時內的，而且只能清空內容
+    function validRecall() {
+      return resource.data.sender == request.auth.uid
+        && request.time.toMillis() - resource.data.sent_at < 3600000
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'recalled'])
+        && request.resource.data.recalled == true
+        && request.resource.data.text == '';
+    }
+
     // 成員名單：只能在 Firebase 後台手動維護
     match /members/{uid} {
       allow read: if isFamily();
@@ -61,17 +88,44 @@ service cloud.firestore {
       allow create, update: if isFamily() && validNote();
     }
 
-    // 通訊錄
+    // 通訊錄（App 已不再使用，保留規則讓舊資料還讀得到）
     match /contacts/{id} {
       allow read, delete: if isFamily();
       allow create, update: if isFamily() && validContact();
     }
 
-    // 聊天室：只能以自己的名義發言，送出後不能修改或刪除
+    // 聊天室：只能以自己的名義發言；一小時內可以收回，不能刪除
     match /messages/{id} {
       allow read: if isFamily();
       allow create: if isFamily() && validMessage();
+      allow update: if isFamily() && validRecall();
+      allow delete: if false;
+    }
+
+    // 我有話要說：全家都看得到，只有發言的人可以刪除
+    match /posts/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily() && validPost();
+      allow delete: if isFamily() && resource.data.author == request.auth.uid;
+      allow update: if false;
+    }
+    match /replies/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily() && validReply();
       allow update, delete: if false;
+    }
+
+    // 成員基本資料：家人可以互相編輯，但只能建立在現有成員名下
+    match /profiles/{uid} {
+      allow read: if isFamily();
+      allow write: if isFamily()
+        && exists(/databases/$(database)/documents/members/$(uid));
+    }
+
+    // 上線狀態：每個人只能更新自己的
+    match /presence/{uid} {
+      allow read: if isFamily();
+      allow write: if isFamily() && uid == request.auth.uid;
     }
   }
 }

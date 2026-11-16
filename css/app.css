@@ -12,6 +12,8 @@
   --c-exam: #E67E00;
   --c-family: #1F8A5F;
   --c-other: #7A847F;
+  --c-birthday: #8A4FD0;
+  --online: #22A85A;
 
   --num: ui-rounded, "SF Pro Rounded", "PingFang TC", system-ui, sans-serif;
   --text: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
@@ -22,13 +24,23 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; height: 100%; }
+/* 版面：整頁本身不捲動，只有中間的 .scroller 會捲。
+   底部選單是版面的一部分（不是浮在上面），所以捲動或回彈時位置都不會動。 */
 body {
   margin: 0; background: var(--paper); color: var(--ink);
   font: 16px/1.5 var(--text);
-  overscroll-behavior-y: none;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden;
+  overscroll-behavior: none;
 }
-body.sheet-open { overflow: hidden; }
+#app {
+  position: absolute; top: 0; left: 0; right: 0; height: var(--vh, 100dvh);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.scroller {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+}
 h1, h2, p { margin: 0; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, label:focus-within > span {
@@ -38,12 +50,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, label:focus-w
 
 .screen {
   max-width: 520px; margin: 0 auto;
-  padding: calc(var(--safe-t) + 14px) 16px calc(var(--tabbar) + var(--safe-b) + 88px);
+  padding: calc(var(--safe-t) + 14px) 16px 96px;
 }
 
 /* ---------- 登入 ---------- */
 .login {
-  min-height: 100dvh; max-width: 400px; margin: 0 auto;
+  max-width: 400px; margin: 0 auto;
   padding: calc(var(--safe-t) + 56px) 24px 32px;
   display: flex; flex-direction: column;
 }
@@ -190,7 +202,7 @@ textarea { resize: vertical; }
 
 /* ---------- 底部選單與新增鈕 ---------- */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  flex: none; position: relative; z-index: 5;
   height: calc(var(--tabbar) + var(--safe-b)); padding-bottom: var(--safe-b);
   display: grid; grid-template-columns: repeat(5, 1fr);
   background: rgba(255, 255, 255, .94); border-top: 1px solid var(--line);
@@ -206,7 +218,7 @@ textarea { resize: vertical; }
 }
 
 .fab {
-  position: fixed; z-index: 6; right: max(16px, calc(50vw - 244px));
+  position: absolute; z-index: 6; right: max(16px, calc(50vw - 244px));
   bottom: calc(var(--tabbar) + var(--safe-b) + 16px);
   width: 58px; height: 58px; border-radius: 50%; background: var(--red); color: #fff;
   font-size: 30px; line-height: 1; display: grid; place-items: center;
@@ -215,10 +227,12 @@ textarea { resize: vertical; }
 .fab:active { transform: scale(.95); }
 
 /* ---------- 表單（由下往上的面板） ---------- */
-.backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(23, 35, 31, .45); animation: fade .18s ease-out; }
+#sheet-root { position: fixed; top: 0; left: 0; right: 0; height: var(--vh, 100dvh); z-index: 20; }
+#sheet-root:empty { display: none; }
+.backdrop { position: absolute; inset: 0; background: rgba(23, 35, 31, .45); animation: fade .18s ease-out; }
 .sheet {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-width: 520px; margin: 0 auto;
-  max-height: 92dvh; display: flex; flex-direction: column;
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; max-width: 520px; margin: 0 auto;
+  max-height: 92%; display: flex; flex-direction: column;
   background: var(--paper); border-radius: 20px 20px 0 0;
   animation: rise .24s cubic-bezier(.2, .8, .2, 1);
 }
@@ -284,7 +298,6 @@ legend small { margin-left: 8px; font-size: 12px; }
 .switcher button.on { background: var(--sheet); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(23, 35, 31, .12); }
 
 /* ---------- 聊天 ---------- */
-.screen.chat-screen { padding-bottom: calc(var(--tabbar) + var(--safe-b) + 76px); }
 .chat { padding-top: 6px; }
 .chat-day { text-align: center; font-size: 12px; color: var(--ink-2); margin: 16px 0 8px; }
 .msg { margin-top: 4px; display: flex; flex-direction: column; align-items: flex-start; }
@@ -301,7 +314,7 @@ legend small { margin-left: 8px; font-size: 12px; }
 .msg time { font: 400 11px/1.8 var(--num); color: var(--ink-2); flex: none; }
 
 .chat-bar {
-  position: fixed; z-index: 7; left: 0; right: 0; bottom: calc(var(--tabbar) + var(--safe-b));
+  flex: none;
   display: flex; gap: 8px; align-items: center; padding: 8px 12px;
   background: rgba(246, 248, 244, .96); border-top: 1px solid var(--line);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
@@ -313,7 +326,7 @@ legend small { margin-left: 8px; font-size: 12px; }
 }
 .send svg { width: 22px; height: 22px; fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 body.kb-open .tabbar { display: none; }
-body.kb-open .chat-bar { bottom: var(--kb, 0px); }
+body.kb-open .fab { display: none; }
 
 /* ---------- 雜記 ---------- */
 .notes { display: grid; gap: 10px; margin-top: 12px; }
@@ -331,20 +344,82 @@ body.kb-open .chat-bar { bottom: var(--kb, 0px); }
 }
 .note-meta { display: block; font-size: 12px; color: var(--ink-2); margin-top: 8px; }
 
-/* ---------- 通訊錄 ---------- */
+/* ---------- 共用：搜尋框、撥號鈕、頭像 ---------- */
 .search { margin: 10px 0 0; border-radius: 12px; }
-.contact-group { margin-top: 16px; background: var(--sheet); border-radius: 16px; padding: 4px 6px 4px 16px; }
-.contact-group h2 { font-size: 13px; font-weight: 500; color: var(--ink-2); padding: 10px 0 2px; }
-.contact { display: flex; align-items: center; gap: 8px; }
-.contact + .contact { border-top: 1px solid var(--line); }
-.contact-main { flex: 1; min-width: 0; text-align: left; padding: 11px 0; }
-.contact-name { display: block; font-weight: 600; overflow-wrap: anywhere; }
-.contact-sub { display: block; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
 .call {
   flex: none; width: 44px; height: 44px; border-radius: 50%; background: #E6F0EA;
   display: grid; place-items: center;
 }
 .call svg { width: 20px; height: 20px; fill: none; stroke: var(--green); stroke-width: 1.8; stroke-linejoin: round; }
+.avatar { position: relative; flex: none; }
+.avatar.sm { width: 28px; height: 28px; font-size: 13px; }
+.avatar.online::after {
+  content: ""; position: absolute; right: -2px; bottom: -2px; width: 11px; height: 11px;
+  border-radius: 50%; background: var(--online); box-shadow: 0 0 0 2px var(--sheet);
+}
+
+/* ---------- 首頁：家人上線狀態 ---------- */
+.presence {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+  background: var(--sheet); border-radius: 16px; padding: 12px 6px 10px; margin-bottom: 12px;
+}
+.pres { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; }
+.pres .avatar { opacity: .45; }
+.pres.on .avatar { opacity: 1; }
+.pres-name { font-size: 13px; font-weight: 600; margin-top: 5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pres-status { font-size: 11px; color: var(--ink-2); white-space: nowrap; }
+.pres.on .pres-status { color: var(--online); font-weight: 600; }
+
+/* ---------- 聊天：搜尋與收回 ---------- */
+.plain-head.with-action { align-items: center; }
+.plain-head.with-action .icon-btn { margin-left: auto; padding: 0; }
+.icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
+.icon-btn.on { background: var(--ink); color: #fff; }
+.found { font-size: 13px; color: var(--ink-2); margin-top: 10px; }
+button.bubble { text-align: left; font: inherit; }
+.bubble.recalled { background: none; border: 1px dashed var(--line); color: var(--ink-2); font-size: 14px; }
+.msg.mine .bubble.recalled { background: none; color: var(--ink-2); border: 1px dashed var(--line); }
+.bubble mark { background: #FFE08A; color: inherit; border-radius: 3px; padding: 0 1px; }
+.recall {
+  margin: 4px 0 6px; padding: 6px 14px; border-radius: 99px; font-size: 13px; font-weight: 600;
+  color: var(--red); background: #FFF6F6; border: 1px solid #F0C9CA; min-height: 36px;
+}
+
+/* ---------- 我有話要說 ---------- */
+.post {
+  margin-top: 12px; background: var(--sheet); border-radius: 16px; padding: 14px 16px 12px;
+  border-top: 4px solid var(--line);
+}
+.post.needs { border-top-color: var(--red); }
+.post header { display: flex; align-items: center; gap: 8px; }
+.post header time { font-size: 12px; color: var(--ink-2); }
+.flag { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--red); }
+.post-text { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 17px; }
+.post-to { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+.who.done { background: var(--who); color: #fff; }
+.reply {
+  margin-top: 10px; padding: 8px 12px; border-radius: 12px; background: var(--paper);
+  border-left: 3px solid var(--who); display: grid; grid-template-columns: 1fr auto; gap: 0 8px;
+}
+.reply b { font-size: 13px; color: var(--who); }
+.reply time { font-size: 11px; color: var(--ink-2); }
+.reply span { grid-column: 1 / -1; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reply-form { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.reply-form input { margin: 0; border-radius: 99px; padding: 10px 14px; background: var(--paper); }
+.send.sm { width: 42px; height: 42px; }
+.link-btn.del { color: var(--ink-2); font-size: 13px; min-height: 36px; margin-top: 4px; }
+.sheet textarea.title-input { font-size: 17px; font-weight: 400; }
+
+/* ---------- 設定：成員基本資料 ---------- */
+.card-list h2 small { margin-left: 8px; font-size: 12px; }
+.member-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left; }
+.member-text { min-width: 0; display: block; }
+.member-name { display: block; font-weight: 600; }
+.member-name em { margin-left: 8px; font-style: normal; font-weight: 400; font-size: 12px; color: var(--ink-2); }
+.member-sub { display: block; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.member-status { display: block; font-size: 12px; color: var(--ink-2); }
+.member-status.on { color: var(--online); font-weight: 600; }
+.hint { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
 
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { transform: translateY(40%); opacity: 0; } }

@@ -4,10 +4,13 @@
 //   category: 'schedule' 行程 | 'exam' 考試 | 'family' 家庭活動 | 'other' 其他
 //   日期 'YYYY-MM-DD'，時間 'HH:MM' 或 null（全天）；member_ids 空陣列代表「全家」
 //   每週重複的行程只存一筆，另有 repeat、repeat_days、skip_dates（見 cleanEvent）
-// 雜記 note：    { id, title, body, pinned, updated_at, updated_by }
-// 通訊錄 contact：{ id, name, group, phone, address, note }
-// 訊息 message： { id, text, sender, sent_at }
-//   updated_at、sent_at 是毫秒時間戳（Date.now()）
+// 雜記 note：     { id, title, body, pinned, updated_at, updated_by }
+// 訊息 message：  { id, text, sender, sent_at, recalled }
+// 我有話要說 post：{ id, text, author, to: [UID…], created_at }
+//   回覆 reply：  { id, post_id, text, author, created_at }
+// 基本資料 profile：{ id: UID, birthday, phone, org, note }
+// 上線狀態 presence：{ id: UID, last_seen, online }
+//   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
 
 (function () {
   const cfg = window.FAMILY_CONFIG || {};
@@ -32,17 +35,16 @@
     title: n.title || '', body: n.body || '', pinned: !!n.pinned,
     updated_at: Date.now(), updated_by: uid
   });
-  const cleanContact = (c) => ({
-    name: c.name, group: c.group || '其他', phone: c.phone || '',
-    address: c.address || '', note: c.note || ''
+  const cleanProfile = (p) => ({
+    birthday: p.birthday || '', phone: p.phone || '', org: p.org || '', note: p.note || ''
   });
   const byTime = (a, b) =>
     (a.event_date + (a.start_time || '')).localeCompare(b.event_date + (b.start_time || ''));
   const notesOrder = (a, b) => (b.pinned - a.pinned) || (b.updated_at - a.updated_at);
-  const byName = (a, b) => a.name.localeCompare(b.name, 'zh-Hant');
+  const toMap = (rows) => { const m = {}; rows.forEach((r) => { m[r.id] = r; }); return m; };
 
   // ---------- Firebase（Authentication + Firestore） ----------
-  // 集合：members/{UID}、events、notes、contacts、messages
+  // 集合：members/{UID}、events、notes、messages、posts、replies、profiles/{UID}、presence/{UID}
   function firebaseApi() {
     const F = window.FirebaseSDK;
     const app = F.initializeApp(cfg.firebase);
@@ -65,6 +67,10 @@
       return { id: ref.id, ...data };
     }
     const remove = (name, id) => F.deleteDoc(F.doc(db, name, id));
+    // 即時監聽：每次有變動就把整份清單交給 cb。回傳停止監聽的函式。
+    const watch = (label, q, cb) => F.onSnapshot(q,
+      (snap) => cb(snap.docs.map(row)),
+      (err) => console.warn(label + '即時同步中斷', err));
 
     return {
       isDemo: false,
@@ -94,7 +100,6 @@
       },
       saveEvent: (ev) => save('events', ev.id, cleanEvent(ev)),
       deleteEvent: (id) => remove('events', id),
-      // 家人新增或修改行程時通知畫面重新讀取。回傳停止監聽的函式。
       watchEvents(cb) {
         const d = new Date(); d.setDate(d.getDate() - 45);
         const since = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -110,21 +115,32 @@
       saveNote: (n) => save('notes', n.id, cleanNote(n, uid())),
       deleteNote: (id) => remove('notes', id),
 
-      async listContacts() { return (await list('contacts')).sort(byName); },
-      saveContact: (c) => save('contacts', c.id, cleanContact(c)),
-      deleteContact: (id) => remove('contacts', id),
-
       async sendMessage(text) {
         await F.addDoc(col('messages'), { text, sender: uid(), sent_at: Date.now() });
       },
-      // 每次有新訊息就把最近 200 則整份交給 cb。回傳停止監聽的函式。
-      watchMessages(cb) {
-        return F.onSnapshot(
-          F.query(col('messages'), F.orderBy('sent_at'), F.limitToLast(200)),
-          (snap) => cb(snap.docs.map(row)),
-          (err) => console.warn('聊天室即時同步中斷', err)
-        );
-      }
+      // 收回：清空內容並標記。安全規則只允許本人在送出一小時內這樣做。
+      async recallMessage(id) {
+        await F.updateDoc(F.doc(db, 'messages', id), { text: '', recalled: true });
+      },
+      watchMessages: (cb) => watch('聊天室', F.query(col('messages'), F.orderBy('sent_at'), F.limitToLast(300)), cb),
+
+      async addPost(p) {
+        await F.addDoc(col('posts'), { text: p.text, to: p.to, author: uid(), created_at: Date.now() });
+      },
+      deletePost: (id) => remove('posts', id),
+      async addReply(postId, text) {
+        await F.addDoc(col('replies'), { post_id: postId, text, author: uid(), created_at: Date.now() });
+      },
+      watchPosts: (cb) => watch('我有話要說', F.query(col('posts'), F.orderBy('created_at'), F.limitToLast(60)), cb),
+      watchReplies: (cb) => watch('回覆', F.query(col('replies'), F.orderBy('created_at'), F.limitToLast(500)), cb),
+
+      async listProfiles() { return toMap(await list('profiles')); },
+      async saveProfile(memberId, p) { await F.setDoc(F.doc(db, 'profiles', memberId), cleanProfile(p)); },
+
+      async beat(online) {
+        await F.setDoc(F.doc(db, 'presence', uid()), { last_seen: Date.now(), online: !!online });
+      },
+      watchPresence: (cb) => watch('上線狀態', col('presence'), (rows) => cb(toMap(rows)))
     };
   }
 
@@ -155,16 +171,27 @@
         { id: 'n1', title: 'Wi-Fi 密碼', body: '客廳：home-5G\n密碼寫在冰箱上的便條', pinned: true, updated_at: ago(60 * 30), updated_by: 'm1' },
         { id: 'n2', title: '週末採買', body: '牛奶、雞蛋、吐司\n洗衣精\n弟弟的美術用品', pinned: false, updated_at: ago(90), updated_by: 'm2' }
       ],
-      contacts: [
-        { id: 'c1', name: '阿嬤', group: '親戚', phone: '02-2345-6789', address: '', note: '' },
-        { id: 'c2', name: '王老師（姊姊導師）', group: '學校', phone: '0912-345-678', address: '', note: '晚上八點前可聯絡' },
-        { id: 'c3', name: '陳牙醫診所', group: '醫療', phone: '02-8765-4321', address: '中山路 100 號', note: '週日休診' }
-      ],
       messages: [
         { id: 'g1', text: '今天晚餐吃什麼？', sender: 'm3', sent_at: ago(42) },
         { id: 'g2', text: '咖哩飯，六點半開飯', sender: 'm2', sent_at: ago(40) },
         { id: 'g3', text: '我鋼琴課下課會晚一點', sender: 'm3', sent_at: ago(38) }
-      ]
+      ],
+      posts: [
+        { id: 'p1', text: '這學期的成績單發了嗎？拿給我簽名。', author: 'm1', to: ['m3', 'm4'], created_at: ago(60 * 5) },
+        { id: 'p2', text: '水費單在鞋櫃上，這週五前要繳。', author: 'm2', to: ['m1'], created_at: ago(50) }
+      ],
+      replies: [
+        { id: 'r1', post_id: 'p1', text: '發了，放在你書桌上。', author: 'm3', created_at: ago(60 * 4) }
+      ],
+      profiles: {
+        m1: { id: 'm1', birthday: '1980-03-12', phone: '0912-000-111', org: '', note: '' },
+        m3: { id: 'm3', birthday: day(4).replace(/^\d+/, '2013'), phone: '', org: '國中二年級', note: '' }
+      },
+      presence: {
+        m2: { id: 'm2', last_seen: ago(0), online: true },
+        m3: { id: 'm3', last_seen: ago(25), online: false },
+        m4: { id: 'm4', last_seen: ago(60 * 20), online: false }
+      }
     });
     let mem = null;
     const load = () => {
@@ -172,20 +199,29 @@
       try { mem = JSON.parse(localStorage.getItem(KEY)); } catch (e) { /* 無法使用儲存空間時只留在記憶體 */ }
       const fresh = seed();
       if (!mem) mem = fresh;
-      ['notes', 'contacts', 'messages'].forEach((k) => { if (!mem[k]) mem[k] = fresh[k]; });
+      Object.keys(fresh).forEach((k) => { if (mem[k] === undefined) mem[k] = fresh[k]; });
       return mem;
     };
     const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(mem)); } catch (e) { /* 同上 */ } };
     const upsert = (key, id, data, prefix) => {
       const db = load();
-      const item = { ...data, id: id || prefix + Date.now() };
+      const item = { ...data, id: id || prefix + Date.now() + Math.floor(Math.random() * 1000) };
       const i = db[key].findIndex((x) => x.id === item.id);
       if (i >= 0) db[key][i] = item; else db[key].push(item);
       persist();
       return item;
     };
     const drop = (key, id) => { const db = load(); db[key] = db[key].filter((x) => x.id !== id); persist(); };
-    const listeners = [];
+
+    // 模擬即時監聽：資料一變就通知
+    const subs = { messages: [], posts: [], replies: [], presence: [] };
+    const value = (key) => (key === 'presence' ? { ...load().presence } : load()[key].slice());
+    const emit = (key) => subs[key].forEach((cb) => cb(value(key)));
+    const watch = (key) => (cb) => {
+      subs[key].push(cb);
+      setTimeout(() => cb(value(key)), 0);
+      return () => { const i = subs[key].indexOf(cb); if (i >= 0) subs[key].splice(i, 1); };
+    };
 
     return {
       isDemo: true,
@@ -205,19 +241,39 @@
       async saveNote(n) { return upsert('notes', n.id, cleanNote(n, load().user), 'n'); },
       async deleteNote(id) { drop('notes', id); },
 
-      async listContacts() { return load().contacts.slice().sort(byName); },
-      async saveContact(c) { return upsert('contacts', c.id, cleanContact(c), 'c'); },
-      async deleteContact(id) { drop('contacts', id); },
-
       async sendMessage(text) {
         upsert('messages', null, { text, sender: load().user, sent_at: Date.now() }, 'g');
-        listeners.forEach((cb) => cb(load().messages.slice()));
+        emit('messages');
       },
-      watchMessages(cb) {
-        listeners.push(cb);
-        setTimeout(() => cb(load().messages.slice()), 0);
-        return () => { const i = listeners.indexOf(cb); if (i >= 0) listeners.splice(i, 1); };
-      }
+      async recallMessage(id) {
+        const m = load().messages.find((x) => x.id === id);
+        if (!m || m.sender !== load().user || Date.now() - m.sent_at >= 3600000) throw new Error('permission-denied');
+        m.text = ''; m.recalled = true; persist(); emit('messages');
+      },
+      watchMessages: watch('messages'),
+
+      async addPost(p) {
+        upsert('posts', null, { text: p.text, to: p.to, author: load().user, created_at: Date.now() }, 'p');
+        emit('posts');
+      },
+      async deletePost(id) { drop('posts', id); emit('posts'); },
+      async addReply(postId, text) {
+        upsert('replies', null, { post_id: postId, text, author: load().user, created_at: Date.now() }, 'r');
+        emit('replies');
+      },
+      watchPosts: watch('posts'),
+      watchReplies: watch('replies'),
+
+      async listProfiles() { return { ...load().profiles }; },
+      async saveProfile(memberId, p) { load().profiles[memberId] = { id: memberId, ...cleanProfile(p) }; persist(); },
+
+      async beat(online) {
+        const db = load();
+        if (!db.user) return;
+        db.presence[db.user] = { id: db.user, last_seen: Date.now(), online: !!online };
+        persist(); emit('presence');
+      },
+      watchPresence: watch('presence')
     };
   }
 
