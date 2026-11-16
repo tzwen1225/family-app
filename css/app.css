@@ -24,7 +24,7 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html { -webkit-text-size-adjust: 100%; height: 100%; }
+html { -webkit-text-size-adjust: 100%; height: 100%; background: var(--paper); }
 /* 版面：整頁本身不捲動，只有中間的 .scroller 會捲。
    底部選單是版面的一部分（不是浮在上面），所以捲動或回彈時位置都不會動。 */
 body {
@@ -33,10 +33,13 @@ body {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden;
   overscroll-behavior: none;
 }
+/* 平常 App 直接填滿整個螢幕，不依賴任何用程式量出來的高度；
+   只有正在打字、鍵盤開著的時候，才改用量到的可見高度（--vh）。 */
 #app {
-  position: absolute; top: 0; left: 0; right: 0; height: var(--vh, 100dvh);
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
   display: flex; flex-direction: column; overflow: hidden;
 }
+body.kb-open #app, body.kb-open #sheet-root { bottom: auto; height: var(--vh); }
 .scroller {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
   -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
@@ -227,7 +230,7 @@ textarea { resize: vertical; }
 .fab:active { transform: scale(.95); }
 
 /* ---------- 表單（由下往上的面板） ---------- */
-#sheet-root { position: fixed; top: 0; left: 0; right: 0; height: var(--vh, 100dvh); z-index: 20; }
+#sheet-root { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 20; }
 #sheet-root:empty { display: none; }
 .backdrop { position: absolute; inset: 0; background: rgba(23, 35, 31, .45); animation: fade .18s ease-out; }
 .sheet {

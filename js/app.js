@@ -1120,19 +1120,37 @@
     else loadTab();
   });
 
-  // 整個 App 的高度跟著「看得到的範圍」走：鍵盤彈出時畫面縮短，
-  // 底部選單與輸入列永遠貼在可見範圍的最下方，不會跟著頁面捲動。
-  (function trackViewport() {
+  // 鍵盤處理。平常版面由 CSS 填滿螢幕，這裡完全不介入。
+  // 只有「輸入框有焦點，而且可見高度明顯變矮」時才視為鍵盤開著：
+  // 把 App 縮到可見高度，讓輸入列貼在鍵盤上方，並收起底部選單。
+  // 輸入框一失去焦點就立刻還原，不等瀏覽器回報高度
+  // （iPhone 收起鍵盤後回報的高度有時是舊的，會讓選單卡在半空中）。
+  (function trackKeyboard() {
     const vv = window.visualViewport;
-    const apply = () => {
-      const h = vv ? vv.height : window.innerHeight;
-      document.documentElement.style.setProperty('--vh', h + 'px');
-      document.body.classList.toggle('kb-open', window.innerHeight - h > 120);
-      if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+    const root = document.documentElement;
+    const height = () => (vv ? vv.height : window.innerHeight);
+    let full = height();
+    const typing = () => {
+      const a = document.activeElement;
+      return !!a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT'
+        && !/^(checkbox|radio|date|time|button|submit|hidden)$/.test(a.type)));
     };
+    function apply() {
+      const h = height();
+      if (h > full) full = h;
+      const open = typing() && full - h > 120;
+      document.body.classList.toggle('kb-open', open);
+      if (open) root.style.setProperty('--vh', h + 'px'); else root.style.removeProperty('--vh');
+      // 鍵盤收起後，把被系統推上去的頁面拉回原位
+      if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+    }
+    const settle = () => { apply(); setTimeout(apply, 80); setTimeout(apply, 400); };
     if (vv) { vv.addEventListener('resize', apply); vv.addEventListener('scroll', apply); }
     window.addEventListener('resize', apply);
-    window.addEventListener('orientationchange', apply);
+    window.addEventListener('orientationchange', () => { full = 0; settle(); });
+    document.addEventListener('focusin', settle);
+    document.addEventListener('focusout', settle);
+    document.addEventListener('visibilitychange', settle);
     apply();
   })();
 
