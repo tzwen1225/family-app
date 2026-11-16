@@ -20,7 +20,7 @@
 //   投票 polls：     { id, question, options: [文字…], author, created_at, closed, deadline: 'YYYY-MM-DD' 或 '', deadline_at: 毫秒或 0 }
 //        poll_votes：{ id: 投票id_UID, poll_id, uid, choice: 第幾個選項, voted_at }
 //   資料卡 cards：   { id, title, member: UID 或 ''（全家）, body, updated_at }
-//   成績 scores：    { id, kid: 小朋友的 UID, subject, title, date, score, full, note }
+//   成績 scores：    { id, kid: 小朋友的 UID, subject, term: '國一上'…'國三下', title, date, score, full, note }
 //   聊天照片 chat_images：{ id, data: 圖片內容, sender, sent_at }；訊息本身只放小縮圖 thumb 和 image_id
 // 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
@@ -347,9 +347,9 @@
         { id: 'su1', label: '國文', created_at: 1 }, { id: 'su2', label: '英文', created_at: 2 }, { id: 'su3', label: '數學', created_at: 3 }
       ],
       scores: [
-        { id: 'sc1', kid: 'm3', subject: '數學', title: '第一次段考', date: day(-40), score: 78, full: 100, note: '' },
-        { id: 'sc2', kid: 'm3', subject: '數學', title: '第二次段考', date: day(-5), score: 86, full: 100, note: '應用題進步了' },
-        { id: 'sc3', kid: 'm3', subject: '英文', title: '第二次段考', date: day(-5), score: 92, full: 100, note: '' },
+        { id: 'sc1', kid: 'm3', subject: '數學', term: '國二上', title: '第一次段考', date: day(-40), score: 78, full: 100, note: '' },
+        { id: 'sc2', kid: 'm3', subject: '數學', term: '國二上', title: '第二次段考', date: day(-5), score: 86, full: 100, note: '應用題進步了' },
+        { id: 'sc3', kid: 'm3', subject: '英文', term: '國二上', title: '第二次段考', date: day(-5), score: 92, full: 100, note: '' },
         { id: 'sc4', kid: 'm3', subject: '國文', title: '第二次段考', date: day(-4), score: 81, full: 100, note: '' },
         { id: 'sc5', kid: 'm4', subject: '數學', title: '平時考', date: day(-3), score: 45, full: 50, note: '' }
       ],

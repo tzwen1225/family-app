@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 17:40';
+  const VERSION = '2026-11-16 17:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -79,7 +79,8 @@
     notesView: 'ledger',     // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
     shopping: [], cards: [],
     subjects: [],                   // 家長自訂的考試科目 { id, label }
-    scores: [], scoreSubject: '',   // 成績紀錄；scoreSubject 是目前只看哪一科（空的代表全部）
+    scores: [], scoreSubject: '',   // 成績紀錄
+    scoreTerm: '',                  // 目前看哪個學期（空的代表全部）；會記在這支手機上；scoreSubject 是目前只看哪一科（空的代表全部）
     postsView: 'posts',      // posts（留言）| polls（投票）
     polls: [], votes: [],
     homePollId: null,        // 首頁投票區目前顯示哪一則（多則時用 1、2、3… 切換）
@@ -101,6 +102,7 @@
     lastRead: 0
   };
   try { state.lastRead = Number(localStorage.getItem(READ_KEY)) || 0; } catch (e) { /* 忽略 */ }
+  try { const t = localStorage.getItem('family-score-term'); if (t) state.scoreTerm = t; } catch (e) { /* 忽略 */ }
 
   const $app = document.getElementById('app');
   const $sheet = document.getElementById('sheet-root');
@@ -1100,6 +1102,13 @@
   // 每位小朋友一份。小朋友只看得到、只能改自己的；家長看得到兩位，也可以幫忙登記或修改。
   const canEditScore = (sc) => !amChild() || sc.kid === state.userId;
   const pct = (sc) => Math.round(sc.score / sc.full * 100);
+  // 成績依「年級＋學期」分開：國中一到三年級，各有上、下學期
+  const TERMS = ['國一上', '國一下', '國二上', '國二下', '國三上', '國三下'];
+  const TERM_KEY = 'family-score-term';
+  function setScoreTerm(term) {
+    state.scoreTerm = term;
+    try { if (term) localStorage.setItem(TERM_KEY, term); else localStorage.removeItem(TERM_KEY); } catch (e) { /* 忽略 */ }
+  }
   // 考試科目沒有內建的，全部由家長在「設定」裡新增
   const subjectList = () => state.subjects.map((x) => x.label);
 
@@ -1114,7 +1123,14 @@
     const kidId = amChild() ? state.userId : (list.some((k) => k.id === state.ledgerKid) ? state.ledgerKid : list[0].id);
     state.ledgerKid = kidId;
     const kid = member(kidId);
-    const all = state.scores.filter((x) => x.kid === kidId).sort((a, b) => b.date.localeCompare(a.date));
+    const mineAll = state.scores.filter((x) => x.kid === kidId).sort((a, b) => b.date.localeCompare(a.date));
+    if (state.scoreTerm && !TERMS.includes(state.scoreTerm)) state.scoreTerm = '';
+    const all = state.scoreTerm ? mineAll.filter((x) => x.term === state.scoreTerm) : mineAll;
+    const termBar = `
+      <div class="terms" role="group" aria-label="選擇學期">
+        <button class="${state.scoreTerm ? '' : 'on'}" data-act="score-term" data-term="" ${state.scoreTerm ? '' : 'aria-pressed="true"'}>全部</button>
+        ${TERMS.map((t) => `<button class="${state.scoreTerm === t ? 'on' : ''} ${mineAll.some((x) => x.term === t) ? 'has' : ''}" data-act="score-term" data-term="${t}" ${state.scoreTerm === t ? 'aria-pressed="true"' : ''}>${t}</button>`).join('')}
+      </div>`;
 
     const picker = !amChild() && list.length > 1 ? `
       <div class="kid-picker" role="group" aria-label="選擇小朋友">
@@ -1124,7 +1140,8 @@
     if (!all.length) return `
       <header class="plain-head"><h1>成績</h1><p>${amChild() ? '只有你和爸媽看得到' : esc(kid.display_name)}</p></header>
       ${picker}
-      <div class="empty big"><p>還沒有成績紀錄。</p><button class="link-btn" data-act="new">記下第一筆</button></div>`;
+      ${termBar}
+      <div class="empty big"><p>${state.scoreTerm ? state.scoreTerm + '學期還沒有成績紀錄。' : '還沒有成績紀錄。'}</p><button class="link-btn" data-act="new">${state.scoreTerm ? '記一筆' : '記下第一筆'}</button></div>`;
 
     // 各科：最近一次、和上一次比、平均
     const subjects = Array.from(new Set(all.map((x) => x.subject)));
@@ -1146,14 +1163,15 @@
     return `
       <header class="plain-head"><h1>成績</h1><p>${amChild() ? '只有你和爸媽看得到' : esc(kid.display_name) + '的紀錄'}</p></header>
       ${picker}
+      ${termBar}
       <section class="subjects" style="--who:${esc(kid.color)}" aria-label="各科最近一次成績">${summary}</section>
       <section class="entries">
-        <h2>${state.scoreSubject ? esc(state.scoreSubject) + '的紀錄' : '全部紀錄'}${state.scoreSubject ? '<button class="link-btn" data-act="score-subject" data-subject="">看全部</button>' : ''}</h2>
+        <h2>${state.scoreTerm ? state.scoreTerm + '　' : ''}${state.scoreSubject ? esc(state.scoreSubject) + '的紀錄' : '全部紀錄'}${state.scoreSubject ? '<button class="link-btn" data-act="score-subject" data-subject="">看全部</button>' : ''}</h2>
         ${shown.map((x) => {
           const d = parse(x.date);
           const inner = `
             <span class="entry-date">${d.getMonth() + 1}/${d.getDate()}</span>
-            <span class="entry-note"><b>${esc(x.subject)}</b>　${esc(x.title)}${x.note ? `<small>${esc(x.note)}</small>` : ''}</span>
+            <span class="entry-note"><b>${esc(x.subject)}</b>　${esc(x.title)}<small>${x.term && !state.scoreTerm ? esc(x.term) + (x.note ? '　' : '') : ''}${esc(x.note || '')}</small></span>
             <span class="entry-amount">${x.score}<small>/${x.full}</small></span>`;
           return canEditScore(x)
             ? `<button class="entry score" data-act="edit-score" data-id="${esc(x.id)}">${inner}</button>`
@@ -1163,7 +1181,7 @@
   }
 
   function openScoreSheet(sc) {
-    const x = sc || { subject: state.scoreSubject || '', title: '', date: today(), score: '', full: 100, note: '' };
+    const x = sc || { subject: state.scoreSubject || '', term: state.scoreTerm || '', title: '', date: today(), score: '', full: 100, note: '' };
     const kid = member(sc ? sc.kid : state.ledgerKid);
     // 科目只能從家長設定的清單裡選；編輯舊紀錄時，如果它的科目已經被刪掉，仍然保留這個選項
     const choices = subjectList().concat(x.subject && !subjectList().includes(x.subject) ? [x.subject] : []);
@@ -1172,6 +1190,11 @@
       body: `
       <input type="hidden" name="item_id" value="${esc(x.id || '')}">
       <input type="hidden" name="kid" value="${esc(kid.id)}">
+      <fieldset class="seg terms-pick">
+        <legend>年級與學期</legend>
+        ${TERMS.map((t) => `
+          <label style="--cat:var(--ink)"><input type="radio" name="term" value="${t}" ${x.term === t ? 'checked' : ''}><span>${t}</span></label>`).join('')}
+      </fieldset>
       <fieldset class="seg">
         <legend>科目</legend>
         ${choices.map((sub) => `
@@ -1908,11 +1931,12 @@
     },
     'score-form': {
       read: (f, form) => ({
-        id: f.item_id.value || null, kid: f.kid.value, subject: checkedValues(form, 'subject')[0] || '', title: f.title.value.trim(),
+        id: f.item_id.value || null, kid: f.kid.value, subject: checkedValues(form, 'subject')[0] || '', term: checkedValues(form, 'term')[0] || '', title: f.title.value.trim(),
         date: f.date.value, score: Number(f.score.value), full: Number(f.full.value), note: f.note.value.trim(),
         blank: f.score.value === ''
       }),
       check(x) {
+        if (!x.term) return '請選擇年級與學期';
         if (!x.subject) return subjectList().length ? '請選擇科目' : '還沒有科目，請先到「設定」新增考試科目';
         if (x.blank || !(x.score >= 0)) return '請填寫分數';
         if (!(x.full >= 1) || x.full > 1000) return '滿分請填 1 到 1000 之間';
@@ -1922,11 +1946,12 @@
         return null;
       },
       save(x) {
-        const data = { kid: x.kid, subject: x.subject, title: x.title || '考試', date: x.date, score: x.score, full: x.full, note: x.note };
+        const data = { kid: x.kid, subject: x.subject, term: x.term, title: x.title || '考試', date: x.date, score: x.score, full: x.full, note: x.note };
         return x.id ? Api.updateDoc('scores', x.id, data) : Api.addDoc('scores', data);
       },
       remove: (id) => Api.deleteDoc('scores', id),
-      after: () => loadScores()
+      // 存檔後切到那個學期，馬上看得到剛登記的那一筆
+      after(x) { if (x && state.scoreTerm) setScoreTerm(x.term); return loadScores(); }
     },
     'poll-form': {
       done: '投票已送出',
@@ -2166,6 +2191,7 @@
       const f = el.closest('form').elements;
       f.question.value = el.dataset.q; f.options.value = el.dataset.o.split('|').join('\n');
     }
+    else if (act === 'score-term') { setScoreTerm(el.dataset.term); state.scoreSubject = ''; render(); }
     else if (act === 'score-subject') { state.scoreSubject = el.dataset.subject === state.scoreSubject ? '' : el.dataset.subject; render(); }
     else if (act === 'edit-score') { const x = findById(state.scores, el.dataset.id); if (x && canEditScore(x)) openScoreSheet(x); }
     else if (act === 'shop-toggle') onShopToggle(el.dataset.id);

@@ -554,6 +554,15 @@ button.bubble { text-align: left; font: inherit; }
 
 /* ---------- 成績 ---------- */
 .switcher.five button { font-size: 13px; }
+.terms { display: flex; gap: 6px; overflow-x: auto; margin: 4px -16px 10px; padding: 2px 16px; scrollbar-width: none; }
+.terms::-webkit-scrollbar { display: none; }
+.terms button {
+  flex: none; min-height: 34px; padding: 0 13px; border-radius: 99px; font-size: 14px; white-space: nowrap;
+  background: var(--sheet); border: 1px solid var(--line); color: var(--ink-2);
+}
+.terms button.has { color: var(--ink); font-weight: 600; }
+.terms button.on { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
+.terms-pick span { padding: 9px 13px; }
 .subjects { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; margin-top: 6px; }
 .subject { text-align: left; background: var(--sheet); border-radius: 14px; padding: 10px 12px; border-top: 4px solid var(--line); }
 .subject.on { border-top-color: var(--who); box-shadow: 0 0 0 2px var(--who); }
