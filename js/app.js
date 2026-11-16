@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 14:40';
+  const VERSION = '2026-11-16 14:45';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -74,7 +74,7 @@
     monthEvents: [],
     upcoming: [],
     notes: [],
-    notesView: 'notes',      // notes | ledger（零用錢）
+    notesView: 'ledger',     // ledger（零用錢，預設）| notes（雜記）
     ledger: [],
     ledgerMonth: today().slice(0, 7),
     ledgerKid: null,         // 家長正在看哪位小朋友的帳本
@@ -339,13 +339,13 @@
     cal: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 9.500V20h4.500v-5.500h3V20H18V9.500"/></svg>',
     chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/></svg>',
     posts: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l7 4.5v-13L7 10zM17.500 9.500a4 4 0 0 1 0 5M7.500 14l1 5h2.500"/></svg>',
-    notes: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3.5h8l4 4v11a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2z"/><path d="M14.5 3.5v4h4M8.5 12h7M8.5 16h5"/></svg>',
+    notes: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.500" y="4.500" width="17" height="14" rx="2.500"/><circle cx="12" cy="11.500" r="3"/><path d="M12 8.500v-1M12 15.500v-1M15 11.500h1M8 11.500h1M7 18.500v2M17 18.500v2"/></svg>',
     me: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h10M18 17h2"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="16" cy="17" r="2"/></svg>',
     search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.500"/><path d="M16 16l4.500 4.500"/></svg>',
     send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M12.500 6l6 6-6 6"/></svg>',
     phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.500 4h3l1.500 4-2 1.500a11 11 0 0 0 5.500 5.500l1.500-2 4 1.500v3a2 2 0 0 1-2 2A15.500 15.500 0 0 1 4.500 6a2 2 0 0 1 2-2z"/></svg>'
   };
-  const TABS = [['cal', '首頁'], ['chat', '聊天'], ['posts', '我有話要說'], ['notes', '雜記'], ['me', '設定']];
+  const TABS = [['cal', '首頁'], ['chat', '聊天'], ['posts', '我有話要說'], ['notes', '金庫'], ['me', '設定']];
   // 右下角的新增鈕在這個畫面要做什麼；沒有東西可新增時不顯示
   function fabLabel() {
     if (state.tab === 'cal') return '新增行程';
@@ -799,7 +799,7 @@
   // ---------- 雜記 ----------
   function viewNotes() {
     const b = (v, label) => `<button class="${state.notesView === v ? 'on' : ''}" data-act="notes-view" data-view="${v}" ${state.notesView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
-    return `<div class="switcher" role="group" aria-label="雜記或零用錢">${b('notes', '雜記')}${b('ledger', '零用錢')}</div>`
+    return `<div class="switcher" role="group" aria-label="零用錢或雜記">${b('ledger', '零用錢')}${b('notes', '雜記')}</div>`
       + (state.notesView === 'ledger' ? viewLedger() : viewNoteList());
   }
 
@@ -1464,7 +1464,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state, {
-          userId: null, tab: 'cal', messages: [], notes: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'notes', posts: [], replies: [],
+          userId: null, tab: 'cal', messages: [], notes: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
         });
         renderLogin();
