@@ -143,6 +143,9 @@ firebase deploy --only functions,firestore:rules
 
 ### 之後改了通知程式或規則
 
+最簡單的方式：重新下載 ZIP、解壓縮，然後在資料夾裡對 `deploy.bat` 連按兩下。它會自動安裝需要的套件並部署通知程式和安全規則。
+
+或者手動：
 在同一個資料夾再執行一次 `firebase deploy --only functions,firestore:rules`。
 
 ## 需要知道的事
