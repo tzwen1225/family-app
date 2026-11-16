@@ -47,7 +47,7 @@ service cloud.firestore {
     // 投票還能投嗎：沒被手動結束，而且沒過截止時間（deadline_at 是 0 或沒有，代表沒設截止日）
     function pollOpen(pollId) {
       let p = get(/databases/$(database)/documents/polls/$(pollId)).data;
-      return p.closed == false
+      return p.closed == false && p.get('voided', false) == false
         && (p.get('deadline_at', 0) == 0 || request.time.toMillis() <= p.get('deadline_at', 0));
     }
 
@@ -259,10 +259,17 @@ service cloud.firestore {
         && request.resource.data.options is list
         && request.resource.data.options.size() >= 2 && request.resource.data.options.size() <= 6
         && request.resource.data.closed == false;
-      allow update: if isFamily() && resource.data.author == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['closed'])
-        && request.resource.data.closed is bool;
-      allow delete: if isFamily() && resource.data.author == request.auth.uid;
+      // 發起人可以結束或作廢；其他人投票時會順手記下「已經有別人投過票」
+      allow update: if isFamily() && (
+        (resource.data.author == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['closed', 'voided'])
+          && request.resource.data.closed is bool)
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['others_voted'])
+          && request.resource.data.others_voted == true)
+      );
+      // 只有還沒有其他人投票的投票可以刪除；有人投過就只能作廢
+      allow delete: if isFamily() && resource.data.author == request.auth.uid
+        && resource.data.get('others_voted', false) == false;
     }
 
     // 每人每個投票一票（文件 ID = 投票id_自己的UID），可以改選；投票結束後不能再投

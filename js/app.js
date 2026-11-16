@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 16:55';
+  const VERSION = '2026-11-16 17:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -82,6 +82,7 @@
     scores: [], scoreSubject: '',   // 成績紀錄；scoreSubject 是目前只看哪一科（空的代表全部）
     postsView: 'posts',      // posts（留言）| polls（投票）
     polls: [], votes: [],
+    pollEdit: null,          // 正在投票或改票的那一則投票；其他投票的選項都是鎖住的，避免誤觸
     ledger: [],
     ledgerMonth: today().slice(0, 7),
     ledgerKid: null,         // 家長正在看哪位小朋友的帳本
@@ -400,7 +401,7 @@
   const waitingForMe = () => state.posts.some((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId));
   // 還開著、而我還沒投的投票
   // 投票結束了嗎：發起人手動結束，或過了截止日期（截止日當天還可以投）
-  const pollOver = (p) => !!p.closed || (!!p.deadline && p.deadline < today());
+  const pollOver = (p) => !!p.closed || !!p.voided || (!!p.deadline && p.deadline < today());
   const pollsForMe = () => state.polls.filter((p) => !pollOver(p)
     && !state.votes.some((v) => v.poll_id === p.id && v.uid === state.userId));
   const pendingRequests = () => state.requests.filter((r) => r.status !== 'given')
@@ -969,23 +970,27 @@
     const waiting = state.members.filter((m) => !votes.some((v) => v.uid === m.id));
     const author = member(p.author);
     const top = Math.max(0, ...p.options.map((_, i) => votes.filter((v) => v.choice === i).length));
+    const editing = !over && state.pollEdit === p.id;
+    // 有發起人以外的人投過票，就不能刪除，只能作廢
+    const othersVoted = !!p.others_voted || votes.some((v) => v.uid !== p.author);
     const due = !p.deadline ? '' : over ? `${shortDate(p.deadline)}已截止`
       : p.deadline === today() ? '今天截止' : `${shortDate(p.deadline)}截止`;
     return `
-        <article class="post poll ${!over && !mine ? 'needs' : ''} ${over ? 'closed' : ''}">
+        <article class="post poll ${!over && !mine ? 'needs' : ''} ${over ? 'closed' : ''} ${p.voided ? 'voided' : ''} ${editing ? 'editing' : ''}">
           <header>
             ${author ? avatarHtml(author, 'sm') : ''}
             <b>${esc(nameOf(p.author))}</b>
             <time>${stamp(p.created_at)}</time>
-            ${over ? '<span class="flag done">已結束</span>' : !mine ? '<span class="flag">等你投票</span>' : ''}
+            ${p.voided ? '<span class="flag done">已作廢</span>' : over ? '<span class="flag done">已結束</span>' : !mine ? '<span class="flag">等你投票</span>' : ''}
           </header>
           <p class="post-text">${esc(p.question)}</p>
+          ${editing ? '<p class="pick-hint">點一個選項就會送出</p>' : ''}
           <div class="opts">
             ${p.options.map((opt, i) => {
               const who = votes.filter((v) => v.choice === i);
               const pct = Math.round(who.length / Math.max(1, state.members.length) * 100);
               return `
-              <button class="opt ${mine && mine.choice === i ? 'mine' : ''} ${over && top > 0 && who.length === top ? 'win' : ''}" data-act="vote" data-id="${esc(p.id)}" data-choice="${i}" ${over ? 'disabled' : ''} ${mine && mine.choice === i ? 'aria-pressed="true"' : ''}>
+              <button class="opt ${mine && mine.choice === i ? 'mine' : ''} ${over && !p.voided && top > 0 && who.length === top ? 'win' : ''}" data-act="vote" data-id="${esc(p.id)}" data-choice="${i}" ${editing ? '' : 'disabled'} ${mine && mine.choice === i ? 'aria-pressed="true"' : ''}>
                 <span class="opt-bar" style="width:${pct}%"></span>
                 <span class="opt-text">${esc(opt)}</span>
                 <span class="opt-count">${who.length} 票</span>
@@ -994,11 +999,15 @@
             }).join('')}
           </div>
           <p class="poll-foot">${due ? `<b>${due}</b>　` : ''}${votes.length} / ${state.members.length} 人已投${waiting.length && !over ? '　還沒投：' + esc(waiting.map((m) => m.display_name).join('、')) : ''}</p>
+          ${over ? '' : `<button class="btn ghost small vote-btn" data-act="poll-edit" data-id="${esc(p.id)}">${editing ? '取消' : mine ? '修改我的票' : '我要投票'}</button>`}
           ${!home && p.author === state.userId ? `
             <div class="poll-actions">
               ${over ? '' : `<button class="link-btn del" data-act="close-poll" data-id="${esc(p.id)}">結束投票</button>`}
-              <button class="link-btn del" data-act="del-poll" data-id="${esc(p.id)}">刪除</button>
-            </div>` : ''}
+              ${othersVoted
+                ? (p.voided ? '' : `<button class="link-btn del" data-act="void-poll" data-id="${esc(p.id)}">作廢</button>`)
+                : `<button class="link-btn del" data-act="del-poll" data-id="${esc(p.id)}">刪除</button>`}
+            </div>
+            ${othersVoted && !p.voided ? '<p class="hint">已經有其他人投票，所以不能刪除，只能作廢。</p>' : ''}` : ''}
         </article>`;
   }
 
@@ -1035,19 +1044,27 @@
   async function onVote(btn) {
     const p = findById(state.polls, btn.dataset.id);
     if (!p || pollOver(p)) return toast('這個投票已經結束了');
+    if (state.pollEdit !== p.id) return;      // 沒有先按「我要投票／修改我的票」，選項是鎖住的
+    state.pollEdit = null;
     try {
       await Api.setDoc('poll_votes', p.id + '_' + state.userId,
         { poll_id: p.id, uid: state.userId, choice: Number(btn.dataset.choice), voted_at: Date.now() });
+      // 記下「有發起人以外的人投過票」，之後這則投票就不能刪除，只能作廢
+      if (p.author !== state.userId && !p.others_voted) Api.updateDoc('polls', p.id, { others_voted: true }).catch((e) => console.warn(e));
+      toast('已投票');
+      refreshPolls();
     } catch (e) { console.error(e); toast('投票沒有成功，請再試一次'); }
   }
 
   async function onPollAction(btn, kind) {
-    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = kind === 'del' ? '再按一次確定刪除' : '再按一次確定結束'; return; }
+    const words = { del: ['再按一次確定刪除', '已刪除'], close: ['再按一次確定結束', '投票已結束'], void: ['再按一次確定作廢', '投票已作廢'] }[kind];
+    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = words[0]; return; }
     btn.disabled = true;
     try {
       if (kind === 'del') await Api.deleteDoc('polls', btn.dataset.id);
+      else if (kind === 'void') await Api.updateDoc('polls', btn.dataset.id, { closed: true, voided: true });
       else await Api.updateDoc('polls', btn.dataset.id, { closed: true });
-      toast(kind === 'del' ? '已刪除' : '投票已結束');
+      toast(words[1]);
     } catch (e) { console.error(e); btn.disabled = false; toast('沒有成功，請再試一次'); }
   }
 
@@ -2062,7 +2079,7 @@
     const act = el.dataset.act;
     if (act === 'tab') {
       state.tab = el.dataset.tab;
-      state.menuMsg = null;
+      state.menuMsg = null; state.pollEdit = null;
       if (state.tab === 'chat') markRead();
       render();
       loadTab();
@@ -2124,6 +2141,8 @@
     else if (act === 'open-polls') { state.tab = 'posts'; state.postsView = 'polls'; render(); }
     else if (act === 'vote') onVote(el);
     else if (act === 'close-poll') onPollAction(el, 'close');
+    else if (act === 'void-poll') onPollAction(el, 'void');
+    else if (act === 'poll-edit') { state.pollEdit = state.pollEdit === el.dataset.id ? null : el.dataset.id; refreshPolls(); }
     else if (act === 'del-poll') onPollAction(el, 'del');
     else if (act === 'poll-preset') {
       const f = el.closest('form').elements;
