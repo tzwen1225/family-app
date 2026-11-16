@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// 我們家 App 的 Firestore 安全規則
+// 鍾家大宅 App 的 Firestore 安全規則
 // 用法：Firebase 後台 → Firestore Database → 規則 → 整份貼上 → 發布
 //
 // 只有 UID 出現在 members 集合裡的帳號才能讀寫，

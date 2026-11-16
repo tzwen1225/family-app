@@ -144,7 +144,7 @@
     $app.innerHTML = `
       <main class="login">
         <div class="login-mark" aria-hidden="true">家</div>
-        <h1>我們家</h1>
+        <h1>鍾家大宅</h1>
         <p class="login-sub">行程、雜記、通訊錄、聊天，都在這裡。</p>
         <form id="login-form" novalidate>
           <label>電子郵件
