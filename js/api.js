@@ -20,6 +20,7 @@
 //   投票 polls：     { id, question, options: [文字…], author, created_at, closed }
 //        poll_votes：{ id: 投票id_UID, poll_id, uid, choice: 第幾個選項, voted_at }
 //   資料卡 cards：   { id, title, member: UID 或 ''（全家）, body, updated_at }
+//   成績 scores：    { id, kid: 小朋友的 UID, subject, title, date, score, full, note }
 //   聊天照片 chat_images：{ id, data: 圖片內容, sender, sent_at }；訊息本身只放小縮圖 thumb 和 image_id
 // 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
@@ -191,6 +192,8 @@
 
       // ----- 通用讀寫（給採買、投票、資料卡、聊天照片用） -----
       watchList: (name, cb) => watch(name, col(name), cb),
+      // 讀一次清單；filter 是 [欄位, 值]，只讀符合的（小朋友讀自己的資料時一定要帶，否則會被安全規則擋下）
+      listDocs: (name, filter) => (filter ? list(name, F.where(filter[0], '==', filter[1])) : list(name)),
       async addDoc(name, data) { return (await F.addDoc(col(name), data)).id; },
       setDoc: (name, id, data) => F.setDoc(F.doc(db, name, id), data),
       updateDoc: (name, id, data) => F.updateDoc(F.doc(db, name, id), data),
@@ -340,6 +343,13 @@
         { id: 'ca1', title: '緊急聯絡', member: '', body: '阿嬤家：02-2345-6789\n社區管理室：02-2222-3333', updated_at: ago(600) },
         { id: 'ca2', title: '學校資料', member: 'm3', body: '學號：1130456\n班級：二年三班 12 號\n導師：王老師 0912-345-678', updated_at: ago(500) }
       ],
+      scores: [
+        { id: 'sc1', kid: 'm3', subject: '數學', title: '第一次段考', date: day(-40), score: 78, full: 100, note: '' },
+        { id: 'sc2', kid: 'm3', subject: '數學', title: '第二次段考', date: day(-5), score: 86, full: 100, note: '應用題進步了' },
+        { id: 'sc3', kid: 'm3', subject: '英文', title: '第二次段考', date: day(-5), score: 92, full: 100, note: '' },
+        { id: 'sc4', kid: 'm3', subject: '國文', title: '第二次段考', date: day(-4), score: 81, full: 100, note: '' },
+        { id: 'sc5', kid: 'm4', subject: '數學', title: '平時考', date: day(-3), score: 45, full: 50, note: '' }
+      ],
       chat_images: []
     });
     const G = (name) => {
@@ -440,6 +450,7 @@
         setTimeout(() => cb(G(name).slice()), 0);
         return () => { gsubs[name] = gsubs[name].filter((x) => x !== cb); };
       },
+      async listDocs(name, filter) { return G(name).filter((x) => !filter || x[filter[0]] === filter[1]).slice(); },
       async addDoc(name, data) {
         const id = name.slice(0, 2) + Date.now() + Math.floor(Math.random() * 1000);
         G(name).push({ ...data, id }); persist(); gemit(name); return id;

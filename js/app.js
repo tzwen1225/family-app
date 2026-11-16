@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 16:00';
+  const VERSION = '2026-11-16 16:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -78,6 +78,7 @@
     notes: [],
     notesView: 'ledger',     // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
     shopping: [], cards: [],
+    scores: [], scoreSubject: '',   // 成績紀錄；scoreSubject 是目前只看哪一科（空的代表全部）
     postsView: 'posts',      // posts（留言）| polls（投票）
     polls: [], votes: [],
     ledger: [],
@@ -247,6 +248,12 @@
     if (state.tab === 'notes' && state.notesView === 'ledger') render();
   }
 
+  async function loadScores() {
+    try { state.scores = await Api.listDocs('scores', amChild() ? ['kid', state.userId] : null); }
+    catch (e) { console.error(e); toast('成績讀取失敗'); }
+    if (state.tab === 'notes' && state.notesView === 'scores') render();
+  }
+
   async function loadProfiles() {
     try { state.profiles = await Api.listProfiles(); }
     catch (e) { console.error(e); }
@@ -254,7 +261,7 @@
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
-    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') loadNotes(); }
+    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') loadNotes(); else if (state.notesView === 'scores') loadScores(); }
   }
 
   // ---------- 啟動 ----------
@@ -379,6 +386,7 @@
     if (state.notesView === 'notes') return '新增雜記';
     if (state.notesView === 'shop') return '';                       // 採買清單直接在上方輸入
     if (state.notesView === 'cards') return amChild() ? '' : '新增資料卡';
+    if (state.notesView === 'scores') return kids().length ? '新增成績' : '';
     return kids().length ? '新增一筆零用錢紀錄' : '';
   }
 
@@ -982,6 +990,91 @@
     });
   }
 
+  // ---------- 考試成績 ----------
+  // 每位小朋友一份。小朋友只看得到、只能改自己的；家長看得到兩位，也可以幫忙登記或修改。
+  const canEditScore = (sc) => !amChild() || sc.kid === state.userId;
+  const pct = (sc) => Math.round(sc.score / sc.full * 100);
+  const SUBJECTS = ['國文', '英文', '數學', '自然', '社會'];
+
+  function viewScores() {
+    const list = kids();
+    if (!list.length) return `
+      <header class="plain-head"><h1>成績</h1></header>
+      <div class="empty big"><p>${isAdmin()
+        ? '還沒設定誰是小朋友。到「設定」點小朋友的名字，打開「這是小朋友」，這裡就會出現他的成績紀錄。'
+        : '還沒設定誰是小朋友，請管理員到「設定」裡設定。'}</p></div>`;
+
+    const kidId = amChild() ? state.userId : (list.some((k) => k.id === state.ledgerKid) ? state.ledgerKid : list[0].id);
+    state.ledgerKid = kidId;
+    const kid = member(kidId);
+    const all = state.scores.filter((x) => x.kid === kidId).sort((a, b) => b.date.localeCompare(a.date));
+
+    const picker = !amChild() && list.length > 1 ? `
+      <div class="kid-picker" role="group" aria-label="選擇小朋友">
+        ${list.map((k) => `<button class="${k.id === kidId ? 'on' : ''}" style="--who:${esc(k.color)}" data-act="ledger-kid" data-id="${esc(k.id)}" ${k.id === kidId ? 'aria-pressed="true"' : ''}>${esc(k.display_name)}</button>`).join('')}
+      </div>` : '';
+
+    if (!all.length) return `
+      <header class="plain-head"><h1>成績</h1><p>${amChild() ? '只有你和爸媽看得到' : esc(kid.display_name)}</p></header>
+      ${picker}
+      <div class="empty big"><p>還沒有成績紀錄。</p><button class="link-btn" data-act="new">記下第一筆</button></div>`;
+
+    // 各科：最近一次、和上一次比、平均
+    const subjects = Array.from(new Set(all.map((x) => x.subject)));
+    if (state.scoreSubject && !subjects.includes(state.scoreSubject)) state.scoreSubject = '';
+    const summary = subjects.map((sub) => {
+      const rows = all.filter((x) => x.subject === sub);
+      const avg = Math.round(rows.reduce((n, x) => n + pct(x), 0) / rows.length);
+      const diff = rows.length > 1 ? pct(rows[0]) - pct(rows[1]) : null;
+      const trend = diff === null ? '' : diff > 0 ? `<em class="up">▲ ${diff}</em>` : diff < 0 ? `<em class="down">▼ ${-diff}</em>` : '<em>持平</em>';
+      return `
+        <button class="subject ${state.scoreSubject === sub ? 'on' : ''}" data-act="score-subject" data-subject="${esc(sub)}" ${state.scoreSubject === sub ? 'aria-pressed="true"' : ''}>
+          <span class="subject-name">${esc(sub)}</span>
+          <span class="subject-last">${rows[0].score}<small>/${rows[0].full}</small></span>
+          <span class="subject-meta">${trend}<span>平均 ${avg}%・${rows.length} 次</span></span>
+        </button>`;
+    }).join('');
+
+    const shown = state.scoreSubject ? all.filter((x) => x.subject === state.scoreSubject) : all;
+    return `
+      <header class="plain-head"><h1>成績</h1><p>${amChild() ? '只有你和爸媽看得到' : esc(kid.display_name) + '的紀錄'}</p></header>
+      ${picker}
+      <section class="subjects" style="--who:${esc(kid.color)}" aria-label="各科最近一次成績">${summary}</section>
+      <section class="entries">
+        <h2>${state.scoreSubject ? esc(state.scoreSubject) + '的紀錄' : '全部紀錄'}${state.scoreSubject ? '<button class="link-btn" data-act="score-subject" data-subject="">看全部</button>' : ''}</h2>
+        ${shown.map((x) => {
+          const d = parse(x.date);
+          const inner = `
+            <span class="entry-date">${d.getMonth() + 1}/${d.getDate()}</span>
+            <span class="entry-note"><b>${esc(x.subject)}</b>　${esc(x.title)}${x.note ? `<small>${esc(x.note)}</small>` : ''}</span>
+            <span class="entry-amount">${x.score}<small>/${x.full}</small></span>`;
+          return canEditScore(x)
+            ? `<button class="entry score" data-act="edit-score" data-id="${esc(x.id)}">${inner}</button>`
+            : `<div class="entry score">${inner}</div>`;
+        }).join('')}
+      </section>`;
+  }
+
+  function openScoreSheet(sc) {
+    const x = sc || { subject: state.scoreSubject || '', title: '', date: today(), score: '', full: 100, note: '' };
+    const kid = member(sc ? sc.kid : state.ledgerKid);
+    showSheet('score-form', {
+      title: kid.display_name + '的成績', focus: false, footer: sc ? DELETE_BTN : '',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(x.id || '')}">
+      <input type="hidden" name="kid" value="${esc(kid.id)}">
+      <label>科目<input type="text" name="subject" value="${esc(x.subject)}" maxlength="12" autocomplete="off" placeholder="例如：數學"></label>
+      <div class="presets">${SUBJECTS.map((sub) => `<button type="button" class="chip-btn" data-act="subject-preset" data-subject="${sub}">${sub}</button>`).join('')}</div>
+      <label style="margin-top:14px">考試名稱<input type="text" name="title" value="${esc(x.title)}" maxlength="40" autocomplete="off" placeholder="例如：第二次段考"></label>
+      <div class="row two">
+        <label>分數<input class="title-input" type="number" name="score" inputmode="decimal" min="0" step="0.5" value="${esc(x.score)}" placeholder="0"></label>
+        <label>滿分<input class="title-input" type="number" name="full" inputmode="decimal" min="1" step="1" value="${esc(x.full)}"></label>
+      </div>
+      <label>考試日期<input type="date" name="date" value="${esc(x.date)}" max="${today()}"></label>
+      <label>備註<textarea name="note" rows="2" maxlength="200" placeholder="錯在哪裡、下次要注意什麼…">${esc(x.note || '')}</textarea></label>`
+    });
+  }
+
   // ---------- 採買清單 ----------
   function shopListHtml() {
     if (!state.shopping.length) return '<div class="empty big"><p>清單是空的。想到要買什麼，就在上面打字加進來。</p></div>';
@@ -1116,8 +1209,8 @@
   // ---------- 雜記 ----------
   function viewNotes() {
     const b = (v, label) => `<button class="${state.notesView === v ? 'on' : ''}" data-act="notes-view" data-view="${v}" ${state.notesView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
-    const views = { ledger: viewLedger, notes: viewNoteList, shop: viewShop, cards: viewCards };
-    return `<div class="switcher" role="group" aria-label="金庫的內容">${b('ledger', '零用錢')}${b('notes', '雜記')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
+    const views = { ledger: viewLedger, scores: viewScores, notes: viewNoteList, shop: viewShop, cards: viewCards };
+    return `<div class="switcher five" role="group" aria-label="金庫的內容">${b('ledger', '零用錢')}${b('scores', '成績')}${b('notes', '雜記')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
       + (views[state.notesView] || viewLedger)();
   }
 
@@ -1673,6 +1766,28 @@
       remove: (id) => Api.deleteRequest(id),
       after() { refreshTodos(); if (state.tab === 'notes') render(); }
     },
+    'score-form': {
+      read: (f) => ({
+        id: f.item_id.value || null, kid: f.kid.value, subject: f.subject.value.trim(), title: f.title.value.trim(),
+        date: f.date.value, score: Number(f.score.value), full: Number(f.full.value), note: f.note.value.trim(),
+        blank: f.score.value === ''
+      }),
+      check(x) {
+        if (!x.subject) return '請填寫科目';
+        if (x.blank || !(x.score >= 0)) return '請填寫分數';
+        if (!(x.full >= 1) || x.full > 1000) return '滿分請填 1 到 1000 之間';
+        if (x.score > x.full) return '分數不能超過滿分';
+        if (!x.date) return '請選擇考試日期';
+        if (x.date > today()) return '考試日期不能是未來';
+        return null;
+      },
+      save(x) {
+        const data = { kid: x.kid, subject: x.subject, title: x.title || '考試', date: x.date, score: x.score, full: x.full, note: x.note };
+        return x.id ? Api.updateDoc('scores', x.id, data) : Api.addDoc('scores', data);
+      },
+      remove: (id) => Api.deleteDoc('scores', id),
+      after: () => loadScores()
+    },
     'poll-form': {
       done: '投票已送出',
       read: (f) => ({
@@ -1836,6 +1951,7 @@
     else if (act === 'new') {
       if (state.tab === 'notes' && state.notesView === 'ledger') { if (kids().length) openLedgerSheet(null); }
       else if (state.tab === 'notes' && state.notesView === 'cards') { if (!amChild()) openCardSheet(null); }
+      else if (state.tab === 'notes' && state.notesView === 'scores') { if (kids().length) openScoreSheet(null); }
       else if (state.tab === 'notes') openNoteSheet(null);
       else if (state.tab === 'posts' && state.postsView === 'polls') openPollSheet();
       else if (state.tab === 'posts') openPostSheet();
@@ -1847,7 +1963,7 @@
     }
     else if (act === 'skip-day') onSkipDay(el);
     else if (act === 'notes-view') { state.notesView = el.dataset.view; render(); scroller().scrollTop = 0; loadTab(); }
-    else if (act === 'ledger-kid') { state.ledgerKid = el.dataset.id; state.ledgerDay = null; render(); }
+    else if (act === 'ledger-kid') { state.ledgerKid = el.dataset.id; state.ledgerDay = null; state.scoreSubject = ''; render(); }
     else if (act === 'ledger-day') { state.ledgerDay = el.dataset.date && el.dataset.date !== state.ledgerDay ? el.dataset.date : null; render(); }
     else if (act === 'req-given') onRequestGiven(el);
     else if (act === 'edit-request') { const r = findById(state.requests, el.dataset.id); if (r) openRequestSheet(r); }
@@ -1885,6 +2001,9 @@
       const f = el.closest('form').elements;
       f.question.value = el.dataset.q; f.options.value = el.dataset.o.split('|').join('\n');
     }
+    else if (act === 'score-subject') { state.scoreSubject = el.dataset.subject === state.scoreSubject ? '' : el.dataset.subject; render(); }
+    else if (act === 'edit-score') { const x = findById(state.scores, el.dataset.id); if (x && canEditScore(x)) openScoreSheet(x); }
+    else if (act === 'subject-preset') { el.closest('form').elements.subject.value = el.dataset.subject; }
     else if (act === 'shop-toggle') onShopToggle(el.dataset.id);
     else if (act === 'shop-clear') onShopClear(el);
     else if (act === 'edit-card') { const c = findById(state.cards, el.dataset.id); if (c && !amChild()) openCardSheet(c); }
@@ -1899,7 +2018,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state, {
-          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', postsView: 'posts', shopping: [], cards: [], polls: [], votes: [], posts: [], replies: [],
+          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', postsView: 'posts', shopping: [], cards: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
         });
         renderLogin();

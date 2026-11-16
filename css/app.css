@@ -513,6 +513,21 @@ button.bubble { text-align: left; font: inherit; }
 .poll-actions { display: flex; gap: 12px; }
 .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
+/* ---------- 成績 ---------- */
+.switcher.five button { font-size: 13px; }
+.subjects { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; margin-top: 6px; }
+.subject { text-align: left; background: var(--sheet); border-radius: 14px; padding: 10px 12px; border-top: 4px solid var(--line); }
+.subject.on { border-top-color: var(--who); box-shadow: 0 0 0 2px var(--who); }
+.subject-name { display: block; font-size: 13px; font-weight: 700; color: var(--who); }
+.subject-last { display: block; font: 800 28px/1.15 var(--num); }
+.subject-last small, .entry-amount small { font: 500 13px/1 var(--num); color: var(--ink-2); }
+.subject-meta { display: block; font-size: 11px; color: var(--ink-2); }
+.subject-meta em { font-style: normal; font-weight: 700; display: block; }
+.subject-meta em.up { color: var(--c-family); }
+.subject-meta em.down { color: var(--c-exam); }
+.entry.score .entry-note small { display: block; font-size: 12px; color: var(--ink-2); }
+.entry.score .entry-note b { color: var(--ink); }
+
 /* ---------- 採買清單 ---------- */
 .shop-add { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .shop-add input { margin: 0; border-radius: 99px; padding: 11px 16px; }

@@ -33,6 +33,17 @@ service cloud.firestore {
         && d.date is string;
     }
 
+    function validScore() {
+      let d = request.resource.data;
+      return d.kid is string
+        && exists(/databases/$(database)/documents/members/$(d.kid))
+        && d.subject is string && d.subject.size() >= 1 && d.subject.size() <= 12
+        && d.title is string && d.title.size() <= 40
+        && d.date is string
+        && d.full is number && d.full >= 1 && d.full <= 1000
+        && d.score is number && d.score >= 0 && d.score <= d.full;
+    }
+
     function validRequest() {
       let d = request.resource.data;
       return d.kid is string
@@ -200,6 +211,17 @@ service cloud.firestore {
         && request.resource.data.data.size() <= 950000;
       allow delete: if isFamily() && resource.data.sender == request.auth.uid;
       allow update: if false;
+    }
+
+    // 考試成績：小朋友只看得到、只能改自己的；家長看得到全部，也可以幫忙登記
+    match /scores/{id} {
+      allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
+      allow create: if isFamily() && validScore()
+        && (!isChild() || request.resource.data.kid == request.auth.uid);
+      allow update: if isFamily() && validScore()
+        && (!isChild() || (resource.data.kid == request.auth.uid && request.resource.data.kid == request.auth.uid));
+      allow delete: if isFamily()
+        && (!isChild() || resource.data.kid == request.auth.uid);
     }
 
     // 採買清單：全家都可以新增、打勾、清除
