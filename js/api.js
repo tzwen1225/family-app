@@ -343,6 +343,9 @@
         { id: 'ca1', title: '緊急聯絡', member: '', body: '阿嬤家：02-2345-6789\n社區管理室：02-2222-3333', updated_at: ago(600) },
         { id: 'ca2', title: '學校資料', member: 'm3', body: '學號：1130456\n班級：二年三班 12 號\n導師：王老師 0912-345-678', updated_at: ago(500) }
       ],
+      subjects: [
+        { id: 'su1', label: '國文', created_at: 1 }, { id: 'su2', label: '英文', created_at: 2 }, { id: 'su3', label: '數學', created_at: 3 }
+      ],
       scores: [
         { id: 'sc1', kid: 'm3', subject: '數學', title: '第一次段考', date: day(-40), score: 78, full: 100, note: '' },
         { id: 'sc2', kid: 'm3', subject: '數學', title: '第二次段考', date: day(-5), score: 86, full: 100, note: '應用題進步了' },

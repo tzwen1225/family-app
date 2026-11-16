@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 17:30';
+  const VERSION = '2026-11-16 17:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1100,8 +1100,8 @@
   // 每位小朋友一份。小朋友只看得到、只能改自己的；家長看得到兩位，也可以幫忙登記或修改。
   const canEditScore = (sc) => !amChild() || sc.kid === state.userId;
   const pct = (sc) => Math.round(sc.score / sc.full * 100);
-  const SUBJECTS = ['國文', '英文', '數學', '自然', '社會'];   // 內建科目；家長可以在設定裡再加
-  const subjectList = () => SUBJECTS.concat(state.subjects.map((x) => x.label).filter((l) => !SUBJECTS.includes(l)));
+  // 考試科目沒有內建的，全部由家長在「設定」裡新增
+  const subjectList = () => state.subjects.map((x) => x.label);
 
   function viewScores() {
     const list = kids();
@@ -1165,14 +1165,20 @@
   function openScoreSheet(sc) {
     const x = sc || { subject: state.scoreSubject || '', title: '', date: today(), score: '', full: 100, note: '' };
     const kid = member(sc ? sc.kid : state.ledgerKid);
+    // 科目只能從家長設定的清單裡選；編輯舊紀錄時，如果它的科目已經被刪掉，仍然保留這個選項
+    const choices = subjectList().concat(x.subject && !subjectList().includes(x.subject) ? [x.subject] : []);
     showSheet('score-form', {
       title: kid.display_name + '的成績', focus: false, footer: sc ? DELETE_BTN : '',
       body: `
       <input type="hidden" name="item_id" value="${esc(x.id || '')}">
       <input type="hidden" name="kid" value="${esc(kid.id)}">
-      <label>科目<input type="text" name="subject" value="${esc(x.subject)}" maxlength="12" autocomplete="off" placeholder="例如：數學"></label>
-      <div class="presets">${subjectList().map((sub) => `<button type="button" class="chip-btn" data-act="subject-preset" data-subject="${esc(sub)}">${esc(sub)}</button>`).join('')}</div>
-      <label style="margin-top:14px">考試名稱<input type="text" name="title" value="${esc(x.title)}" maxlength="40" autocomplete="off" placeholder="例如：第二次段考"></label>
+      <fieldset class="seg">
+        <legend>科目</legend>
+        ${choices.map((sub) => `
+          <label style="--cat:${esc(kid.color)}"><input type="radio" name="subject" value="${esc(sub)}" ${x.subject === sub ? 'checked' : ''}><span>${esc(sub)}</span></label>`).join('')}
+        ${choices.length ? '' : `<p class="hint">${amChild() ? '還沒有科目，請爸媽先到「設定」的「考試科目」新增。' : '還沒有科目，請先到「設定」的「考試科目」新增。'}</p>`}
+      </fieldset>
+      <label>考試名稱<input type="text" name="title" value="${esc(x.title)}" maxlength="40" autocomplete="off" placeholder="例如：第二次段考"></label>
       <div class="row two">
         <label>分數<input class="title-input" type="number" name="score" inputmode="decimal" min="0" step="0.5" value="${esc(x.score)}" placeholder="0"></label>
         <label>滿分<input class="title-input" type="number" name="full" inputmode="decimal" min="1" step="1" value="${esc(x.full)}"></label>
@@ -1516,8 +1522,8 @@
       <section class="card-list">
         <h2>考試科目<small>${amChild() ? '由家長管理' : '家長可以新增或刪除'}</small></h2>
         <div class="cats">
-          ${SUBJECTS.map((l) => `<span class="cat-chip" style="--cat:var(--green)">${l}</span>`).join('')}
-          ${state.subjects.filter((x) => !SUBJECTS.includes(x.label)).map((x) => `
+          ${state.subjects.length ? '' : `<p class="hint">${amChild() ? '還沒有科目，請爸媽新增。' : '還沒有科目。新增之後，登記成績時才有科目可以選。'}</p>`}
+          ${state.subjects.map((x) => `
             <span class="cat-chip" style="--cat:var(--green)">${esc(x.label)}${amChild() ? '' : `<button data-act="del-subject" data-id="${esc(x.id)}" aria-label="刪除科目「${esc(x.label)}」">×</button>`}</span>`).join('')}
         </div>
         ${amChild() ? '' : '<button class="btn ghost small" data-act="new-subject">新增科目</button>'}
@@ -1901,13 +1907,13 @@
       after() { refreshTodos(); if (state.tab === 'notes') render(); }
     },
     'score-form': {
-      read: (f) => ({
-        id: f.item_id.value || null, kid: f.kid.value, subject: f.subject.value.trim(), title: f.title.value.trim(),
+      read: (f, form) => ({
+        id: f.item_id.value || null, kid: f.kid.value, subject: checkedValues(form, 'subject')[0] || '', title: f.title.value.trim(),
         date: f.date.value, score: Number(f.score.value), full: Number(f.full.value), note: f.note.value.trim(),
         blank: f.score.value === ''
       }),
       check(x) {
-        if (!x.subject) return '請填寫科目';
+        if (!x.subject) return subjectList().length ? '請選擇科目' : '還沒有科目，請先到「設定」新增考試科目';
         if (x.blank || !(x.score >= 0)) return '請填寫分數';
         if (!(x.full >= 1) || x.full > 1000) return '滿分請填 1 到 1000 之間';
         if (x.score > x.full) return '分數不能超過滿分';
@@ -2162,7 +2168,6 @@
     }
     else if (act === 'score-subject') { state.scoreSubject = el.dataset.subject === state.scoreSubject ? '' : el.dataset.subject; render(); }
     else if (act === 'edit-score') { const x = findById(state.scores, el.dataset.id); if (x && canEditScore(x)) openScoreSheet(x); }
-    else if (act === 'subject-preset') { el.closest('form').elements.subject.value = el.dataset.subject; }
     else if (act === 'shop-toggle') onShopToggle(el.dataset.id);
     else if (act === 'shop-clear') onShopClear(el);
     else if (act === 'edit-card') { const c = findById(state.cards, el.dataset.id); if (c && !amChild()) openCardSheet(c); }
