@@ -15,6 +15,7 @@
   --c-birthday: #8A4FD0;
 
   /* 以下由上面的顏色自動調出來，換面板時會跟著變 */
+  --holiday: #D4282C;                                                  /* 假日的紅字：不隨面板改變 */
   --danger: #D4282C;                                                   /* 刪除、錯誤：不隨面板改變 */
   --danger-soft: color-mix(in srgb, var(--danger) 6%, var(--sheet));
   --danger-line: color-mix(in srgb, var(--danger) 28%, var(--sheet));
@@ -123,7 +124,7 @@ textarea { resize: vertical; }
 
 .weekdays, .grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .weekdays { margin-top: 8px; font-size: 12px; color: var(--ink-2); text-align: center; padding-bottom: 4px; }
-.weekdays .weekend { color: var(--red); }
+.weekdays .weekend { color: var(--holiday); }
 
 .day {
   height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
@@ -133,7 +134,8 @@ textarea { resize: vertical; }
   width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
   font: 500 17px/1 var(--num);
 }
-.day.weekend .num { color: var(--red); }
+.day.weekend .num { color: var(--holiday); }
+.day.weekend.today .num { color: #fff; }
 .day.out .num { opacity: .3; }
 .day.out .dots { opacity: .35; }
 .day.sel .num { box-shadow: inset 0 0 0 2px var(--ink); }
@@ -157,9 +159,9 @@ textarea { resize: vertical; }
 .leaf-num { font: 800 60px/1 var(--num); letter-spacing: -.03em; }
 .leaf-week { font-size: 15px; font-weight: 600; margin-top: 4px; }
 .leaf-rel { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
-.leaf-holiday { font-size: 12px; font-weight: 700; margin-top: 6px; padding: 0 6px; line-height: 1.3; }
+.leaf-holiday { color: var(--holiday); font-size: 12px; font-weight: 700; margin-top: 6px; padding: 0 6px; line-height: 1.3; }
 .leaf-workday { font-size: 12px; font-weight: 700; color: var(--ink-2); margin-top: 6px; }
-.holiday-tag { font-style: normal; font-size: 12px; font-weight: 700; color: var(--red); border: 1px solid var(--red); border-radius: 99px; padding: 0 8px; }
+.holiday-tag { font-style: normal; font-size: 12px; font-weight: 700; color: var(--holiday); border: 1px solid var(--holiday); border-radius: 99px; padding: 0 8px; }
 .leaf-list { padding: 6px 4px 6px 0; min-width: 0; }
 
 .event {
@@ -734,7 +736,7 @@ html[data-theme="sunset"]   { --paper: #FBF6EE; --line: #EBDFCB; --ink: #2E2416;
 html[data-theme="lavender"] { --paper: #F6F4FC; --line: #DEDAEE; --ink: #221D38; --ink-2: #645E7E; --red: #7A4FD0; --green: #3F5BB5; }
 html[data-theme="night"] {
   --paper: #111715; --sheet: #1B2320; --line: #2D3934; --ink: #E9F0EC; --ink-2: #9BABA4;
-  --red: #FF6B6B; --green: #3FA57F; --danger: #FF6B6B;
+  --red: #FF6B6B; --green: #3FA57F; --danger: #FF6B6B; --holiday: #FF6B6B;
   --c-schedule: #6FA3FF; --c-exam: #FFA640; --c-family: #4CC38A; --c-other: #9BABA4; --c-birthday: #B58CFF;
   color-scheme: dark;
 }
