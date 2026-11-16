@@ -413,6 +413,35 @@ button.bubble { text-align: left; font: inherit; }
 .link-btn.del { color: var(--ink-2); font-size: 13px; min-height: 36px; margin-top: 4px; }
 .sheet textarea.title-input { font-size: 17px; font-weight: 400; }
 
+/* ---------- 零用錢記帳本 ---------- */
+.kid-picker { display: flex; gap: 8px; margin: 6px 0 12px; }
+.kid-picker button {
+  flex: 1; min-height: 42px; border-radius: 99px; font-weight: 600;
+  background: var(--sheet); border: 1px solid var(--line); color: var(--ink);
+}
+.kid-picker button.on { background: var(--who); border-color: var(--who); color: #fff; }
+.wallet {
+  background: var(--sheet); border-radius: 18px; padding: 16px 18px 14px;
+  border-top: 6px solid var(--who);
+  box-shadow: 0 1px 0 var(--line), 0 10px 24px -18px rgba(23, 35, 31, .5);
+}
+.wallet-name { font-size: 14px; color: var(--ink-2); }
+.wallet-left { font: 800 46px/1.15 var(--num); letter-spacing: -.02em; color: var(--ink); }
+.wallet-left.neg { color: var(--red); }
+.wallet-row { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; font-size: 13px; color: var(--ink-2); }
+.wallet-row b { font: 600 14px/1 var(--num); color: var(--ink); margin-left: 2px; }
+.entries { margin-top: 14px; background: var(--sheet); border-radius: 16px; padding: 2px 16px; }
+.entries .empty { padding: 22px 0; }
+.entry {
+  display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; align-items: baseline;
+  width: 100%; text-align: left; padding: 13px 0;
+}
+.entry + .entry { border-top: 1px solid var(--line); }
+.entry-date { font: 500 13px/1.4 var(--num); color: var(--ink-2); }
+.entry-note { overflow-wrap: anywhere; }
+.entry-amount { font: 700 17px/1.2 var(--num); white-space: nowrap; }
+.entry-amount.income { color: var(--green); }
+
 /* ---------- 設定：成員基本資料 ---------- */
 .card-list h2 small { margin-left: 8px; font-size: 12px; }
 div.member-main { cursor: default; }

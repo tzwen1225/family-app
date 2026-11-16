@@ -10,6 +10,8 @@
 //   回覆 reply：  { id, post_id, text, author, created_at }
 // 基本資料 profile：{ id: UID, birthday, phone, org, note }
 // 上線狀態 presence：{ id: UID, last_seen, online }
+// 零用錢 ledger： { id, kid: 小朋友的 UID, type: 'income' 給零用錢 | 'expense' 支出, amount, note, date }
+//   members 文件裡 child: true 的成員是小朋友，其他人是家長
 // 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
 
@@ -40,6 +42,11 @@
   const cleanProfile = (p) => ({
     birthday: p.birthday || '', phone: p.phone || '', org: p.org || '', note: p.note || ''
   });
+  const cleanLedger = (e) => ({
+    kid: e.kid, type: e.type === 'income' ? 'income' : 'expense',
+    amount: Math.round(Number(e.amount)), note: e.note || '', date: e.date
+  });
+  const ledgerOrder = (a, b) => b.date.localeCompare(a.date) || String(b.id).localeCompare(String(a.id));
   const byTime = (a, b) =>
     (a.event_date + (a.start_time || '')).localeCompare(b.event_date + (b.start_time || ''));
   const notesOrder = (a, b) => (b.pinned - a.pinned) || (b.updated_at - a.updated_at);
@@ -138,6 +145,16 @@
 
       async listProfiles() { return toMap(await list('profiles')); },
       async saveProfile(memberId, p) { await F.setDoc(F.doc(db, 'profiles', memberId), cleanProfile(p)); },
+      // 標記某位成員是不是小朋友（安全規則只允許管理員這樣做）
+      async setChild(memberId, isChild) { await F.updateDoc(F.doc(db, 'members', memberId), { child: !!isChild }); },
+
+      // 零用錢：家長讀全部；小朋友只讀得到自己的（安全規則也是這樣限制，所以查詢要帶條件）
+      async listLedger(onlyKid) {
+        const rows = onlyKid ? await list('ledger', F.where('kid', '==', onlyKid)) : await list('ledger');
+        return rows.sort(ledgerOrder);
+      },
+      saveLedger: (e) => save('ledger', e.id, cleanLedger(e)),
+      deleteLedger: (id) => remove('ledger', id),
 
       async beat(online) {
         await F.setDoc(F.doc(db, 'presence', uid()), { last_seen: Date.now(), online: !!online });
@@ -192,8 +209,8 @@
     const members = [
       { id: 'm1', display_name: '爸爸', color: '#2F6FDE', sort: 1, admin: true },
       { id: 'm2', display_name: '媽媽', color: '#C2478B', sort: 2 },
-      { id: 'm3', display_name: '姊姊', color: '#E67E00', sort: 3 },
-      { id: 'm4', display_name: '弟弟', color: '#1F8A5F', sort: 4 }
+      { id: 'm3', display_name: '姊姊', color: '#E67E00', sort: 3, child: true },
+      { id: 'm4', display_name: '弟弟', color: '#1F8A5F', sort: 4, child: true }
     ];
     const day = (offset) => {
       const d = new Date(); d.setDate(d.getDate() + offset);
@@ -224,6 +241,13 @@
       ],
       replies: [
         { id: 'r1', post_id: 'p1', text: '發了，放在你書桌上。', author: 'm3', created_at: ago(60 * 4) }
+      ],
+      ledger: [
+        { id: 'l1', kid: 'm3', type: 'income', amount: 800, note: '這個月零用錢', date: day(0).slice(0, 8) + '01' },
+        { id: 'l2', kid: 'm3', type: 'expense', amount: 65, note: '珍珠奶茶', date: day(-2) },
+        { id: 'l3', kid: 'm3', type: 'expense', amount: 180, note: '文具', date: day(-1) },
+        { id: 'l4', kid: 'm4', type: 'income', amount: 600, note: '這個月零用錢', date: day(0).slice(0, 8) + '01' },
+        { id: 'l5', kid: 'm4', type: 'expense', amount: 120, note: '卡牌', date: day(-1) }
       ],
       profiles: {
         m1: { id: 'm1', birthday: '1980-03-12', phone: '0912-000-111', org: '', note: '' },
@@ -270,7 +294,7 @@
       async currentUserId() { return load().user; },
       async signIn() { load().user = 'm1'; persist(); return 'm1'; },
       async signOut() { load().user = null; persist(); },
-      async listMembers() { return members; },
+      async listMembers() { const flags = load().childFlags || {}; return members.map((m) => (m.id in flags ? { ...m, child: flags[m.id] } : m)); },
 
       async listEvents(from, to) {
         return load().events.filter((e) => e.event_date <= to && e.end_date >= from).sort(byTime);
@@ -308,6 +332,13 @@
 
       async listProfiles() { return { ...load().profiles }; },
       async saveProfile(memberId, p) { load().profiles[memberId] = { id: memberId, ...cleanProfile(p) }; persist(); },
+      async setChild(memberId, isChild) { const db = load(); db.childFlags = db.childFlags || {}; db.childFlags[memberId] = !!isChild; persist(); },
+
+      async listLedger(onlyKid) {
+        return load().ledger.filter((e) => !onlyKid || e.kid === onlyKid).sort(ledgerOrder);
+      },
+      async saveLedger(e) { return upsert('ledger', e.id, cleanLedger(e), 'l'); },
+      async deleteLedger(id) { drop('ledger', id); },
 
       async beat(online) {
         const db = load();

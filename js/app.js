@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 13:45';
+  const VERSION = '2026-11-16 14:00';
   const EVENT_CATS = ['schedule', 'exam', 'family', 'other'];
   const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
   const READ_KEY = 'family-chat-read';
@@ -51,6 +51,10 @@
     monthEvents: [],
     upcoming: [],
     notes: [],
+    notesView: 'notes',      // notes | ledger（零用錢）
+    ledger: [],
+    ledgerMonth: today().slice(0, 7),
+    ledgerKid: null,         // 家長正在看哪位小朋友的帳本
     messages: [],
     draft: '',
     chatSearch: false,
@@ -79,6 +83,10 @@
   // 管理員：members 文件裡有 admin: true 的人，可以編輯所有人的基本資料；其他人只能改自己的
   const isAdmin = () => { const m = me(); return !!(m && m.admin === true); };
   const canEditProfile = (id) => id === state.userId || isAdmin();
+  // 小朋友：members 文件裡有 child: true 的成員。其他人都算家長。
+  const kids = () => state.members.filter((m) => m.child === true);
+  const amChild = () => { const m = me(); return !!(m && m.child === true); };
+  const money = (n) => '$' + Math.abs(n).toLocaleString('en-US');
   const member = (id) => state.members.find((m) => m.id === id);
   const nameOf = (id) => { const m = member(id); return m ? m.display_name : '已離開的成員'; };
   const colorOf = (id) => { const m = member(id); return m ? m.color : '#7A847F'; };
@@ -193,6 +201,12 @@
     if (state.tab === 'notes') render();
   }
 
+  async function loadLedger() {
+    try { state.ledger = await Api.listLedger(amChild() ? state.userId : null); }
+    catch (e) { console.error(e); toast('零用錢紀錄讀取失敗'); }
+    if (state.tab === 'notes' && state.notesView === 'ledger') render();
+  }
+
   async function loadProfiles() {
     try { state.profiles = await Api.listProfiles(); }
     catch (e) { console.error(e); }
@@ -200,7 +214,7 @@
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
-    else if (state.tab === 'notes') loadNotes();
+    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else loadNotes(); }
   }
 
   // ---------- 啟動 ----------
@@ -302,7 +316,14 @@
     phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.500 4h3l1.500 4-2 1.500a11 11 0 0 0 5.500 5.500l1.500-2 4 1.500v3a2 2 0 0 1-2 2A15.500 15.500 0 0 1 4.500 6a2 2 0 0 1 2-2z"/></svg>'
   };
   const TABS = [['cal', '月曆'], ['chat', '聊天'], ['posts', '我有話要說'], ['notes', '雜記'], ['me', '設定']];
-  const FAB_LABEL = { cal: '新增行程', posts: '我有話要說', notes: '新增雜記' };
+  // 右下角的新增鈕在這個畫面要做什麼；沒有東西可新增時不顯示
+  function fabLabel() {
+    if (state.tab === 'cal') return '新增行程';
+    if (state.tab === 'posts') return '我有話要說';
+    if (state.tab !== 'notes') return '';
+    if (state.notesView === 'notes') return '新增雜記';
+    return kids().length ? '新增一筆零用錢紀錄' : '';
+  }
 
   const hasUnread = () => state.messages.some((m) => m.sender !== state.userId && m.sent_at > state.lastRead);
   const repliedBy = (post, uid) => state.replies.some((r) => r.post_id === post.id && r.author === uid);
@@ -334,7 +355,7 @@
           <input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息">
           <button type="submit" class="send" aria-label="傳送">${ICON.send}</button>
         </form>` : ''}
-      ${FAB_LABEL[state.tab] ? `<button class="fab" data-act="new" aria-label="${FAB_LABEL[state.tab]}">＋</button>` : ''}
+      ${fabLabel() ? `<button class="fab" data-act="new" aria-label="${fabLabel()}">＋</button>` : ''}
       <nav class="tabbar" aria-label="主選單">
         ${TABS.map(([id, label]) => `
           <button class="tab ${state.tab === id ? 'on' : ''} ${badge(id) ? 'unread' : ''}" data-act="tab" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ''}>
@@ -685,6 +706,74 @@
 
   // ---------- 雜記 ----------
   function viewNotes() {
+    const b = (v, label) => `<button class="${state.notesView === v ? 'on' : ''}" data-act="notes-view" data-view="${v}" ${state.notesView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
+    return `<div class="switcher" role="group" aria-label="雜記或零用錢">${b('notes', '雜記')}${b('ledger', '零用錢')}</div>`
+      + (state.notesView === 'ledger' ? viewLedger() : viewNoteList());
+  }
+
+  // ---------- 零用錢記帳本 ----------
+  // 每位小朋友一本。家長可以記「給零用錢」和支出，也能修改任何一筆；
+  // 小朋友只看得到自己的帳本，只能新增、修改、刪除自己的支出。
+  const canEditLedger = (e) => !amChild() || (e.kid === state.userId && e.type === 'expense');
+
+  function viewLedger() {
+    const list = kids();
+    if (!list.length) return `
+      <header class="plain-head"><h1>零用錢</h1></header>
+      <div class="empty big"><p>${isAdmin()
+        ? '還沒設定誰是小朋友。到「設定」點小朋友的名字，打開「這是小朋友」，這裡就會出現他的記帳本。'
+        : '還沒設定誰是小朋友，請管理員到「設定」裡設定。'}</p></div>`;
+
+    const kidId = amChild() ? state.userId : (list.some((k) => k.id === state.ledgerKid) ? state.ledgerKid : list[0].id);
+    state.ledgerKid = kidId;
+    const kid = member(kidId);
+    const all = state.ledger.filter((e) => e.kid === kidId);
+    const rows = all.filter((e) => e.date.slice(0, 7) === state.ledgerMonth);
+    const sum = (items, type) => items.filter((e) => e.type === type).reduce((n, e) => n + e.amount, 0);
+    const income = sum(rows, 'income'), spent = sum(rows, 'expense');
+    const left = income - spent;
+    const total = sum(all, 'income') - sum(all, 'expense');
+    const [y, m] = state.ledgerMonth.split('-').map(Number);
+
+    const picker = !amChild() && list.length > 1 ? `
+      <div class="kid-picker" role="group" aria-label="選擇小朋友">
+        ${list.map((k) => `<button class="${k.id === kidId ? 'on' : ''}" style="--who:${esc(k.color)}" data-act="ledger-kid" data-id="${esc(k.id)}" ${k.id === kidId ? 'aria-pressed="true"' : ''}>${esc(k.display_name)}</button>`).join('')}
+      </div>` : '';
+
+    const entries = rows.length ? rows.map((e) => {
+      const d = parse(e.date);
+      const inner = `
+          <span class="entry-date">${d.getMonth() + 1}/${d.getDate()}</span>
+          <span class="entry-note">${esc(e.note || (e.type === 'income' ? '零用錢' : '支出'))}</span>
+          <span class="entry-amount ${e.type}">${e.type === 'income' ? '+' : '−'}${money(e.amount)}</span>`;
+      return canEditLedger(e)
+        ? `<button class="entry" data-act="edit-ledger" data-id="${esc(e.id)}">${inner}</button>`
+        : `<div class="entry">${inner}</div>`;
+    }).join('') : `<div class="empty"><p>這個月還沒有紀錄。</p><button class="link-btn" data-act="new">${amChild() ? '記一筆支出' : '新增一筆'}</button></div>`;
+
+    return `
+      <header class="month-head">
+        <h1>${y}年${m}月</h1>
+        <div class="month-nav">
+          ${state.ledgerMonth !== today().slice(0, 7) ? '<button class="chip-btn" data-act="ledger-now">回到本月</button>' : ''}
+          <button class="icon-btn" data-act="ledger-prev" aria-label="上個月">‹</button>
+          <button class="icon-btn" data-act="ledger-next" aria-label="下個月">›</button>
+        </div>
+      </header>
+      ${picker}
+      <section class="wallet" style="--who:${esc(kid.color)}" aria-label="${esc(kid.display_name)}這個月的零用錢">
+        <div class="wallet-name">${esc(kid.display_name)}這個月還剩</div>
+        <div class="wallet-left ${left < 0 ? 'neg' : ''}">${left < 0 ? '−' : ''}${money(left)}</div>
+        <div class="wallet-row">
+          <span>零用錢 <b>${money(income)}</b></span>
+          <span>已花 <b>${money(spent)}</b></span>
+          <span>累計結餘 <b>${total < 0 ? '−' : ''}${money(total)}</b></span>
+        </div>
+      </section>
+      <section class="entries">${entries}</section>`;
+  }
+
+  function viewNoteList() {
     const cards = state.notes.map((n) => `
         <button class="note ${n.pinned ? 'pinned' : ''}" data-act="edit-note" data-id="${esc(n.id)}">
           ${n.pinned ? '<span class="pin">置頂</span>' : ''}
@@ -900,7 +989,33 @@
       <label>電話<input type="tel" name="phone" value="${esc(p.phone || '')}" maxlength="30" autocomplete="off" inputmode="tel"></label>
       <label>學校或公司<input type="text" name="org" value="${esc(p.org || '')}" maxlength="60" autocomplete="off"></label>
       <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="血型、過敏、班級座號…">${esc(p.note || '')}</textarea></label>
-      <p class="hint">填了生日，月曆上每年會自動出現。填了電話，設定頁可以直接撥打。</p>`
+      <p class="hint">填了生日，月曆上每年會自動出現。填了電話，設定頁可以直接撥打。</p>
+      ${isAdmin() ? `
+      <label class="switch">
+        <span>這是小朋友（有零用錢記帳本）</span>
+        <input type="checkbox" name="child" ${m.child === true ? 'checked' : ''}>
+      </label>` : ''}`
+    });
+  }
+
+  function openLedgerSheet(entry) {
+    const parent = !amChild();
+    const e = entry || { type: 'expense', amount: '', note: '', date: today() <= state.ledgerMonth + '-31' && today().slice(0, 7) === state.ledgerMonth ? today() : state.ledgerMonth + '-01' };
+    const kid = member(entry ? entry.kid : state.ledgerKid);
+    showSheet('ledger-form', {
+      title: kid.display_name + '的零用錢', focus: !entry, footer: entry ? DELETE_BTN : '',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(e.id || '')}">
+      <input type="hidden" name="kid" value="${esc(kid.id)}">
+      ${parent ? `
+      <fieldset class="seg">
+        <legend>類型</legend>
+        <label style="--cat:var(--ink)"><input type="radio" name="type" value="expense" ${e.type === 'expense' ? 'checked' : ''}><span>支出</span></label>
+        <label style="--cat:var(--green)"><input type="radio" name="type" value="income" ${e.type === 'income' ? 'checked' : ''}><span>給零用錢</span></label>
+      </fieldset>` : '<input type="hidden" name="type" value="expense">'}
+      <label>金額（元）<input class="title-input" type="number" name="amount" inputmode="numeric" min="1" step="1" value="${esc(e.amount)}" placeholder="0"></label>
+      <label>項目<input type="text" name="note" value="${esc(e.note)}" maxlength="100" autocomplete="off" placeholder="${parent ? '買了什麼，或是哪個月的零用錢' : '買了什麼？'}"></label>
+      <label>日期<input type="date" name="date" value="${esc(e.date)}" max="${today()}"></label>`
     });
   }
 
@@ -966,6 +1081,23 @@
       remove: (id) => Api.deleteNote(id),
       after: () => loadNotes()
     },
+    'ledger-form': {
+      read: (f) => ({
+        id: f.item_id.value || null, kid: f.kid.value, type: f.type.value,
+        amount: Number(f.amount.value), note: f.note.value.trim(), date: f.date.value
+      }),
+      check(e) {
+        if (!Number.isInteger(e.amount) || e.amount < 1) return '請輸入金額（整數，至少 1 元）';
+        if (e.amount > 1000000) return '金額太大了，請再確認一次';
+        if (!e.date) return '請選擇日期';
+        if (e.date > today()) return '日期不能是未來';
+        if (e.type === 'expense' && !e.note) return '請寫下買了什麼';
+        return null;
+      },
+      save: (e) => Api.saveLedger({ ...e, note: e.note || '零用錢' }),
+      remove: (id) => Api.deleteLedger(id),
+      after(e) { if (e) state.ledgerMonth = e.date.slice(0, 7); return loadLedger(); }
+    },
     'post-form': {
       done: '已送出',
       read: (f, form) => ({ text: f.text.value.trim(), to: checkedValues(form, 'to') }),
@@ -974,10 +1106,17 @@
       after: () => { const s = scroller(); if (s) s.scrollTop = 0; }
     },
     'profile-form': {
-      read: (f) => ({ id: f.item_id.value, birthday: f.birthday.value, phone: f.phone.value.trim(), org: f.org.value.trim(), note: f.note.value.trim() }),
+      read: (f) => ({
+        id: f.item_id.value, birthday: f.birthday.value, phone: f.phone.value.trim(), org: f.org.value.trim(), note: f.note.value.trim(),
+        child: f.child ? f.child.checked : null      // 只有管理員的表單才有這個開關
+      }),
       check: (p) => (p.birthday && p.birthday > today() ? '生日不能是未來的日期' : null),
-      save: (p) => Api.saveProfile(p.id, p),
-      async after() { await loadProfiles(); await loadEvents(); render(); }
+      async save(p) {
+        await Api.saveProfile(p.id, p);
+        const m = member(p.id);
+        if (p.child !== null && m && (m.child === true) !== p.child) await Api.setChild(p.id, p.child);
+      },
+      async after() { state.members = await Api.listMembers(); await loadProfiles(); await loadEvents(); render(); }
     }
   };
 
@@ -1080,7 +1219,8 @@
       else render();
     }
     else if (act === 'new') {
-      if (state.tab === 'notes') openNoteSheet(null);
+      if (state.tab === 'notes' && state.notesView === 'ledger') { if (kids().length) openLedgerSheet(null); }
+      else if (state.tab === 'notes') openNoteSheet(null);
       else if (state.tab === 'posts') openPostSheet();
       else openEventSheet(null);
     }
@@ -1089,6 +1229,15 @@
       if (e) openEventSheet(e.series || e, el.dataset.date);
     }
     else if (act === 'skip-day') onSkipDay(el);
+    else if (act === 'notes-view') { state.notesView = el.dataset.view; render(); scroller().scrollTop = 0; loadTab(); }
+    else if (act === 'ledger-kid') { state.ledgerKid = el.dataset.id; render(); }
+    else if (act === 'ledger-prev' || act === 'ledger-next' || act === 'ledger-now') {
+      const d = parse(state.ledgerMonth + '-01');
+      d.setMonth(d.getMonth() + (act === 'ledger-prev' ? -1 : 1));
+      state.ledgerMonth = act === 'ledger-now' ? today().slice(0, 7) : ymd(d).slice(0, 7);
+      render();
+    }
+    else if (act === 'edit-ledger') { const e = findById(state.ledger, el.dataset.id); if (e && canEditLedger(e)) openLedgerSheet(e); }
     else if (act === 'edit-note') { const n = findById(state.notes, el.dataset.id); if (n) openNoteSheet(n); }
     else if (act === 'edit-profile') { if (canEditProfile(el.dataset.id)) openProfileSheet(el.dataset.id); }
     else if (act === 'chat-search') {
@@ -1109,7 +1258,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state, {
-          userId: null, tab: 'cal', messages: [], notes: [], posts: [], replies: [],
+          userId: null, tab: 'cal', messages: [], notes: [], ledger: [], ledgerKid: null, notesView: 'notes', posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
         });
         renderLogin();

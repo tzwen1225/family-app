@@ -18,6 +18,26 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/members/$(request.auth.uid)).data.get('admin', false) == true;
     }
 
+    // 小朋友 = members 文件裡 child: true 的成員；其他人都算家長
+    function isChild() {
+      return get(/databases/$(database)/documents/members/$(request.auth.uid)).data.get('child', false) == true;
+    }
+
+    function validLedger() {
+      let d = request.resource.data;
+      return d.kid is string
+        && exists(/databases/$(database)/documents/members/$(d.kid))
+        && d.type in ['income', 'expense']
+        && d.amount is number && d.amount >= 1 && d.amount <= 1000000
+        && d.note is string && d.note.size() <= 100
+        && d.date is string;
+    }
+
+    // 小朋友只能動「自己的支出」
+    function ownExpense(d) {
+      return d.kid == request.auth.uid && d.type == 'expense';
+    }
+
     function validEvent() {
       let d = request.resource.data;
       return d.title is string && d.title.size() >= 1 && d.title.size() <= 80
@@ -74,10 +94,25 @@ service cloud.firestore {
         && request.resource.data.text == '';
     }
 
-    // 成員名單：只能在 Firebase 後台手動維護
+    // 成員名單：在 Firebase 後台維護。唯一的例外是管理員可以在 App 裡切換「是不是小朋友」。
     match /members/{uid} {
       allow read: if isFamily();
-      allow write: if false;
+      allow update: if isFamily() && isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['child'])
+        && request.resource.data.child is bool;
+      allow create, delete: if false;
+    }
+
+    // 零用錢記帳本：家長可以看、可以改全部；
+    // 小朋友只看得到自己的，只能新增、修改、刪除自己的支出（不能自己加零用錢）
+    match /ledger/{id} {
+      allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
+      allow create: if isFamily() && validLedger()
+        && (!isChild() || ownExpense(request.resource.data));
+      allow update: if isFamily() && validLedger()
+        && (!isChild() || (ownExpense(resource.data) && ownExpense(request.resource.data)));
+      allow delete: if isFamily()
+        && (!isChild() || ownExpense(resource.data));
     }
 
     // 行事曆
