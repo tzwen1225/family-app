@@ -494,6 +494,20 @@ button.bubble { text-align: left; font: inherit; }
 .viewer-bar .link-btn { color: #fff; }
 .viewer-bar .recall { margin: 0; }
 
+.tray-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tray-item { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: var(--line); }
+.tray-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tray-item button {
+  position: absolute; top: 4px; right: 4px; width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(0, 0, 0, .6); color: #fff; font-size: 20px; line-height: 1; display: grid; place-items: center;
+}
+.tray-item.sent::after {
+  content: "✓"; position: absolute; inset: 0; display: grid; place-items: center;
+  background: rgba(0, 0, 0, .45); color: #fff; font-size: 30px; font-weight: 700;
+}
+.tray .hint { margin-top: 12px; }
+.link-btn.danger-text { color: var(--danger); font-weight: 700; }
+
 /* ---------- 投票 ---------- */
 .flag.done { color: var(--ink-2); }
 .post.closed { opacity: .75; }

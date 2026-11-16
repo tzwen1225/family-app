@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 16:20';
+  const VERSION = '2026-11-16 16:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -78,6 +78,7 @@
     notes: [],
     notesView: 'ledger',     // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
     shopping: [], cards: [],
+    subjects: [],                   // 家長自訂的考試科目 { id, label }
     scores: [], scoreSubject: '',   // 成績紀錄；scoreSubject 是目前只看哪一科（空的代表全部）
     postsView: 'posts',      // posts（留言）| polls（投票）
     polls: [], votes: [],
@@ -303,6 +304,10 @@
       Api.watchPosts((list) => { state.posts = list; refreshPosts(); }),
       Api.watchReplies((list) => { state.replies = list; refreshPosts(); }),
       Api.watchPresence((map) => { state.presence = map; refreshPresence(); }),
+      Api.watchList('subjects', (list) => {
+        state.subjects = list.sort((a, b) => a.created_at - b.created_at);
+        if (state.tab === 'me' && !$sheet.innerHTML) render();
+      }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       Api.watchList('cards', (list) => { state.cards = list; if (state.tab === 'notes' && state.notesView === 'cards' && !$sheet.innerHTML) render(); }),
       Api.watchList('polls', (list) => { state.polls = list; refreshPolls(); }),
@@ -489,7 +494,7 @@
       ${state.tab === 'chat' && !state.chatSearch ? `
         <form class="chat-bar" id="chat-form">
           <label class="attach" aria-label="傳照片">
-            <input type="file" id="chat-file" accept="image/*" hidden>
+            <input type="file" id="chat-file" accept="image/*" multiple hidden>
             ${ICON.photo}
           </label>
           <input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息">
@@ -794,30 +799,86 @@
     canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL('image/jpeg', quality);
   }
+  // 選好的照片先放在預覽區，確認後才傳；可以移除其中幾張，或整批取消。
+  // 傳送途中也可以按「取消傳送」，還沒傳的就不會再傳。
+  const MAX_PHOTOS = 9;
+  let pendingPhotos = [];     // [{ img, thumb }]
+  let sendingPhotos = false;
+  let cancelPhotos = false;
+  let sentCount = 0;
+
   async function onPickImage(input) {
-    const file = input.files && input.files[0];
+    const files = Array.from(input.files || []);
     input.value = '';
-    if (!file) return;
-    toast('照片傳送中…');
-    try {
-      const img = await loadImage(file);
-      // 資料庫單筆上限約 1MB：先用 1280 像素試，太大就再縮
-      let full = shrink(img, 1280, 0.72);
-      for (const [side, q] of [[1024, 0.65], [800, 0.6], [640, 0.55]]) {
-        if (full.length <= 900000) break;
-        full = shrink(img, side, q);
-      }
-      if (full.length > 900000) throw new Error('too-large');
-      const thumb = shrink(img, 240, 0.6);
-      const imageId = await Api.addDoc('chat_images', { data: full, sender: state.userId, sent_at: Date.now() });
-      await Api.sendMessage('', { thumb, image_id: imageId });
-      toast('照片已送出');
-      scrollChat();
-    } catch (e) {
-      console.error(e);
-      toast('照片沒有送出，請再試一次');
+    if (!files.length || sendingPhotos) return;
+    if (files.length > MAX_PHOTOS) toast('一次最多 ' + MAX_PHOTOS + ' 張，只取前 ' + MAX_PHOTOS + ' 張');
+    const picked = [];
+    for (const file of files.slice(0, MAX_PHOTOS)) {
+      try { const img = await loadImage(file); picked.push({ img, thumb: shrink(img, 240, 0.6) }); }
+      catch (e) { console.error(e); }
     }
+    if (!picked.length) return toast('讀不到選的照片，請再試一次');
+    pendingPhotos = picked;
+    renderTray();
   }
+
+  function renderTray() {
+    const n = pendingPhotos.length;
+    $sheet.innerHTML = `
+      <div class="backdrop"></div>
+      <div class="sheet tray" role="dialog" aria-modal="true" aria-label="要傳送的照片">
+        <div class="sheet-head">
+          ${sendingPhotos
+            ? '<span class="link-btn" aria-hidden="true"></span>'
+            : '<button type="button" class="link-btn" data-act="tray-cancel">取消</button>'}
+          <strong>${sendingPhotos ? `傳送中 ${Math.min(sentCount + 1, n)} / ${n}` : `選了 ${n} 張照片`}</strong>
+          ${sendingPhotos
+            ? '<button type="button" class="link-btn danger-text" data-act="tray-stop">取消傳送</button>'
+            : `<button type="button" class="link-btn strong" data-act="tray-send">傳送</button>`}
+        </div>
+        <div class="sheet-body">
+          <div class="tray-grid">
+            ${pendingPhotos.map((p, i) => `
+              <div class="tray-item ${sendingPhotos && i < sentCount ? 'sent' : ''}">
+                <img src="${esc(p.thumb)}" alt="第 ${i + 1} 張">
+                ${sendingPhotos ? '' : `<button type="button" data-act="tray-remove" data-i="${i}" aria-label="移除第 ${i + 1} 張">×</button>`}
+              </div>`).join('')}
+          </div>
+          ${sendingPhotos ? '' : '<p class="hint">點照片右上角的 × 可以移除單張。按「傳送」才會送出。</p>'}
+        </div>
+      </div>`;
+    document.body.classList.add('sheet-open');
+  }
+
+  async function sendPendingPhotos() {
+    if (sendingPhotos || !pendingPhotos.length) return;
+    sendingPhotos = true; cancelPhotos = false; sentCount = 0;
+    let failed = 0;
+    for (const p of pendingPhotos.slice()) {
+      if (cancelPhotos) break;
+      renderTray();
+      try {
+        // 資料庫單筆上限約 1MB：先用 1280 像素試，太大就再縮
+        let full = shrink(p.img, 1280, 0.72);
+        for (const [side, q] of [[1024, 0.65], [800, 0.6], [640, 0.55]]) {
+          if (full.length <= 900000) break;
+          full = shrink(p.img, side, q);
+        }
+        if (full.length > 900000) throw new Error('too-large');
+        const imageId = await Api.addDoc('chat_images', { data: full, sender: state.userId, sent_at: Date.now() });
+        await Api.sendMessage('', { thumb: p.thumb, image_id: imageId });
+      } catch (e) { console.error(e); failed++; }
+      sentCount++;
+    }
+    const total = pendingPhotos.length;
+    const sent = sentCount - failed;
+    const stopped = cancelPhotos && sentCount < total;
+    sendingPhotos = false; pendingPhotos = [];
+    closeSheet();
+    toast(stopped ? `已取消，送出了 ${sent} 張` : failed ? `送出 ${sent} 張，${failed} 張失敗` : `已送出 ${sent} 張照片`);
+    scrollChat();
+  }
+
   async function openImage(id) {
     const m = findById(state.messages, id);
     if (!m) return;
@@ -994,7 +1055,8 @@
   // 每位小朋友一份。小朋友只看得到、只能改自己的；家長看得到兩位，也可以幫忙登記或修改。
   const canEditScore = (sc) => !amChild() || sc.kid === state.userId;
   const pct = (sc) => Math.round(sc.score / sc.full * 100);
-  const SUBJECTS = ['國文', '英文', '數學', '自然', '社會'];
+  const SUBJECTS = ['國文', '英文', '數學', '自然', '社會'];   // 內建科目；家長可以在設定裡再加
+  const subjectList = () => SUBJECTS.concat(state.subjects.map((x) => x.label).filter((l) => !SUBJECTS.includes(l)));
 
   function viewScores() {
     const list = kids();
@@ -1064,7 +1126,7 @@
       <input type="hidden" name="item_id" value="${esc(x.id || '')}">
       <input type="hidden" name="kid" value="${esc(kid.id)}">
       <label>科目<input type="text" name="subject" value="${esc(x.subject)}" maxlength="12" autocomplete="off" placeholder="例如：數學"></label>
-      <div class="presets">${SUBJECTS.map((sub) => `<button type="button" class="chip-btn" data-act="subject-preset" data-subject="${sub}">${sub}</button>`).join('')}</div>
+      <div class="presets">${subjectList().map((sub) => `<button type="button" class="chip-btn" data-act="subject-preset" data-subject="${esc(sub)}">${esc(sub)}</button>`).join('')}</div>
       <label style="margin-top:14px">考試名稱<input type="text" name="title" value="${esc(x.title)}" maxlength="40" autocomplete="off" placeholder="例如：第二次段考"></label>
       <div class="row two">
         <label>分數<input class="title-input" type="number" name="score" inputmode="decimal" min="0" step="0.5" value="${esc(x.score)}" placeholder="0"></label>
@@ -1407,6 +1469,15 @@
         ${amChild() ? '' : '<button class="btn ghost small" data-act="new-category">新增類型</button>'}
       </section>
       <section class="card-list">
+        <h2>考試科目<small>${amChild() ? '由家長管理' : '家長可以新增或刪除'}</small></h2>
+        <div class="cats">
+          ${SUBJECTS.map((l) => `<span class="cat-chip" style="--cat:var(--green)">${l}</span>`).join('')}
+          ${state.subjects.filter((x) => !SUBJECTS.includes(x.label)).map((x) => `
+            <span class="cat-chip" style="--cat:var(--green)">${esc(x.label)}${amChild() ? '' : `<button data-act="del-subject" data-id="${esc(x.id)}" aria-label="刪除科目「${esc(x.label)}」">×</button>`}</span>`).join('')}
+        </div>
+        ${amChild() ? '' : '<button class="btn ghost small" data-act="new-subject">新增科目</button>'}
+      </section>
+      <section class="card-list">
         <h2>面板顏色<small>只會改這支手機</small></h2>
         <div class="themes" role="group" aria-label="面板顏色">
           ${THEMES.map(([id, name, a, b]) => `
@@ -1443,6 +1514,8 @@
   }
 
   function closeSheet() {
+    if (sendingPhotos) { cancelPhotos = true; return; }   // 照片傳送中：改成取消剩下的，傳完這張才關
+    pendingPhotos = [];
     $sheet.innerHTML = '';
     document.body.classList.remove('sheet-open');
   }
@@ -1575,6 +1648,22 @@
           </label>`).join('')}
       </fieldset>`
     });
+  }
+
+  function openSubjectSheet() {
+    showSheet('subject-form', {
+      title: '新增考試科目', submit: '新增', focus: true,
+      body: `
+      <input class="title-input" name="label" placeholder="科目名稱，例如：理化" maxlength="12" autocomplete="off">
+      <p class="hint">新增後，登記成績時就可以直接點選這個科目。</p>`
+    });
+  }
+
+  async function onDeleteSubject(btn) {
+    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = '確定刪除？'; btn.classList.add('armed'); return; }
+    btn.disabled = true;
+    try { await Api.deleteDoc('subjects', btn.dataset.id); toast('已刪除科目'); }
+    catch (e) { console.error(e); btn.disabled = false; toast('刪除失敗，請再試一次'); }
   }
 
   function openCategorySheet() {
@@ -1815,6 +1904,18 @@
       remove: (id) => Api.deleteDoc('cards', id),
       after() { if (state.tab === 'notes') render(); }
     },
+    'subject-form': {
+      done: '已新增',
+      read: (f) => ({ label: f.label.value.trim() }),
+      check(x) {
+        if (!x.label) return '請輸入科目名稱';
+        if (subjectList().includes(x.label)) return '已經有這個科目了';
+        if (state.subjects.length >= 30) return '自訂科目最多 30 個';
+        return null;
+      },
+      save: (x) => Api.addDoc('subjects', { label: x.label, created_at: Date.now() }),
+      after() { if (state.tab === 'me') render(); }
+    },
     'category-form': {
       done: '已新增',
       read: (f) => ({ label: f.label.value.trim(), color: f.color.value }),
@@ -2008,6 +2109,12 @@
     else if (act === 'shop-clear') onShopClear(el);
     else if (act === 'edit-card') { const c = findById(state.cards, el.dataset.id); if (c && !amChild()) openCardSheet(c); }
     else if (act === 'view-image') openImage(el.dataset.id);
+    else if (act === 'tray-cancel') closeSheet();
+    else if (act === 'tray-remove') { pendingPhotos.splice(Number(el.dataset.i), 1); if (pendingPhotos.length) renderTray(); else closeSheet(); }
+    else if (act === 'tray-send') sendPendingPhotos();
+    else if (act === 'tray-stop') { cancelPhotos = true; el.disabled = true; el.textContent = '取消中…'; }
+    else if (act === 'new-subject') { if (!amChild()) openSubjectSheet(); }
+    else if (act === 'del-subject') onDeleteSubject(el);
     else if (act === 'new-category') { if (!amChild()) openCategorySheet(); }
     else if (act === 'del-category') onDeleteCategory(el);
     else if (act === 'theme') { applyTheme(el.dataset.themeId); render(); }
@@ -2018,7 +2125,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state, {
-          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', postsView: 'posts', shopping: [], cards: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
+          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', postsView: 'posts', shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
         });
         renderLogin();

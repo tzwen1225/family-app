@@ -183,6 +183,15 @@ service cloud.firestore {
       allow delete: if isFamily() && !isChild();
     }
 
+    // 考試科目：全家都看得到，只有家長可以新增或刪除
+    match /subjects/{id} {
+      allow read: if isFamily();
+      allow create, update: if isFamily() && !isChild()
+        && request.resource.data.label is string
+        && request.resource.data.label.size() >= 1 && request.resource.data.label.size() <= 12;
+      allow delete: if isFamily() && !isChild();
+    }
+
     // 費用申請：小朋友提出自己的申請，只有家長能標示「已給」
     match /requests/{id} {
       allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
