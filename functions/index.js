@@ -4,6 +4,7 @@
 //   messages 新增 → 通知傳送者以外的所有成員
 //   posts    新增 → 通知被標註的人
 //   replies  新增 → 通知那則發言的作者
+//   requests 新增 → 小朋友申請費用時，通知家長
 //
 // 部署：在專案資料夾執行 firebase deploy --only functions
 
@@ -78,4 +79,18 @@ exports.onReply = onDocumentCreated('replies/{id}', async (event) => {
   if (!post.exists || post.data().author === r.author) return;
   const names = await memberNames();
   await notify([post.data().author], (names[r.author] || '家人') + '回覆了你', clip(r.text), 'post-' + r.post_id);
+});
+
+exports.onRequest = onDocumentCreated('requests/{id}', async (event) => {
+  const r = event.data.data();
+  const snap = await db.collection('members').get();
+  const names = {};
+  const parents = [];
+  snap.forEach((d) => {
+    names[d.id] = d.data().display_name || '家人';
+    if (d.data().child !== true && d.id !== r.created_by) parents.push(d.id);
+  });
+  const [, m, day] = String(r.need_date || '').split('-').map(Number);
+  await notify(parents, (names[r.kid] || '小朋友') + '需要一筆費用',
+    clip(`${r.title}　$${r.amount}${m ? `（${m}/${day} 要用）` : ''}`), 'request-' + event.params.id);
 });

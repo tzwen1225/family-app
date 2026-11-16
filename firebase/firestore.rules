@@ -33,6 +33,21 @@ service cloud.firestore {
         && d.date is string;
     }
 
+    function validRequest() {
+      let d = request.resource.data;
+      return d.kid is string
+        && exists(/databases/$(database)/documents/members/$(d.kid))
+        && d.title is string && d.title.size() >= 1 && d.title.size() <= 100
+        && d.amount is number && d.amount >= 1 && d.amount <= 1000000
+        && d.need_date is string
+        && d.status in ['pending', 'given'];
+    }
+
+    // 小朋友只能動「自己提出、家長還沒給」的申請
+    function ownPending(d) {
+      return d.kid == request.auth.uid && d.status == 'pending';
+    }
+
     // 小朋友只能動「自己的支出」
     function ownExpense(d) {
       return d.kid == request.auth.uid && d.type == 'expense';
@@ -131,6 +146,17 @@ service cloud.firestore {
     match /contacts/{id} {
       allow read, delete: if isFamily();
       allow create, update: if isFamily() && validContact();
+    }
+
+    // 費用申請：小朋友提出自己的申請，只有家長能標示「已給」
+    match /requests/{id} {
+      allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
+      allow create: if isFamily() && validRequest()
+        && (!isChild() || ownPending(request.resource.data));
+      allow update: if isFamily() && validRequest()
+        && (!isChild() || (ownPending(resource.data) && ownPending(request.resource.data)));
+      allow delete: if isFamily()
+        && (!isChild() || ownPending(resource.data));
     }
 
     // 聊天室：只能以自己的名義發言；一小時內可以收回，不能刪除

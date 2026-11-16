@@ -12,6 +12,7 @@
 // 上線狀態 presence：{ id: UID, last_seen, online }
 // 零用錢 ledger： { id, kid: 小朋友的 UID, type: 'income' 給零用錢 | 'expense' 支出, amount, note, date }
 //   members 文件裡 child: true 的成員是小朋友，其他人是家長
+// 費用申請 request：{ id, kid, title, amount, need_date, status: 'pending' 還沒給 | 'given' 已給, given_by, given_at }
 // 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
 
@@ -45,6 +46,12 @@
   const cleanLedger = (e) => ({
     kid: e.kid, type: e.type === 'income' ? 'income' : 'expense',
     amount: Math.round(Number(e.amount)), note: e.note || '', date: e.date
+  });
+  const cleanRequest = (r) => ({
+    kid: r.kid, title: r.title, amount: Math.round(Number(r.amount)), need_date: r.need_date,
+    status: r.status === 'given' ? 'given' : 'pending',
+    given_by: r.status === 'given' ? (r.given_by || null) : null,
+    given_at: r.status === 'given' ? (r.given_at || Date.now()) : null
   });
   const ledgerOrder = (a, b) => b.date.localeCompare(a.date) || String(b.id).localeCompare(String(a.id));
   const byTime = (a, b) =>
@@ -156,6 +163,12 @@
       saveLedger: (e) => save('ledger', e.id, cleanLedger(e)),
       deleteLedger: (id) => remove('ledger', id),
 
+      // 費用申請：小朋友提出「哪一天需要多少錢」，家長給了之後標示已給
+      saveRequest: (r) => save('requests', r.id, cleanRequest(r)),
+      deleteRequest: (id) => remove('requests', id),
+      watchRequests: (cb, onlyKid) => watch('費用申請',
+        onlyKid ? F.query(col('requests'), F.where('kid', '==', onlyKid)) : col('requests'), cb),
+
       async beat(online) {
         await F.setDoc(F.doc(db, 'presence', uid()), { last_seen: Date.now(), online: !!online });
       },
@@ -249,6 +262,10 @@
         { id: 'l4', kid: 'm4', type: 'income', amount: 600, note: '這個月零用錢', date: day(0).slice(0, 8) + '01' },
         { id: 'l5', kid: 'm4', type: 'expense', amount: 120, note: '卡牌', date: day(-1) }
       ],
+      requests: [
+        { id: 'q1', kid: 'm3', title: '學校舞會', amount: 1500, need_date: day(6), status: 'pending', given_by: null, given_at: null },
+        { id: 'q2', kid: 'm4', title: '校外教學費', amount: 350, need_date: day(-3), status: 'given', given_by: 'm2', given_at: ago(60 * 80) }
+      ],
       profiles: {
         m1: { id: 'm1', birthday: '1980-03-12', phone: '0912-000-111', org: '', note: '' },
         m3: { id: 'm3', birthday: day(4).replace(/^\d+/, '2013'), phone: '', org: '國中二年級', note: '' }
@@ -280,7 +297,7 @@
     const drop = (key, id) => { const db = load(); db[key] = db[key].filter((x) => x.id !== id); persist(); };
 
     // 模擬即時監聽：資料一變就通知
-    const subs = { messages: [], posts: [], replies: [], presence: [] };
+    const subs = { messages: [], posts: [], replies: [], presence: [], requests: [] };
     const value = (key) => (key === 'presence' ? { ...load().presence } : load()[key].slice());
     const emit = (key) => subs[key].forEach((cb) => cb(value(key)));
     const watch = (key) => (cb) => {
@@ -339,6 +356,12 @@
       },
       async saveLedger(e) { return upsert('ledger', e.id, cleanLedger(e), 'l'); },
       async deleteLedger(id) { drop('ledger', id); },
+
+      async saveRequest(r) { const row = upsert('requests', r.id, cleanRequest(r), 'q'); emit('requests'); return row; },
+      async deleteRequest(id) { drop('requests', id); emit('requests'); },
+      watchRequests(cb, onlyKid) {
+        return watch('requests')((rows) => cb(rows.filter((r) => !onlyKid || r.kid === onlyKid)));
+      },
 
       async beat(online) {
         const db = load();

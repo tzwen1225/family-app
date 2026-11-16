@@ -1,7 +1,7 @@
 // 讓 App 在沒有網路時也能打開畫面。
 // 策略：優先走網路（確保拿到最新版程式），失敗才用快取。
 // 只處理本站的檔案，Firebase 的資料請求完全不經過這裡。
-const CACHE = 'family-shell-v14';
+const CACHE = 'family-shell-v15';
 const SHELL = [
   './', 'index.html', 'css/app.css',
   'js/config.js', 'js/api.js', 'js/app.js', 'vendor/firebase.js',
@@ -40,8 +40,11 @@ self.addEventListener('fetch', (e) => {
 // ---------- 推播通知 ----------
 // 伺服器（functions/index.js）送來的通知會在這裡收到，即使 App 沒有開著。
 // 每一則都一定要顯示出來：iPhone 對「收到卻不顯示」的推播會取消訂閱。
-// 通知要帶使用者去哪一頁：聊天訊息 → 聊天；「我有話要說」的點名與回覆 → 我有話要說
-const tabFor = (tag) => (String(tag || '').startsWith('post') ? 'posts' : 'chat');
+// 通知要帶使用者去哪一頁：聊天訊息 → 聊天；「我有話要說」→ 我有話要說；費用申請 → 零用錢
+const tabFor = (tag) => {
+  const t = String(tag || '');
+  return t.startsWith('post') ? 'posts' : t.startsWith('request') ? 'ledger' : 'chat';
+};
 
 self.addEventListener('push', (e) => {
   let payload = {};

@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 14:00';
+  const VERSION = '2026-11-16 14:20';
   const EVENT_CATS = ['schedule', 'exam', 'family', 'other'];
   const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
   const READ_KEY = 'family-chat-read';
@@ -55,6 +55,8 @@
     ledger: [],
     ledgerMonth: today().slice(0, 7),
     ledgerKid: null,         // 家長正在看哪位小朋友的帳本
+    ledgerDay: null,         // 在小月曆點了某一天時，明細只顯示那天
+    requests: [],            // 費用申請（小朋友提出、家長標示已給）
     messages: [],
     draft: '',
     chatSearch: false,
@@ -255,7 +257,12 @@
       Api.watchMessages(onMessages),
       Api.watchPosts((list) => { state.posts = list; refreshPosts(); }),
       Api.watchReplies((list) => { state.replies = list; refreshPosts(); }),
-      Api.watchPresence((map) => { state.presence = map; refreshPresence(); })
+      Api.watchPresence((map) => { state.presence = map; refreshPresence(); }),
+      Api.watchRequests((list) => {
+        state.requests = list;
+        refreshTodos();
+        if (state.tab === 'notes' && state.notesView === 'ledger' && !$sheet.innerHTML) render();
+      }, amChild() ? state.userId : null)
     ];
     Api.refreshPush().catch((e) => console.warn('通知設定更新失敗', e));
     beat(true);
@@ -328,7 +335,67 @@
   const hasUnread = () => state.messages.some((m) => m.sender !== state.userId && m.sent_at > state.lastRead);
   const repliedBy = (post, uid) => state.replies.some((r) => r.post_id === post.id && r.author === uid);
   const waitingForMe = () => state.posts.some((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId));
-  const badge = (tab) => (tab === 'chat' ? hasUnread() : tab === 'posts' ? waitingForMe() : false);
+  const pendingRequests = () => state.requests.filter((r) => r.status !== 'given')
+    .sort((a, b) => a.need_date.localeCompare(b.need_date));
+  const badge = (tab) => (tab === 'chat' ? hasUnread()
+    : tab === 'posts' ? waitingForMe()
+    : tab === 'notes' ? (!amChild() && pendingRequests().length > 0)
+    : false);
+
+  // ---------- 首頁的待辦事項 ----------
+  // 家長：小朋友申請、還沒給的費用。所有人：在「我有話要說」被點名、還沒回覆的發言。
+  const dueText = (date) => {
+    const n = daysBetween(today(), date);
+    return n === 0 ? '今天要用' : n > 0 ? '還有 ' + n + ' 天' : '已經過了 ' + (-n) + ' 天';
+  };
+  function todosHtml() {
+    const items = [];
+    if (!amChild()) {
+      pendingRequests().forEach((r) => {
+        const late = r.need_date <= today();
+        items.push(`
+          <div class="todo">
+            <button class="todo-main" data-act="open-ledger" data-kid="${esc(r.kid)}" data-month="${r.need_date.slice(0, 7)}">
+              <span class="todo-title">${esc(nameOf(r.kid))}需要 ${money(r.amount)}</span>
+              <span class="todo-sub">${esc(r.title)}　${shortDate(r.need_date)}<em class="${late ? 'late' : ''}">${dueText(r.need_date)}</em></span>
+            </button>
+            <button class="todo-done" data-act="req-given" data-id="${esc(r.id)}">已給</button>
+          </div>`);
+      });
+    }
+    state.posts.filter((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId))
+      .sort((a, b) => a.created_at - b.created_at)
+      .forEach((p) => items.push(`
+          <div class="todo">
+            <button class="todo-main" data-act="tab" data-tab="posts">
+              <span class="todo-title">${esc(nameOf(p.author))}有話要對你說</span>
+              <span class="todo-sub">${esc(p.text.length > 40 ? p.text.slice(0, 40) + '…' : p.text)}</span>
+            </button>
+            <button class="todo-done reply" data-act="tab" data-tab="posts">回覆</button>
+          </div>`));
+    return items.length ? `<h2>待辦事項<span>${items.length}</span></h2>${items.join('')}` : '';
+  }
+  function refreshTodos() {
+    refreshBadges();
+    const el = document.getElementById('todos');
+    if (!el) return;
+    el.innerHTML = todosHtml();
+    el.hidden = !el.innerHTML;
+  }
+
+  async function onRequestGiven(btn) {
+    const r = findById(state.requests, btn.dataset.id);
+    if (!r) return;
+    btn.disabled = true;
+    try {
+      await Api.saveRequest({ ...r, status: 'given', given_by: state.userId, given_at: Date.now() });
+      toast('已標示為已給');
+    } catch (e) {
+      console.error(e);
+      btn.disabled = false;
+      toast('沒有成功，請再試一次');
+    }
+  }
 
   function refreshBadges() {
     TABS.forEach(([id]) => {
@@ -379,7 +446,9 @@
   }
 
   function viewCalendar() {
+    const todos = todosHtml();
     return `<section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>`
+      + `<section class="todos" id="todos" aria-label="待辦事項" ${todos ? '' : 'hidden'}>${todos}</section>`
       + calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming());
   }
 
@@ -672,7 +741,7 @@
   }
 
   function refreshPosts() {
-    refreshBadges();
+    refreshTodos();
     const el = document.getElementById('post-list');
     if (!el) return;
     const active = document.activeElement;
@@ -740,7 +809,55 @@
         ${list.map((k) => `<button class="${k.id === kidId ? 'on' : ''}" style="--who:${esc(k.color)}" data-act="ledger-kid" data-id="${esc(k.id)}" ${k.id === kidId ? 'aria-pressed="true"' : ''}>${esc(k.display_name)}</button>`).join('')}
       </div>` : '';
 
-    const entries = rows.length ? rows.map((e) => {
+    // 費用申請：還沒給的全部列出；已給的只列出「需要日期」在這個月的
+    const reqs = state.requests.filter((r) => r.kid === kidId
+      && (r.status !== 'given' || r.need_date.slice(0, 7) === state.ledgerMonth))
+      .sort((a, b) => (a.status === 'given') - (b.status === 'given') || a.need_date.localeCompare(b.need_date));
+    const requestsHtml = reqs.length ? `
+      <section class="requests" aria-label="需要的費用">
+        <h2>需要的費用</h2>
+        ${reqs.map((r) => {
+          const given = r.status === 'given';
+          const editable = !amChild() || !given;
+          return `
+          <div class="request ${given ? 'given' : ''}">
+            <${editable ? `button data-act="edit-request" data-id="${esc(r.id)}"` : 'div'} class="request-main">
+              <span class="request-title">${esc(r.title)}</span>
+              <span class="request-sub">${shortDate(r.need_date)}${given ? '' : `<em class="${r.need_date <= today() ? 'late' : ''}">${dueText(r.need_date)}</em>`}</span>
+            </${editable ? 'button' : 'div'}>
+            <span class="request-amount">${money(r.amount)}</span>
+            ${given ? `<span class="given-mark">已給 ✓${r.given_by && member(r.given_by) ? '<small>' + esc(nameOf(r.given_by)) + '</small>' : ''}</span>`
+              : amChild() ? '<span class="wait-mark">等家長給</span>'
+              : `<button class="todo-done" data-act="req-given" data-id="${esc(r.id)}">已給</button>`}
+          </div>`;
+        }).join('')}
+      </section>` : '';
+
+    // 小月曆：哪幾天領了零用錢（綠點）、有支出（深色點）、有費用要用（橘點）。點某一天只看那天的明細。
+    const range = gridRange(state.ledgerMonth);
+    let cells = '';
+    for (let d = range.from; d <= range.to; d = addDays(d, 1)) {
+      if (d.slice(0, 7) !== state.ledgerMonth) { cells += '<span class="mini-day blank"></span>'; continue; }
+      const dayRows = rows.filter((e) => e.date === d);
+      const marks = (dayRows.some((e) => e.type === 'income') ? '<i class="in"></i>' : '')
+        + (dayRows.some((e) => e.type === 'expense') ? '<i class="out"></i>' : '')
+        + (reqs.some((r) => r.need_date === d) ? '<i class="req"></i>' : '');
+      const dayNum = parse(d).getDate();
+      cells += `<button class="mini-day ${d === today() ? 'today' : ''} ${d === state.ledgerDay ? 'sel' : ''}" data-act="ledger-day" data-date="${d}" aria-label="${m}月${dayNum}日" ${d === state.ledgerDay ? 'aria-pressed="true"' : ''}><span>${dayNum}</span><span class="marks">${marks}</span></button>`;
+    }
+    const miniCal = `
+      <section class="mini-cal" aria-label="這個月的收支日期">
+        <div class="mini-week" aria-hidden="true">${WEEKDAYS.map((w) => `<span>${w}</span>`).join('')}</div>
+        <div class="mini-grid">${cells}</div>
+        <div class="mini-legend"><span><i class="in"></i>領零用錢</span><span><i class="out"></i>支出</span><span><i class="req"></i>需要費用</span></div>
+      </section>`;
+
+    const shown = state.ledgerDay ? rows.filter((e) => e.date === state.ledgerDay) : rows;
+    const listHead = state.ledgerDay
+      ? `<h2>${shortDate(state.ledgerDay)}的明細<button class="link-btn" data-act="ledger-day" data-date="">看整個月</button></h2>`
+      : '<h2>這個月的明細</h2>';
+
+    const entries = shown.length ? shown.map((e) => {
       const d = parse(e.date);
       const inner = `
           <span class="entry-date">${d.getMonth() + 1}/${d.getDate()}</span>
@@ -749,7 +866,7 @@
       return canEditLedger(e)
         ? `<button class="entry" data-act="edit-ledger" data-id="${esc(e.id)}">${inner}</button>`
         : `<div class="entry">${inner}</div>`;
-    }).join('') : `<div class="empty"><p>這個月還沒有紀錄。</p><button class="link-btn" data-act="new">${amChild() ? '記一筆支出' : '新增一筆'}</button></div>`;
+    }).join('') : `<div class="empty"><p>${state.ledgerDay ? '這天沒有紀錄。' : '這個月還沒有紀錄。'}</p><button class="link-btn" data-act="new">${amChild() ? '記一筆支出' : '新增一筆'}</button></div>`;
 
     return `
       <header class="month-head">
@@ -770,7 +887,9 @@
           <span>累計結餘 <b>${total < 0 ? '−' : ''}${money(total)}</b></span>
         </div>
       </section>
-      <section class="entries">${entries}</section>`;
+      ${requestsHtml}
+      ${miniCal}
+      <section class="entries">${listHead}${entries}</section>`;
   }
 
   function viewNoteList() {
@@ -1007,15 +1126,32 @@
       body: `
       <input type="hidden" name="item_id" value="${esc(e.id || '')}">
       <input type="hidden" name="kid" value="${esc(kid.id)}">
-      ${parent ? `
+      ${entry ? `<input type="hidden" name="type" value="${e.type}">` : `
       <fieldset class="seg">
-        <legend>類型</legend>
-        <label style="--cat:var(--ink)"><input type="radio" name="type" value="expense" ${e.type === 'expense' ? 'checked' : ''}><span>支出</span></label>
-        <label style="--cat:var(--green)"><input type="radio" name="type" value="income" ${e.type === 'income' ? 'checked' : ''}><span>給零用錢</span></label>
-      </fieldset>` : '<input type="hidden" name="type" value="expense">'}
+        <legend>要記什麼？</legend>
+        <label style="--cat:var(--ink)"><input type="radio" name="type" value="expense" checked><span>支出</span></label>
+        ${parent ? '<label style="--cat:var(--green)"><input type="radio" name="type" value="income"><span>給零用錢</span></label>' : ''}
+        <label style="--cat:var(--c-exam)"><input type="radio" name="type" value="request"><span>${parent ? '需要費用' : '跟爸媽申請費用'}</span></label>
+      </fieldset>`}
       <label>金額（元）<input class="title-input" type="number" name="amount" inputmode="numeric" min="1" step="1" value="${esc(e.amount)}" placeholder="0"></label>
-      <label>項目<input type="text" name="note" value="${esc(e.note)}" maxlength="100" autocomplete="off" placeholder="${parent ? '買了什麼，或是哪個月的零用錢' : '買了什麼？'}"></label>
-      <label>日期<input type="date" name="date" value="${esc(e.date)}" max="${today()}"></label>`
+      <label><span id="note-label">項目</span><input type="text" name="note" value="${esc(e.note)}" maxlength="100" autocomplete="off" placeholder="${parent ? '買了什麼，或是哪個月的零用錢' : '買了什麼？'}"></label>
+      <label><span id="date-label">日期</span><input type="date" name="date" value="${esc(e.date)}"></label>`
+    });
+  }
+
+  function openRequestSheet(r) {
+    showSheet('request-form', {
+      title: nameOf(r.kid) + '需要的費用', footer: DELETE_BTN,
+      body: `
+      <input type="hidden" name="item_id" value="${esc(r.id)}">
+      <label>用途<input type="text" name="title" value="${esc(r.title)}" maxlength="100" autocomplete="off"></label>
+      <label>金額（元）<input class="title-input" type="number" name="amount" inputmode="numeric" min="1" step="1" value="${esc(r.amount)}"></label>
+      <label>哪一天需要<input type="date" name="need_date" value="${esc(r.need_date)}"></label>
+      ${amChild() ? '' : `
+      <label class="switch">
+        <span>已經給了</span>
+        <input type="checkbox" name="given" ${r.status === 'given' ? 'checked' : ''}>
+      </label>`}`
     });
   }
 
@@ -1090,13 +1226,42 @@
         if (!Number.isInteger(e.amount) || e.amount < 1) return '請輸入金額（整數，至少 1 元）';
         if (e.amount > 1000000) return '金額太大了，請再確認一次';
         if (!e.date) return '請選擇日期';
+        if (e.type === 'request') return e.note ? null : '請寫下這筆費用是做什麼的';
         if (e.date > today()) return '日期不能是未來';
         if (e.type === 'expense' && !e.note) return '請寫下買了什麼';
         return null;
       },
-      save: (e) => Api.saveLedger({ ...e, note: e.note || '零用錢' }),
+      save(e) {
+        if (e.type === 'request') return Api.saveRequest({ kid: e.kid, title: e.note, amount: e.amount, need_date: e.date, status: 'pending' });
+        return Api.saveLedger({ ...e, note: e.note || '零用錢' });
+      },
       remove: (id) => Api.deleteLedger(id),
-      after(e) { if (e) state.ledgerMonth = e.date.slice(0, 7); return loadLedger(); }
+      after(e) { if (e) { state.ledgerMonth = e.date.slice(0, 7); state.ledgerDay = null; } return loadLedger(); }
+    },
+    'request-form': {
+      read: (f) => ({
+        id: f.item_id.value, title: f.title.value.trim(), amount: Number(f.amount.value), need_date: f.need_date.value,
+        given: f.given ? f.given.checked : null      // 只有家長的表單才有這個開關
+      }),
+      check(r) {
+        if (!r.title) return '請寫下這筆費用是做什麼的';
+        if (!Number.isInteger(r.amount) || r.amount < 1) return '請輸入金額（整數，至少 1 元）';
+        if (r.amount > 1000000) return '金額太大了，請再確認一次';
+        if (!r.need_date) return '請選擇哪一天需要';
+        return null;
+      },
+      save(r) {
+        const old = findById(state.requests, r.id);
+        const given = r.given === null ? old.status === 'given' : r.given;
+        return Api.saveRequest({
+          ...old, title: r.title, amount: r.amount, need_date: r.need_date,
+          status: given ? 'given' : 'pending',
+          given_by: given ? (old.given_by || state.userId) : null,
+          given_at: given ? (old.given_at || Date.now()) : null
+        });
+      },
+      remove: (id) => Api.deleteRequest(id),
+      after() { refreshTodos(); if (state.tab === 'notes') render(); }
     },
     'post-form': {
       done: '已送出',
@@ -1230,11 +1395,19 @@
     }
     else if (act === 'skip-day') onSkipDay(el);
     else if (act === 'notes-view') { state.notesView = el.dataset.view; render(); scroller().scrollTop = 0; loadTab(); }
-    else if (act === 'ledger-kid') { state.ledgerKid = el.dataset.id; render(); }
+    else if (act === 'ledger-kid') { state.ledgerKid = el.dataset.id; state.ledgerDay = null; render(); }
+    else if (act === 'ledger-day') { state.ledgerDay = el.dataset.date && el.dataset.date !== state.ledgerDay ? el.dataset.date : null; render(); }
+    else if (act === 'req-given') onRequestGiven(el);
+    else if (act === 'edit-request') { const r = findById(state.requests, el.dataset.id); if (r) openRequestSheet(r); }
+    else if (act === 'open-ledger') {
+      Object.assign(state, { tab: 'notes', notesView: 'ledger', ledgerKid: el.dataset.kid, ledgerMonth: el.dataset.month, ledgerDay: null });
+      render(); loadLedger();
+    }
     else if (act === 'ledger-prev' || act === 'ledger-next' || act === 'ledger-now') {
       const d = parse(state.ledgerMonth + '-01');
       d.setMonth(d.getMonth() + (act === 'ledger-prev' ? -1 : 1));
       state.ledgerMonth = act === 'ledger-now' ? today().slice(0, 7) : ymd(d).slice(0, 7);
+      state.ledgerDay = null;
       render();
     }
     else if (act === 'edit-ledger') { const e = findById(state.ledger, el.dataset.id); if (e && canEditLedger(e)) openLedgerSheet(e); }
@@ -1258,7 +1431,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state, {
-          userId: null, tab: 'cal', messages: [], notes: [], ledger: [], ledgerKid: null, notesView: 'notes', posts: [], replies: [],
+          userId: null, tab: 'cal', messages: [], notes: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'notes', posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
         });
         renderLogin();
@@ -1297,6 +1470,16 @@
     if (t.id === 'chat-input') state.draft = t.value;
     else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
     else if (t.form && t.form.classList.contains('reply-form')) state.postDrafts[t.form.dataset.post] = t.value;
+  });
+
+  // 零用錢表單：選「申請費用」時，欄位名稱跟著換
+  document.addEventListener('change', (ev) => {
+    const form = ev.target.form;
+    if (!form || form.getAttribute('id') !== 'ledger-form' || ev.target.name !== 'type') return;
+    const request = ev.target.value === 'request';
+    form.querySelector('#note-label').textContent = request ? '用途' : '項目';
+    form.querySelector('#date-label').textContent = request ? '哪一天需要' : '日期';
+    form.elements.note.placeholder = request ? '例如：學校舞會' : ev.target.value === 'income' ? '例如：11 月零用錢' : '買了什麼？';
   });
 
   document.addEventListener('change', (ev) => {
@@ -1370,6 +1553,7 @@
   // 點了手機上的通知後，直接跳到對應的分頁（聊天，或我有話要說）。
   // App 沒開著時，分頁名稱放在網址的 # 後面；App 開著時，由 service worker 傳訊息過來。
   function goTab(tab) {
+    if (tab === 'ledger') { state.notesView = 'ledger'; state.ledgerDay = null; tab = 'notes'; }
     if (!TABS.some(([id]) => id === tab)) return;
     state.tab = tab;
     state.chatSearch = false; state.chatQuery = ''; state.menuMsg = null;
