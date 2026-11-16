@@ -14,7 +14,7 @@
 // 上線狀態 presence：{ id: UID, last_seen, online, read_at: 聊天室讀到的時間點 }
 // 零用錢 ledger： { id, kid: 小朋友的 UID, type: 'income' 給零用錢 | 'expense' 支出, amount, note, date }
 //   members 文件裡 child: true 的成員是小朋友，其他人是家長
-// 費用申請 request：{ id, kid, title, amount, need_date, status: 'pending' 還沒給 | 'given' 已給, given_by, given_at }
+// 費用申請 request：{ id, kid, title, amount, need_date, status: 'pending' 還沒給 | 'given' 已給, given_by, given_at, ledger_id }
 // 以下四種用最下面的「通用讀寫」存取（watchList / addDoc / setDoc / updateDoc / deleteDoc / getDoc）：
 //   採買 shopping：  { id, text, done, added_by, done_by, created_at }
 //   投票 polls：     { id, question, options: [文字…], author, created_at, closed, deadline: 'YYYY-MM-DD' 或 '', deadline_at: 毫秒或 0 }
@@ -60,7 +60,9 @@
     kid: r.kid, title: r.title, amount: Math.round(Number(r.amount)), need_date: r.need_date,
     status: r.status === 'given' ? 'given' : 'pending',
     given_by: r.status === 'given' ? (r.given_by || null) : null,
-    given_at: r.status === 'given' ? (r.given_at || Date.now()) : null
+    given_at: r.status === 'given' ? (r.given_at || Date.now()) : null,
+    // 標示已給時，自動記進零用錢帳本的那一筆收入（取消已給時用它找到並刪掉）
+    ledger_id: r.status === 'given' ? (r.ledger_id || null) : null
   });
   const ledgerOrder = (a, b) => b.date.localeCompare(a.date) || String(b.id).localeCompare(String(a.id));
   const byTime = (a, b) =>

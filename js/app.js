@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 20:40';
+  const VERSION = '2026-11-16 20:50';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -464,13 +464,21 @@
     el.hidden = !el.innerHTML;
   }
 
+  // 標示「已給」：同時在小朋友的零用錢帳本記一筆收入（金額和用途跟申請相同，日期是今天），
+  // 並把那一筆的編號記在申請上。之後取消已給，就靠這個編號把那筆收入刪掉。
+  async function giveRequest(r) {
+    const entry = await Api.saveLedger({ kid: r.kid, type: 'income', amount: r.amount, note: r.title, date: today() });
+    await Api.saveRequest({ ...r, status: 'given', given_by: state.userId, given_at: Date.now(), ledger_id: entry.id });
+    await loadLedger();
+  }
+
   async function onRequestGiven(btn) {
     const r = findById(state.requests, btn.dataset.id);
     if (!r) return;
     btn.disabled = true;
     try {
-      await Api.saveRequest({ ...r, status: 'given', given_by: state.userId, given_at: Date.now() });
-      toast('已標示為已給');
+      await giveRequest(r);
+      toast(`已給，並記入${nameOf(r.kid)}的零用錢 ${money(r.amount)}`);
     } catch (e) {
       console.error(e);
       btn.disabled = false;
@@ -1906,7 +1914,8 @@
       <label class="switch">
         <span>已經給了</span>
         <input type="checkbox" name="given" ${r.status === 'given' ? 'checked' : ''}>
-      </label>`}`
+      </label>
+      <p class="hint">打開「已經給了」，會自動在${esc(nameOf(r.kid))}的零用錢記一筆同金額的收入；關掉會把那一筆移除。</p>`}`
     });
   }
 
@@ -2005,15 +2014,24 @@
         if (!r.need_date) return '請選擇哪一天需要';
         return null;
       },
-      save(r) {
+      async save(r) {
         const old = findById(state.requests, r.id);
-        const given = r.given === null ? old.status === 'given' : r.given;
-        return Api.saveRequest({
-          ...old, title: r.title, amount: r.amount, need_date: r.need_date,
-          status: given ? 'given' : 'pending',
-          given_by: given ? (old.given_by || state.userId) : null,
-          given_at: given ? (old.given_at || Date.now()) : null
-        });
+        const wasGiven = old.status === 'given';
+        const given = r.given === null ? wasGiven : r.given;
+        const next = { ...old, title: r.title, amount: r.amount, need_date: r.need_date };
+        if (given && !wasGiven) return giveRequest(next);                 // 還沒給 → 已給：記一筆收入
+        if (!given && wasGiven) {                                          // 已給 → 取消：把那筆收入刪掉
+          if (old.ledger_id) await Api.deleteLedger(old.ledger_id).catch((e) => console.warn(e));
+          await Api.saveRequest({ ...next, status: 'pending' });
+          return loadLedger();
+        }
+        if (given && old.ledger_id && (old.amount !== r.amount || old.title !== r.title)) {
+          // 已給的申請改了金額或用途：帳本裡那一筆跟著改
+          const entry = findById(state.ledger, old.ledger_id);
+          if (entry) await Api.saveLedger({ ...entry, amount: r.amount, note: r.title });
+        }
+        await Api.saveRequest({ ...next, status: given ? 'given' : 'pending' });
+        return loadLedger();
       },
       remove: (id) => Api.deleteRequest(id),
       after() { refreshTodos(); if (state.tab === 'notes') render(); }
