@@ -240,6 +240,24 @@ service cloud.firestore {
         && (!isChild() || resource.data.kid == request.auth.uid);
     }
 
+    // 家庭旅遊：全家都可以新增、修改、刪除旅程，以及底下的行程、日誌、行李、花費
+    match /trips/{id} {
+      allow read, delete: if isFamily();
+      allow create, update: if isFamily()
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 1 && request.resource.data.title.size() <= 40
+        && request.resource.data.start_date is string && request.resource.data.end_date is string
+        && request.resource.data.end_date >= request.resource.data.start_date;
+    }
+    match /trip_items/{id} {
+      allow read, delete: if isFamily();
+      allow create, update: if isFamily()
+        && request.resource.data.trip_id is string
+        && request.resource.data.kind in ['plan', 'journal', 'pack', 'cost']
+        && request.resource.data.get('text', '') is string && request.resource.data.get('text', '').size() <= 3000
+        && request.resource.data.get('thumb', '') is string && request.resource.data.get('thumb', '').size() <= 200000;
+    }
+
     // 採買清單：全家都可以新增、打勾、清除
     match /shopping/{id} {
       allow read, delete: if isFamily();

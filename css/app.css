@@ -13,6 +13,7 @@
   --c-family: #1F8A5F;
   --c-other: #7A847F;
   --c-birthday: #8A4FD0;
+  --c-trip: #0E7C86;
 
   /* 以下由上面的顏色自動調出來，換面板時會跟著變 */
   --holiday: #D4282C;                                                  /* 假日的紅字：不隨面板改變 */
@@ -623,6 +624,72 @@ button.bubble { text-align: left; font: inherit; }
 .entry.score .entry-note small { display: block; font-size: 12px; color: var(--ink-2); }
 .entry.score .entry-note b { color: var(--ink); }
 
+/* ---------- 家庭旅遊 ---------- */
+.trips { margin-top: 14px; }
+.trips h2, .old-notes h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); padding: 0 4px 6px; }
+.trip {
+  display: grid; grid-template-columns: 76px 1fr; gap: 12px; align-items: center; width: 100%; text-align: left;
+  background: var(--sheet); border-radius: 18px; padding: 10px 14px 10px 10px; border-left: 5px solid var(--c-trip);
+}
+.trip + .trip { margin-top: 10px; }
+.trip.past { border-left-color: var(--line); }
+.trip-cover { width: 76px; height: 76px; border-radius: 12px; object-fit: cover; display: block; }
+.trip-cover.blank {
+  display: grid; place-items: center; font-size: 30px; font-weight: 800; color: #fff;
+  background: linear-gradient(135deg, var(--c-trip), color-mix(in srgb, var(--c-trip) 55%, var(--green)));
+}
+.trip.past .trip-cover.blank { background: var(--line); color: var(--ink-2); }
+.trip-main { min-width: 0; display: block; }
+.trip-title { display: block; font-size: 17px; font-weight: 700; overflow-wrap: anywhere; }
+.trip-sub { display: block; font-size: 13px; color: var(--ink-2); margin-top: 1px; }
+.trip-meta { display: block; font-size: 12px; color: var(--ink-2); margin-top: 5px; }
+.trip-meta em, .trip-side em { font-style: normal; font-weight: 700; margin-right: 10px; white-space: nowrap; }
+em.soon { color: var(--c-exam); }
+em.now { color: var(--c-trip); }
+em.past { color: var(--ink-2); font-weight: 500; }
+.old-notes { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 8px; }
+.old-notes .notes { margin: 6px 0; }
+
+.link-btn.back { min-height: 36px; margin-bottom: 2px; }
+.trip-head {
+  display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start;
+  background: var(--sheet); border-radius: 18px; padding: 14px 16px; border-top: 6px solid var(--c-trip);
+  box-shadow: 0 1px 0 var(--line), 0 10px 24px -18px rgba(23, 35, 31, .5);
+}
+.trip-head.past { border-top-color: var(--line); }
+.trip-head h1 { font-size: 22px; font-weight: 800; overflow-wrap: anywhere; }
+.trip-head p { font-size: 14px; color: var(--ink-2); margin-top: 2px; }
+.trip-head .trip-note { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 8px; color: var(--ink); }
+.trip-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.trip-side em { margin: 0; font-size: 13px; }
+.subtabs.four { justify-content: space-between; gap: 6px; margin-top: 12px; }
+.subtabs.four button.on::after { background: var(--c-trip); }
+
+.plan-day { margin-top: 12px; background: var(--sheet); border-radius: 16px; padding: 4px 6px 6px 16px; }
+.plan-day.today { box-shadow: 0 0 0 2px var(--c-trip); }
+.plan-day h2 { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--ink-2); padding: 6px 0 0; }
+.plan-day h2 b { color: var(--c-trip); font-weight: 800; font-size: 14px; }
+.plan-day h2 .link-btn { margin-left: auto; font-size: 13px; min-height: 34px; padding: 0 10px; }
+.plan-day .none { font-size: 14px; color: var(--ink-2); padding: 4px 0 10px; }
+.plan { display: grid; grid-template-columns: 48px 1fr; gap: 10px; width: 100%; text-align: left; padding: 10px 10px 10px 0; }
+.plan + .plan { border-top: 1px solid var(--line); }
+.plan-time { font: 600 14px/1.5 var(--num); color: var(--ink); }
+.plan-main { min-width: 0; display: block; }
+.plan-title { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.plan-place { display: block; font-size: 13px; color: var(--c-trip); font-weight: 600; overflow-wrap: anywhere; }
+.plan-note { display: block; font-size: 13px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
+
+.post.journal { border-top-color: var(--who); padding-bottom: 14px; }
+.journal-main { display: block; width: 100%; text-align: left; }
+.journal-photo { display: block; margin-top: 10px; border-radius: 14px; overflow: hidden; line-height: 0; width: 100%; }
+.journal-photo img { width: 100%; max-height: 320px; object-fit: cover; display: block; }
+
+.pack-row { display: flex; align-items: center; }
+.pack-row + .pack-row { border-top: 1px solid var(--line); }
+.pack-row .shop-item { flex: 1; min-width: 0; }
+.pack-del { flex: none; width: 40px; height: 44px; font-size: 22px; line-height: 1; color: var(--ink-2); }
+.payer { display: block; font-size: 12px; color: var(--ink-2); }
+
 /* ---------- 採買清單 ---------- */
 .shop-add { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .shop-add input { margin: 0; border-radius: 99px; padding: 11px 16px; }
@@ -737,7 +804,7 @@ html[data-theme="lavender"] { --paper: #F6F4FC; --line: #DEDAEE; --ink: #221D38;
 html[data-theme="night"] {
   --paper: #111715; --sheet: #1B2320; --line: #2D3934; --ink: #E9F0EC; --ink-2: #9BABA4;
   --red: #FF6B6B; --green: #3FA57F; --danger: #FF6B6B; --holiday: #FF6B6B;
-  --c-schedule: #6FA3FF; --c-exam: #FFA640; --c-family: #4CC38A; --c-other: #9BABA4; --c-birthday: #B58CFF;
+  --c-schedule: #6FA3FF; --c-exam: #FFA640; --c-family: #4CC38A; --c-other: #9BABA4; --c-birthday: #B58CFF; --c-trip: #45C2CC;
   color-scheme: dark;
 }
 html[data-theme="night"] .msg.mine .bubble, html[data-theme="night"] .send, html[data-theme="night"] .todo-done { color: #0E1412; }

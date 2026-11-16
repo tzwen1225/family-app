@@ -21,6 +21,8 @@
 //        poll_votes：{ id: 投票id_UID, poll_id, uid, choice: 第幾個選項, voted_at }
 //   資料卡 cards：   { id, title, member: UID 或 ''（全家）, body, updated_at }
 //   成績 scores：    { id, kid: 小朋友的 UID, subject, term: '國一上'…'國三下', title, date, score, full, note }
+//   旅程 trips：     { id, title, place, start_date, end_date, note }
+//   旅程內容 trip_items：{ id, trip_id, kind: 'plan' 行程 | 'journal' 日誌 | 'pack' 行李 | 'cost' 花費, … }
 //   聊天照片 chat_images：{ id, data: 圖片內容, sender, sent_at }；訊息本身只放小縮圖 thumb 和 image_id
 // 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
@@ -357,6 +359,23 @@
         { id: 'sc3', kid: 'm3', subject: '英文', term: '國二上', title: '第二次段考', date: day(-5), score: 92, full: 100, note: '' },
         { id: 'sc4', kid: 'm3', subject: '國文', title: '第二次段考', date: day(-4), score: 81, full: 100, note: '' },
         { id: 'sc5', kid: 'm4', subject: '數學', title: '平時考', date: day(-3), score: 45, full: 50, note: '' }
+      ],
+      trips: [
+        { id: 't1', title: '寒假花蓮三日遊', place: '花蓮', start_date: day(20), end_date: day(22), note: '住七星潭旁的民宿，訂位代號 HL2026', created_by: 'm1', created_at: ago(3000) },
+        { id: 't2', title: '中秋宜蘭兩天一夜', place: '宜蘭', start_date: day(-52), end_date: day(-51), note: '', created_by: 'm2', created_at: ago(90000) }
+      ],
+      trip_items: [
+        { id: 'ti1', trip_id: 't1', kind: 'plan', date: day(20), time: '08:10', title: '搭普悠瑪到花蓮', place: '台北車站', note: '車票在爸爸手機', created_at: 1 },
+        { id: 'ti2', trip_id: 't1', kind: 'plan', date: day(20), time: '13:30', title: '七星潭騎腳踏車', place: '七星潭', note: '', created_at: 2 },
+        { id: 'ti3', trip_id: 't1', kind: 'plan', date: day(21), time: '09:00', title: '太魯閣砂卡礑步道', place: '太魯閣國家公園', note: '帶水和帽子', created_at: 3 },
+        { id: 'ti4', trip_id: 't1', kind: 'pack', text: '健保卡、身分證', done: true, done_by: 'm2', created_at: 4 },
+        { id: 'ti5', trip_id: 't1', kind: 'pack', text: '充電器、行動電源', done: false, done_by: null, created_at: 5 },
+        { id: 'ti6', trip_id: 't1', kind: 'pack', text: '雨衣', done: false, done_by: null, created_at: 6 },
+        { id: 'ti7', trip_id: 't1', kind: 'cost', title: '民宿訂金', amount: 3000, paid_by: 'm1', date: day(-2), created_at: 7 },
+        { id: 'ti8', trip_id: 't2', kind: 'journal', date: day(-52), text: '第一次看到龜山島，弟弟說像一隻在游泳的烏龜。晚上吃了蔥油餅和卜肉。', author: 'm3', created_at: 8 },
+        { id: 'ti9', trip_id: 't2', kind: 'journal', date: day(-51), text: '早上泡溫泉，下午去傳藝中心。回程塞車塞了三小時。', author: 'm1', created_at: 9 },
+        { id: 'ti10', trip_id: 't2', kind: 'cost', title: '住宿', amount: 4200, paid_by: 'm1', date: day(-52), created_at: 10 },
+        { id: 'ti11', trip_id: 't2', kind: 'cost', title: '晚餐', amount: 1350, paid_by: 'm2', date: day(-52), created_at: 11 }
       ],
       chat_images: []
     });

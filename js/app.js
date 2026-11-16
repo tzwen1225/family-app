@@ -6,11 +6,12 @@
     exam:     { label: '考試', color: 'var(--c-exam)' },
     family:   { label: '家庭活動', color: 'var(--c-family)' },
     other:    { label: '其他', color: 'var(--c-other)' },     // 不能再選；只用來顯示舊行程，和類型被刪掉的行程
-    birthday: { label: '生日', color: 'var(--c-birthday)' }   // 由成員基本資料自動產生，不能手動新增
+    birthday: { label: '生日', color: 'var(--c-birthday)' },  // 由成員基本資料自動產生，不能手動新增
+    trip:     { label: '旅遊', color: 'var(--c-trip)' }        // 由金庫裡的家庭旅遊自動產生
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 23:20';
+  const VERSION = '2026-11-16 23:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -78,6 +79,9 @@
     notes: [],
     notesView: 'ledger',     // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
     shopping: [], cards: [],
+    trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
+    tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
+    showOldNotes: false,
     subjects: [],                   // 家長自訂的考試科目 { id, label }
     scores: [], scoreSubject: '',   // 成績紀錄
     scoreTerm: '',                  // 目前看哪個學期（空的代表全部）；會記在這支手機上；scoreSubject 是目前只看哪一科（空的代表全部）
@@ -207,8 +211,17 @@
     return out;
   }
 
+  // 家庭旅遊：每趟旅程在月曆上顯示成一筆橫跨出發到回程的行程（點了會跳到那趟旅程）
+  function tripEvents(from, to) {
+    return state.trips.filter((t) => t.start_date <= to && t.end_date >= from).map((t) => ({
+      id: 'trip-' + t.id, trip_id: t.id, readonly: true, category: 'trip',
+      title: t.title, note: t.place || '',
+      event_date: t.start_date, end_date: t.end_date, start_time: null, end_time: null, member_ids: []
+    }));
+  }
+
   function expand(list, from, to) {
-    const out = birthdayEvents(from, to);
+    const out = birthdayEvents(from, to).concat(tripEvents(from, to));
     list.forEach((ev) => {
       if (ev.repeat !== 'weekly') { out.push(ev); return; }
       occurrenceDates(ev, from, to).forEach((d) => out.push({ ...ev, event_date: d, end_date: d, series: ev }));
@@ -268,7 +281,7 @@
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
-    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') loadNotes(); else if (state.notesView === 'scores') loadScores(); }
+    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); }
   }
 
   // ---------- 啟動 ----------
@@ -365,6 +378,8 @@
         state.subjects = list.sort((a, b) => a.created_at - b.created_at);
         if (state.tab === 'me' && !$sheet.innerHTML) render();
       }),
+      Api.watchList('trips', (list) => { state.trips = list; loadEvents(); refreshTravel(); }),
+      Api.watchList('trip_items', (list) => { state.tripItems = list; refreshTravel(); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       Api.watchList('cards', (list) => { state.cards = list; if (state.tab === 'notes' && state.notesView === 'cards' && !$sheet.innerHTML) render(); }),
       Api.watchList('polls', (list) => { state.polls = list; refreshPolls(); }),
@@ -445,7 +460,10 @@
     if (state.tab === 'cal') return '新增行程';
     if (state.tab === 'posts') return state.postsView === 'polls' ? '發起投票' : '我有話要說';
     if (state.tab !== 'notes') return '';
-    if (state.notesView === 'notes') return '新增雜記';
+    if (state.notesView === 'notes') {
+      if (!state.tripId) return '新增旅程';
+      return { plan: '新增行程', journal: '寫日誌', cost: '新增花費' }[state.tripTab] || '';   // 行李直接在上方輸入
+    }
     if (state.notesView === 'shop') return '';                       // 採買清單直接在上方輸入
     if (state.notesView === 'cards') return amChild() ? '' : '新增資料卡';
     if (state.notesView === 'scores') return kids().length ? '新增成績' : '';
@@ -701,6 +719,7 @@
           ${e.note ? `<span class="event-note">${esc(e.note)}</span>` : ''}
         </span>`;
     // 生日是自動產生的，不能點開編輯
+    if (e.trip_id) return `<button class="event" data-act="open-trip" data-id="${esc(e.trip_id)}" style="--cat:${esc(cat.color)}">${inner}</button>`;
     if (e.readonly) return `<div class="event" style="--cat:${esc(cat.color)}">${inner}</div>`;
     return `<button class="event" data-act="edit-event" data-id="${esc(e.id)}" data-date="${e.event_date}" style="--cat:${esc(cat.color)}">${inner}</button>`;
   }
@@ -1370,6 +1389,304 @@
     });
   }
 
+  // ---------- 家庭旅遊 ----------
+  // 金庫 →「旅遊」。每趟旅程底下有四個分頁：行程（每天要去哪）、日誌（文字和照片）、行李（要帶的東西）、花費。
+  // 資料：trips = 旅程；trip_items = 旅程底下的每一筆，用 kind 區分 plan / journal / pack / cost。
+  const tripOf = (id) => findById(state.trips, id);
+  const itemsOf = (tripId, kind) => state.tripItems.filter((x) => x.trip_id === tripId && x.kind === kind);
+  const tripDays = (t) => daysBetween(t.start_date, t.end_date) + 1;
+  function tripStatus(t) {
+    const now = today();
+    if (now < t.start_date) { const n = daysBetween(now, t.start_date); return { cls: 'soon', text: n === 1 ? '明天出發' : '還有 ' + n + ' 天' }; }
+    if (now > t.end_date) return { cls: 'past', text: '已結束' };
+    return { cls: 'now', text: '旅行中　第 ' + (daysBetween(t.start_date, now) + 1) + ' 天' };
+  }
+  const rangeText = (t) => (t.start_date === t.end_date ? shortDate(t.start_date)
+    : shortDate(t.start_date) + ' – ' + shortDate(t.end_date) + '　' + tripDays(t) + ' 天');
+
+  function viewTravel() {
+    const t = state.tripId && tripOf(state.tripId);
+    if (state.tripId && !t) state.tripId = null;
+    return t ? viewTrip(t) : viewTripList();
+  }
+
+  function viewTripList() {
+    const now = today();
+    const coming = state.trips.filter((t) => t.end_date >= now).sort((a, b) => a.start_date.localeCompare(b.start_date));
+    const past = state.trips.filter((t) => t.end_date < now).sort((a, b) => b.start_date.localeCompare(a.start_date));
+    const card = (t) => {
+      const st = tripStatus(t);
+      const cover = itemsOf(t.id, 'journal').filter((j) => j.thumb).sort((a, b) => a.date.localeCompare(b.date))[0];
+      return `
+        <button class="trip ${st.cls}" data-act="open-trip" data-id="${esc(t.id)}">
+          ${cover ? `<img class="trip-cover" src="${esc(cover.thumb)}" alt="">` : `<span class="trip-cover blank" aria-hidden="true">${esc((t.place || t.title).slice(0, 1))}</span>`}
+          <span class="trip-main">
+            <span class="trip-title">${esc(t.title)}</span>
+            <span class="trip-sub">${t.place ? esc(t.place) + '　' : ''}${rangeText(t)}</span>
+            <span class="trip-meta"><em class="${st.cls}">${st.text}</em>行程 ${itemsOf(t.id, 'plan').length}　日誌 ${itemsOf(t.id, 'journal').length}</span>
+          </span>
+        </button>`;
+    };
+    return `
+      <header class="plain-head"><h1>家庭旅遊</h1><p>${state.trips.length ? state.trips.length + ' 趟旅程' : ''}</p></header>
+      ${state.trips.length ? '' : `
+        <div class="empty big">
+          <p>還沒有旅程。把下一趟想去的地方建起來，全家一起排行程、列行李，回來再寫日誌、放照片。</p>
+          <button class="link-btn" data-act="new">新增第一趟旅程</button>
+        </div>`}
+      ${coming.length ? `<section class="trips"><h2>即將出發與進行中</h2>${coming.map(card).join('')}</section>` : ''}
+      ${past.length ? `<section class="trips"><h2>去過的地方</h2>${past.map(card).join('')}</section>` : ''}
+      <section class="old-notes">
+        <button class="link-btn" data-act="old-notes" aria-expanded="${state.showOldNotes}">${state.showOldNotes ? '收起雜記' : '雜記'}</button>
+        ${state.showOldNotes ? `
+          ${state.notes.length ? `<div class="notes">${state.notes.map((n) => `
+            <button class="note ${n.pinned ? 'pinned' : ''}" data-act="edit-note" data-id="${esc(n.id)}">
+              ${n.pinned ? '<span class="pin">置頂</span>' : ''}
+              <span class="note-title">${esc(n.title || '（沒有標題）')}</span>
+              ${n.body ? `<span class="note-body">${esc(n.body)}</span>` : ''}
+            </button>`).join('')}</div>` : '<p class="hint">沒有雜記。</p>'}
+          <button class="link-btn" data-act="new-note">新增一則雜記</button>` : ''}
+      </section>`;
+  }
+
+  function viewTrip(t) {
+    const st = tripStatus(t);
+    const tab = (id, label, n) => `<button class="${state.tripTab === id ? 'on' : ''}" data-act="trip-tab" data-tab="${id}" ${state.tripTab === id ? 'aria-pressed="true"' : ''}>${label}<small>${n}</small></button>`;
+    const body = { plan: tripPlanHtml, journal: tripJournalHtml, pack: tripPackHtml, cost: tripCostHtml }[state.tripTab](t);
+    const left = itemsOf(t.id, 'pack').filter((x) => !x.done).length;
+    return `
+      <button class="link-btn back" data-act="trip-back">‹ 所有旅程</button>
+      <section class="trip-head ${st.cls}">
+        <div>
+          <h1>${esc(t.title)}</h1>
+          <p>${t.place ? esc(t.place) + '　' : ''}${rangeText(t)}</p>
+          ${t.note ? `<p class="trip-note">${esc(t.note)}</p>` : ''}
+        </div>
+        <div class="trip-side">
+          <em class="${st.cls}">${st.text}</em>
+          <button class="chip-btn" data-act="edit-trip" data-id="${esc(t.id)}">編輯</button>
+        </div>
+      </section>
+      <div class="subtabs four" role="group" aria-label="旅程的內容">
+        ${tab('plan', '行程', itemsOf(t.id, 'plan').length)}${tab('journal', '日誌', itemsOf(t.id, 'journal').length)}${tab('pack', '行李', left)}${tab('cost', '花費', itemsOf(t.id, 'cost').length)}
+      </div>
+      <div id="trip-body">${body}</div>`;
+  }
+
+  // 行程：依旅程的每一天分組
+  function tripPlanHtml(t) {
+    const items = itemsOf(t.id, 'plan');
+    let html = '';
+    for (let d = t.start_date, i = 1; d <= t.end_date; d = addDays(d, 1), i++) {
+      const rows = items.filter((x) => x.date === d).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+      html += `
+        <section class="plan-day ${d === today() ? 'today' : ''}">
+          <h2><b>第 ${i} 天</b>${shortDate(d)}<button class="link-btn" data-act="new-plan" data-date="${d}">＋ 加行程</button></h2>
+          ${rows.length ? rows.map((x) => `
+            <button class="plan" data-act="edit-plan" data-id="${esc(x.id)}">
+              <span class="plan-time">${esc(x.time || '')}</span>
+              <span class="plan-main">
+                <span class="plan-title">${esc(x.title)}</span>
+                ${x.place ? `<span class="plan-place">${esc(x.place)}</span>` : ''}
+                ${x.note ? `<span class="plan-note">${esc(x.note)}</span>` : ''}
+              </span>
+            </button>`).join('') : '<p class="none">這天還沒有安排。</p>'}
+        </section>`;
+    }
+    const stray = items.filter((x) => x.date < t.start_date || x.date > t.end_date);
+    if (stray.length) html += `
+        <section class="plan-day">
+          <h2><b>不在旅程日期內</b></h2>
+          ${stray.map((x) => `<button class="plan" data-act="edit-plan" data-id="${esc(x.id)}"><span class="plan-time">${shortDate(x.date).replace(/（.*/, '')}</span><span class="plan-main"><span class="plan-title">${esc(x.title)}</span></span></button>`).join('')}
+        </section>`;
+    return html;
+  }
+
+  // 日誌：照日期排，每則有作者、文字、可以附一張照片
+  function tripJournalHtml(t) {
+    const items = itemsOf(t.id, 'journal').sort((a, b) => a.date.localeCompare(b.date) || a.created_at - b.created_at);
+    if (!items.length) return `
+      <div class="empty big"><p>還沒有日誌。今天去了哪、吃了什麼、最好笑的事，寫下來，再放一張照片。</p>
+      <button class="link-btn" data-act="new">寫第一則</button></div>`;
+    return items.map((j) => {
+      const who = member(j.author);
+      const mine = j.author === state.userId;
+      const inner = `
+          <header>${who ? avatarHtml(who, 'sm') : ''}<b>${esc(nameOf(j.author))}</b><time>${shortDate(j.date)}</time></header>
+          ${j.text ? `<p class="post-text">${esc(j.text)}</p>` : ''}`;
+      return `
+        <article class="post journal" style="--who:${esc(colorOf(j.author))}">
+          ${mine ? `<button class="journal-main" data-act="edit-journal" data-id="${esc(j.id)}">${inner}</button>` : `<div class="journal-main">${inner}</div>`}
+          ${j.thumb ? `<button class="journal-photo" data-act="trip-photo" data-id="${esc(j.id)}" aria-label="照片，點一下放大"><img src="${esc(j.thumb)}" alt="照片"></button>` : ''}
+        </article>`;
+    }).join('');
+  }
+
+  // 行李：像採買清單一樣，打勾表示帶了
+  function tripPackHtml(t) {
+    const items = itemsOf(t.id, 'pack').sort((a, b) => (a.done - b.done) || (a.created_at - b.created_at));
+    return `
+      <form class="shop-add" id="pack-form">
+        <input id="pack-input" name="text" type="text" placeholder="要帶什麼？" maxlength="60" autocomplete="off" enterkeyhint="done" aria-label="要帶什麼">
+        <button type="submit" class="send" aria-label="加入行李清單">${ICON.plus}</button>
+      </form>
+      ${items.length ? `
+      <div class="shop-items">
+        ${items.map((i) => `
+          <div class="pack-row">
+            <button class="shop-item ${i.done ? 'done' : ''}" data-act="pack-toggle" data-id="${esc(i.id)}" aria-pressed="${!!i.done}">
+              <span class="check" aria-hidden="true"></span>
+              <span class="shop-text">${esc(i.text)}</span>
+              <small>${esc(i.done && i.done_by ? nameOf(i.done_by) + '帶了' : '')}</small>
+            </button>
+            <button class="pack-del" data-act="pack-del" data-id="${esc(i.id)}" aria-label="刪除「${esc(i.text)}」">×</button>
+          </div>`).join('')}
+      </div>` : '<div class="empty big"><p>行李清單是空的。證件、充電器、藥品、雨具，想到就加上來。</p></div>'}`;
+  }
+
+  // 花費：總額，以及每個人付了多少
+  function tripCostHtml(t) {
+    const items = itemsOf(t.id, 'cost').sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at);
+    if (!items.length) return `
+      <div class="empty big"><p>還沒有花費紀錄。交通、住宿、門票、吃的，記下來，回來就知道這趟花了多少。</p>
+      <button class="link-btn" data-act="new">記第一筆</button></div>`;
+    const total = items.reduce((n, x) => n + x.amount, 0);
+    const payers = state.members.map((m) => [m, items.filter((x) => x.paid_by === m.id).reduce((n, x) => n + x.amount, 0)]).filter(([, n]) => n > 0);
+    return `
+      <section class="wallet" style="--who:var(--c-trip)">
+        <div class="wallet-name">這趟總共花了</div>
+        <div class="wallet-left">${money(total)}</div>
+        <div class="wallet-row">
+          <span>平均每天 <b>${money(Math.round(total / tripDays(t)))}</b></span>
+          ${payers.map(([m, n]) => `<span>${esc(m.display_name)}付 <b>${money(n)}</b></span>`).join('')}
+        </div>
+      </section>
+      <section class="entries">
+        <h2>明細</h2>
+        ${items.map((x) => {
+          const d = parse(x.date);
+          return `
+          <button class="entry" data-act="edit-cost" data-id="${esc(x.id)}">
+            <span class="entry-date">${d.getMonth() + 1}/${d.getDate()}</span>
+            <span class="entry-note">${esc(x.title)}${member(x.paid_by) ? `<small class="payer">${esc(nameOf(x.paid_by))}付</small>` : ''}</span>
+            <span class="entry-amount">${money(x.amount)}</span>
+          </button>`;
+        }).join('')}
+      </section>`;
+  }
+
+  // 有人改了旅遊的資料：正在看旅遊頁就更新。行李輸入框正在打字時，render() 會把焦點和內容留住。
+  function refreshTravel() {
+    if (state.tab !== 'notes' || state.notesView !== 'notes' || $sheet.innerHTML) return;
+    const input = document.getElementById('pack-input');
+    const draft = input ? input.value : '';
+    render();
+    const again = document.getElementById('pack-input');
+    if (again && draft) again.value = draft;
+  }
+
+  function openTripSheet(trip) {
+    const t = trip || { title: '', place: '', start_date: today(), end_date: today(), note: '' };
+    showSheet('trip-form', {
+      title: trip ? '編輯旅程' : '新增旅程', focus: !trip,
+      footer: trip ? '<button type="button" class="btn danger" data-act="delete">刪除整趟旅程</button>' : '',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(t.id || '')}">
+      <input class="title-input" name="title" placeholder="旅程名稱，例如：寒假花蓮三日遊" value="${esc(t.title)}" maxlength="40" autocomplete="off">
+      <label>地點<input type="text" name="place" value="${esc(t.place || '')}" maxlength="40" autocomplete="off" placeholder="例如：花蓮"></label>
+      <div class="row two">
+        <label>出發<input type="date" name="start_date" value="${esc(t.start_date)}"></label>
+        <label>回程<input type="date" name="end_date" value="${esc(t.end_date)}"></label>
+      </div>
+      <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="住哪裡、訂位代號、集合時間…">${esc(t.note || '')}</textarea></label>
+      ${trip ? '<p class="hint">刪除旅程會連同底下的行程、日誌、行李和花費一起刪掉。</p>' : '<p class="hint">建立後，這趟旅程會自動出現在首頁的月曆上。</p>'}`
+    });
+  }
+
+  function openPlanSheet(item, date) {
+    const t = tripOf(state.tripId);
+    const now = today();
+    const x = item || { date: date || (now >= t.start_date && now <= t.end_date ? now : t.start_date), time: '', title: '', place: '', note: '' };
+    showSheet('plan-form', {
+      title: item ? '編輯行程' : '新增行程', focus: !item, footer: item ? DELETE_BTN : '',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(x.id || '')}">
+      <input class="title-input" name="title" placeholder="要做什麼？例如：太魯閣步道" value="${esc(x.title)}" maxlength="60" autocomplete="off">
+      <div class="row two">
+        <label>哪一天<input type="date" name="date" value="${esc(x.date)}" min="${t.start_date}" max="${t.end_date}"></label>
+        <label>時間（可不填）<input type="time" name="time" value="${esc(x.time || '')}"></label>
+      </div>
+      <label>地點<input type="text" name="place" value="${esc(x.place || '')}" maxlength="60" autocomplete="off"></label>
+      <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="門票、訂位、交通方式…">${esc(x.note || '')}</textarea></label>`
+    });
+  }
+
+  function openJournalSheet(item) {
+    const t = tripOf(state.tripId);
+    const now = today();
+    const x = item || { date: now >= t.start_date && now <= t.end_date ? now : t.end_date < now ? t.end_date : t.start_date, text: '' };
+    showSheet('journal-form', {
+      title: item ? '編輯日誌' : '寫日誌', focus: !item, footer: item ? DELETE_BTN : '',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(x.id || '')}">
+      <label>哪一天<input type="date" name="date" value="${esc(x.date)}"></label>
+      <label>內容<textarea class="title-input" name="text" rows="6" maxlength="3000" placeholder="今天去了哪裡？最難忘的是什麼？">${esc(x.text || '')}</textarea></label>
+      <label>照片（一張，可不放）<input type="file" name="photo" accept="image/*"></label>
+      ${item && item.thumb ? '<p class="hint">這則已經有一張照片；選新的會換掉它。</p>' : ''}`
+    });
+  }
+
+  function openCostSheet(item) {
+    const t = tripOf(state.tripId);
+    const now = today();
+    const x = item || { title: '', amount: '', paid_by: state.userId, date: now >= t.start_date && now <= t.end_date ? now : t.start_date };
+    showSheet('cost-form', {
+      title: item ? '編輯花費' : '新增花費', focus: !item, footer: item ? DELETE_BTN : '',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(x.id || '')}">
+      <label>金額（元）<input class="title-input" type="number" name="amount" inputmode="numeric" min="1" step="1" value="${esc(x.amount)}" placeholder="0"></label>
+      <label>項目<input type="text" name="title" value="${esc(x.title)}" maxlength="60" autocomplete="off" placeholder="例如：民宿、火車票、晚餐"></label>
+      <fieldset class="seg">
+        <legend>誰付的？</legend>
+        ${state.members.map((m) => `
+          <label style="--cat:${esc(m.color)}"><input type="radio" name="paid_by" value="${esc(m.id)}" ${x.paid_by === m.id ? 'checked' : ''}><span>${esc(m.display_name)}</span></label>`).join('')}
+      </fieldset>
+      <label>日期<input type="date" name="date" value="${esc(x.date)}"></label>`
+    });
+  }
+
+  // 存旅程底下的一筆（行程、日誌、行李、花費共用）
+  function saveTripItem(kind, id, data) {
+    return id ? Api.updateDoc('trip_items', id, data)
+      : Api.addDoc('trip_items', { ...data, trip_id: state.tripId, kind, created_by: state.userId, created_at: Date.now() });
+  }
+
+  async function onPackAdd(form) {
+    const input = form.elements.text;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    try { await saveTripItem('pack', null, { text, done: false, done_by: null }); }
+    catch (e) { console.error(e); input.value = text; toast('沒有加進去，請再試一次'); }
+    const again = document.getElementById('pack-input');
+    if (again) again.focus();
+  }
+
+  async function openTripPhoto(id) {
+    const j = findById(state.tripItems, id);
+    if (!j || !j.thumb) return;
+    $sheet.innerHTML = `
+      <div class="viewer" data-act="close">
+        <img src="${esc(j.thumb)}" alt="照片" class="loading">
+        <div class="viewer-bar"><span>${esc(nameOf(j.author))}　${shortDate(j.date)}</span><button class="link-btn" data-act="close">關閉</button></div>
+      </div>`;
+    try {
+      const doc = await Api.getDoc('chat_images', j.image_id);
+      const el = $sheet.querySelector('.viewer img');
+      if (el && doc && String(doc.data).startsWith('data:image/')) { el.src = doc.data; el.classList.remove('loading'); }
+    } catch (e) { console.error(e); toast('原圖讀取失敗'); }
+  }
+
   // ---------- 採買清單 ----------
   function shopListHtml() {
     if (!state.shopping.length) return '<div class="empty big"><p>清單是空的。想到要買什麼，就在上面打字加進來。</p></div>';
@@ -1504,8 +1821,8 @@
   // ---------- 雜記 ----------
   function viewNotes() {
     const b = (v, label) => `<button class="${state.notesView === v ? 'on' : ''}" data-act="notes-view" data-view="${v}" ${state.notesView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
-    const views = { ledger: viewLedger, scores: viewScores, notes: viewNoteList, shop: viewShop, cards: viewCards };
-    return `<div class="switcher five" role="group" aria-label="金庫的內容">${b('ledger', '零用錢')}${b('scores', '成績')}${b('notes', '雜記')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
+    const views = { ledger: viewLedger, scores: viewScores, notes: viewTravel, shop: viewShop, cards: viewCards };
+    return `<div class="switcher five" role="group" aria-label="金庫的內容">${b('ledger', '零用錢')}${b('scores', '成績')}${b('notes', '旅遊')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
       + (views[state.notesView] || viewLedger)();
   }
 
@@ -2113,6 +2430,80 @@
       remove: (id) => Api.deleteRequest(id),
       after() { refreshTodos(); if (state.tab === 'notes') render(); }
     },
+    'trip-form': {
+      read: (f) => ({ id: f.item_id.value || null, title: f.title.value.trim(), place: f.place.value.trim(), start_date: f.start_date.value, end_date: f.end_date.value, note: f.note.value.trim() }),
+      check(t) {
+        if (!t.title) return '請輸入旅程名稱';
+        if (!t.start_date || !t.end_date) return '請選擇出發和回程的日期';
+        if (t.end_date < t.start_date) return '回程不能早於出發';
+        if (daysBetween(t.start_date, t.end_date) > 60) return '一趟旅程最長 60 天';
+        return null;
+      },
+      async save(t) {
+        const data = { title: t.title, place: t.place, start_date: t.start_date, end_date: t.end_date, note: t.note };
+        if (t.id) return Api.updateDoc('trips', t.id, data);
+        state.tripId = await Api.addDoc('trips', { ...data, created_by: state.userId, created_at: Date.now() });
+        state.tripTab = 'plan';
+      },
+      async remove(id) {
+        // 連同底下的行程、日誌、行李、花費一起刪掉（日誌的原圖也刪）
+        const items = state.tripItems.filter((x) => x.trip_id === id);
+        await Promise.all(items.map((x) => Api.deleteDoc('trip_items', x.id)));
+        items.filter((x) => x.image_id).forEach((x) => Api.deleteDoc('chat_images', x.image_id).catch(() => {}));
+        await Api.deleteDoc('trips', id);
+        state.tripId = null;
+      },
+      after() { render(); }
+    },
+    'plan-form': {
+      read: (f) => ({ id: f.item_id.value || null, title: f.title.value.trim(), date: f.date.value, time: f.time.value, place: f.place.value.trim(), note: f.note.value.trim() }),
+      check: (x) => (!x.title ? '請輸入要做什麼' : !x.date ? '請選擇哪一天' : null),
+      save: (x) => saveTripItem('plan', x.id, { title: x.title, date: x.date, time: x.time, place: x.place, note: x.note }),
+      remove: (id) => Api.deleteDoc('trip_items', id),
+      after() { render(); }
+    },
+    'journal-form': {
+      read: (f) => ({ id: f.item_id.value || null, date: f.date.value, text: f.text.value.trim(), file: f.photo.files && f.photo.files[0] }),
+      check(x) {
+        const old = x.id && findById(state.tripItems, x.id);
+        if (!x.date) return '請選擇哪一天';
+        if (!x.text && !x.file && !(old && old.thumb)) return '請寫點內容，或放一張照片';
+        return null;
+      },
+      async save(x) {
+        const data = { date: x.date, text: x.text };
+        if (x.file) {
+          const img = await loadImage(x.file);
+          let full = shrink(img, 1280, 0.72);
+          for (const [side, q] of [[1024, 0.65], [800, 0.6], [640, 0.55]]) { if (full.length <= 900000) break; full = shrink(img, side, q); }
+          if (full.length > 900000) throw new Error('too-large');
+          const old = x.id && findById(state.tripItems, x.id);
+          data.image_id = await Api.addDoc('chat_images', { data: full, sender: state.userId, sent_at: Date.now() });
+          data.thumb = shrink(img, 480, 0.65);
+          if (old && old.image_id) Api.deleteDoc('chat_images', old.image_id).catch(() => {});
+        }
+        return saveTripItem('journal', x.id, x.id ? data : { ...data, author: state.userId });
+      },
+      async remove(id) {
+        const old = findById(state.tripItems, id);
+        await Api.deleteDoc('trip_items', id);
+        if (old && old.image_id) Api.deleteDoc('chat_images', old.image_id).catch(() => {});
+      },
+      after() { render(); }
+    },
+    'cost-form': {
+      read: (f) => ({ id: f.item_id.value || null, title: f.title.value.trim(), amount: Number(f.amount.value), paid_by: f.paid_by.value, date: f.date.value }),
+      check(x) {
+        if (!Number.isInteger(x.amount) || x.amount < 1) return '請輸入金額（整數，至少 1 元）';
+        if (x.amount > 10000000) return '金額太大了，請再確認一次';
+        if (!x.title) return '請寫下花在什麼上面';
+        if (!x.date) return '請選擇日期';
+        return null;
+      },
+      save: (x) => saveTripItem('cost', x.id, { title: x.title, amount: x.amount, paid_by: x.paid_by, date: x.date }),
+      remove: (id) => Api.deleteDoc('trip_items', id),
+      after() { render(); }
+    },
     'score-form': {
       read: (f, form) => ({
         id: f.item_id.value || null, kid: f.kid.value, subject: checkedValues(form, 'subject')[0] || '', term: checkedValues(form, 'term')[0] || '', title: f.title.value.trim(),
@@ -2324,6 +2715,12 @@
       if (state.tab === 'notes' && state.notesView === 'ledger') { if (kids().length) openLedgerSheet(null); }
       else if (state.tab === 'notes' && state.notesView === 'cards') { if (!amChild()) openCardSheet(null); }
       else if (state.tab === 'notes' && state.notesView === 'scores') { if (kids().length) openScoreSheet(null); }
+      else if (state.tab === 'notes' && state.notesView === 'notes') {
+        if (!state.tripId) openTripSheet(null);
+        else if (state.tripTab === 'plan') openPlanSheet(null);
+        else if (state.tripTab === 'journal') openJournalSheet(null);
+        else if (state.tripTab === 'cost') openCostSheet(null);
+      }
       else if (state.tab === 'notes') openNoteSheet(null);
       else if (state.tab === 'posts' && state.postsView === 'polls') openPollSheet();
       else if (state.tab === 'posts') openPostSheet();
@@ -2378,6 +2775,25 @@
       const f = el.closest('form').elements;
       f.question.value = el.dataset.q; f.options.value = el.dataset.o.split('|').join('\n');
     }
+    else if (act === 'open-trip') {
+      Object.assign(state, { tab: 'notes', notesView: 'notes', tripId: el.dataset.id, tripTab: 'plan' });
+      render(); scroller().scrollTop = 0;
+    }
+    else if (act === 'trip-back') { state.tripId = null; render(); scroller().scrollTop = 0; }
+    else if (act === 'trip-tab') { state.tripTab = el.dataset.tab; render(); }
+    else if (act === 'edit-trip') { const t = tripOf(el.dataset.id); if (t) openTripSheet(t); }
+    else if (act === 'new-plan') openPlanSheet(null, el.dataset.date);
+    else if (act === 'edit-plan') { const x = findById(state.tripItems, el.dataset.id); if (x) openPlanSheet(x); }
+    else if (act === 'edit-journal') { const x = findById(state.tripItems, el.dataset.id); if (x && x.author === state.userId) openJournalSheet(x); }
+    else if (act === 'edit-cost') { const x = findById(state.tripItems, el.dataset.id); if (x) openCostSheet(x); }
+    else if (act === 'trip-photo') openTripPhoto(el.dataset.id);
+    else if (act === 'pack-toggle') {
+      const x = findById(state.tripItems, el.dataset.id);
+      if (x) Api.updateDoc('trip_items', x.id, { done: !x.done, done_by: x.done ? null : state.userId }).catch(() => toast('沒有成功，請再試一次'));
+    }
+    else if (act === 'pack-del') Api.deleteDoc('trip_items', el.dataset.id).catch(() => toast('刪除失敗，請再試一次'));
+    else if (act === 'old-notes') { state.showOldNotes = !state.showOldNotes; if (state.showOldNotes) loadNotes(); render(); }
+    else if (act === 'new-note') openNoteSheet(null);
     else if (act === 'score-term') { setScoreTerm(el.dataset.term); state.scoreSubject = ''; render(); }
     else if (act === 'score-subject') { state.scoreSubject = el.dataset.subject === state.scoreSubject ? '' : el.dataset.subject; render(); }
     else if (act === 'edit-score') { const x = findById(state.scores, el.dataset.id); if (x && canEditScore(x)) openScoreSheet(x); }
@@ -2402,7 +2818,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state, {
-          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', postsView: 'posts', shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
+          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', postsView: 'posts', trips: [], tripItems: [], tripId: null, shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
         });
         renderLogin();
@@ -2417,6 +2833,7 @@
     if (id === 'login-form') onLogin(form);
     else if (id === 'chat-form') onSend(form);
     else if (id === 'shop-form') onShopAdd(form);
+    else if (id === 'pack-form') onPackAdd(form);
     else if (form.classList.contains('reply-form')) onReply(form);
     else if (FORMS[id]) onSave(form);
   });
@@ -2431,6 +2848,7 @@
     const form = btn.closest('form');
     if (form.getAttribute('id') === 'chat-form') onSend(form);
     else if (form.getAttribute('id') === 'shop-form') onShopAdd(form);
+    else if (form.getAttribute('id') === 'pack-form') onPackAdd(form);
     else if (form.classList.contains('reply-form')) onReply(form);
   }
   // touchstart 要設 passive: false，preventDefault 才有效（iPhone 靠它才不會收鍵盤）
