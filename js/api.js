@@ -1,7 +1,8 @@
 // 資料存取層。App 只呼叫 Api.xxx，不直接碰 Firebase。
 //
 // 行事曆 event：{ id, title, category, event_date, end_date, start_time, end_time, member_ids, note }
-//   category: 'schedule' 行程 | 'exam' 考試 | 'family' 家庭活動 | 'other' 其他
+//   category: 'schedule' 行程 | 'exam' 考試 | 'family' 家庭活動 | 'other' 其他，或自訂類型的 id
+// 自訂類型 category：{ id, label, color, created_at }（只有家長能新增、刪除）
 //   日期 'YYYY-MM-DD'，時間 'HH:MM' 或 null（全天）；member_ids 空陣列代表「全家」
 //   created_by 是新增的人：行程全家都看得到，但只有新增的人可以修改或刪除
 //   每週重複的行程只存一筆，另有 repeat、repeat_days、skip_dates（見 cleanEvent）
@@ -164,6 +165,11 @@
       saveLedger: (e) => save('ledger', e.id, cleanLedger(e)),
       deleteLedger: (id) => remove('ledger', id),
 
+      // 自訂的行事曆類型
+      async addCategory(c) { await F.addDoc(col('categories'), { label: c.label, color: c.color, created_at: Date.now() }); },
+      deleteCategory: (id) => remove('categories', id),
+      watchCategories: (cb) => watch('行事曆類型', col('categories'), (rows) => cb(rows.sort((a, b) => a.created_at - b.created_at))),
+
       // 費用申請：小朋友提出「哪一天需要多少錢」，家長給了之後標示已給
       saveRequest: (r) => save('requests', r.id, cleanRequest(r)),
       deleteRequest: (id) => remove('requests', id),
@@ -263,6 +269,9 @@
         { id: 'l4', kid: 'm4', type: 'income', amount: 600, note: '這個月零用錢', date: day(0).slice(0, 8) + '01' },
         { id: 'l5', kid: 'm4', type: 'expense', amount: 120, note: '卡牌', date: day(-1) }
       ],
+      categories: [
+        { id: 'k1', label: '社團', color: '#0E7C86', created_at: 1 }
+      ],
       requests: [
         { id: 'q1', kid: 'm3', title: '學校舞會', amount: 1500, need_date: day(6), status: 'pending', given_by: null, given_at: null },
         { id: 'q2', kid: 'm4', title: '校外教學費', amount: 350, need_date: day(-3), status: 'given', given_by: 'm2', given_at: ago(60 * 80) }
@@ -298,7 +307,7 @@
     const drop = (key, id) => { const db = load(); db[key] = db[key].filter((x) => x.id !== id); persist(); };
 
     // 模擬即時監聽：資料一變就通知
-    const subs = { messages: [], posts: [], replies: [], presence: [], requests: [] };
+    const subs = { messages: [], posts: [], replies: [], presence: [], requests: [], categories: [] };
     const value = (key) => (key === 'presence' ? { ...load().presence } : load()[key].slice());
     const emit = (key) => subs[key].forEach((cb) => cb(value(key)));
     const watch = (key) => (cb) => {
@@ -362,6 +371,10 @@
       },
       async saveLedger(e) { return upsert('ledger', e.id, cleanLedger(e), 'l'); },
       async deleteLedger(id) { drop('ledger', id); },
+
+      async addCategory(c) { upsert('categories', null, { label: c.label, color: c.color, created_at: Date.now() }, 'k'); emit('categories'); },
+      async deleteCategory(id) { drop('categories', id); emit('categories'); },
+      watchCategories: watch('categories'),
 
       async saveRequest(r) { const row = upsert('requests', r.id, cleanRequest(r), 'q'); emit('requests'); return row; },
       async deleteRequest(id) { drop('requests', id); emit('requests'); },

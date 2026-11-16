@@ -60,7 +60,7 @@ service cloud.firestore {
     function validEvent() {
       let d = request.resource.data;
       return d.title is string && d.title.size() >= 1 && d.title.size() <= 80
-        && d.category in ['schedule', 'exam', 'family', 'other']
+        && d.category is string && d.category.size() >= 1 && d.category.size() <= 40
         && d.event_date is string && d.end_date is string
         && d.end_date >= d.event_date
         && d.member_ids is list;
@@ -155,6 +155,17 @@ service cloud.firestore {
     match /contacts/{id} {
       allow read, delete: if isFamily();
       allow create, update: if isFamily() && validContact();
+    }
+
+    // 自訂的行事曆類型：全家都看得到，只有家長可以新增、修改、刪除
+    match /categories/{id} {
+      allow read: if isFamily();
+      allow create, update: if isFamily() && !isChild()
+        && request.resource.data.label is string
+        && request.resource.data.label.size() >= 1 && request.resource.data.label.size() <= 12
+        && request.resource.data.color is string
+        && request.resource.data.color.matches('^#[0-9A-Fa-f]{6}$');
+      allow delete: if isFamily() && !isChild();
     }
 
     // 費用申請：小朋友提出自己的申請，只有家長能標示「已給」

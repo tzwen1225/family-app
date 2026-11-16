@@ -547,6 +547,20 @@ html[data-theme="night"] .msg.mine .bubble, html[data-theme="night"] .send, html
 html[data-theme="night"] .send svg { stroke: #0E1412; }
 html[data-theme="night"] .todo-done.reply { color: var(--green); }
 
+.cats { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 12px; }
+.cat-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 99px; font-size: 14px; font-weight: 600;
+  color: var(--cat); background: color-mix(in srgb, var(--cat) 14%, var(--sheet));
+}
+.cat-chip button { font-size: 18px; line-height: 1; min-width: 26px; min-height: 26px; border-radius: 99px; color: var(--cat); }
+.cat-chip button.armed { font-size: 12px; font-weight: 700; padding: 0 8px; background: var(--danger); color: #fff; }
+.btn.small { min-height: 42px; font-size: 15px; margin: 0 0 14px; }
+.colors { display: flex; flex-wrap: wrap; gap: 12px; }
+.colors legend { width: 100%; float: left; }
+.colors label { margin: 0; position: relative; }
+.colors input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; padding: 0; }
+.colors span { display: block; width: 40px; height: 40px; border-radius: 50%; background: var(--c); }
+.colors input:checked + span { box-shadow: 0 0 0 3px var(--paper), 0 0 0 6px var(--c); }
 .themes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 6px; padding: 6px 0 12px; }
 .theme { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); padding: 4px 0; border-radius: 12px; }
 .theme .swatch {

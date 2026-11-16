@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 14:55';
+  const VERSION = '2026-11-16 15:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -34,7 +34,9 @@
     const paper = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim();
     if (meta && paper) meta.setAttribute('content', paper);
   }
-  const EVENT_CATS = ['schedule', 'exam', 'family', 'other'];
+  const EVENT_CATS = ['schedule', 'exam', 'family', 'other'];   // 內建類型，不能刪除
+  // 自訂類型可以選的顏色
+  const CAT_COLORS = ['#2F6FDE', '#0E7C86', '#1F8A5F', '#5B6B2A', '#B8860B', '#E67E00', '#D4282C', '#C2478B', '#8A4FD0', '#7A847F'];
   const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
   const READ_KEY = 'family-chat-read';
   const RECALL_MS = 60 * 60 * 1000;     // 訊息送出後多久內可以收回
@@ -79,6 +81,7 @@
     ledgerMonth: today().slice(0, 7),
     ledgerKid: null,         // 家長正在看哪位小朋友的帳本
     ledgerDay: null,         // 在小月曆點了某一天時，明細只顯示那天
+    categories: [],          // 家長自訂的行事曆類型 { id, label, color }
     requests: [],            // 費用申請（小朋友提出、家長標示已給）
     messages: [],
     draft: '',
@@ -109,6 +112,13 @@
   const isAdmin = () => { const m = me(); return !!(m && m.admin === true); };
   // 行程：全家都看得到，但只有新增的人可以修改或刪除（很舊、沒有記錄新增者的行程不限制）
   const canEditEvent = (e) => !e.created_by || e.created_by === state.userId;
+  // 行程的類型：內建的四種加上家長自訂的。自訂類型被刪掉後，用過它的行程會顯示成「其他」。
+  function catOf(id) {
+    if (CATEGORIES[id]) return CATEGORIES[id];
+    const c = state.categories.find((x) => x.id === id);
+    return c ? { label: c.label, color: c.color } : CATEGORIES.other;
+  }
+  const eventCatIds = () => EVENT_CATS.concat(state.categories.map((c) => c.id));
   const canEditProfile = (id) => id === state.userId || isAdmin();
   // 小朋友：members 文件裡有 child: true 的成員。其他人都算家長。
   const kids = () => state.members.filter((m) => m.child === true);
@@ -283,6 +293,10 @@
       Api.watchPosts((list) => { state.posts = list; refreshPosts(); }),
       Api.watchReplies((list) => { state.replies = list; refreshPosts(); }),
       Api.watchPresence((map) => { state.presence = map; refreshPresence(); }),
+      Api.watchCategories((list) => {
+        state.categories = list;
+        if ((state.tab === 'cal' || state.tab === 'me') && !$sheet.innerHTML) render();
+      }),
       Api.watchRequests((list) => {
         state.requests = list;
         refreshTodos();
@@ -492,7 +506,7 @@
         d === t ? 'today' : '',
         d === state.selected ? 'sel' : ''
       ].join(' ');
-      const dots = evs.slice(0, 3).map((e) => `<i style="background:${CATEGORIES[e.category].color}"></i>`).join('');
+      const dots = evs.slice(0, 3).map((e) => `<i style="background:${esc(catOf(e.category).color)}"></i>`).join('');
       cells += `
         <button class="${cls}" data-act="pick" data-date="${d}" aria-label="${date.getMonth() + 1}月${date.getDate()}日，${evs.length} 件事" ${d === state.selected ? 'aria-pressed="true"' : ''}>
           <span class="num">${date.getDate()}</span>
@@ -547,17 +561,17 @@
   }
 
   function eventRow(e, showDate) {
-    const cat = CATEGORIES[e.category];
+    const cat = catOf(e.category);
     const inner = `
         <span class="event-time">${timeHtml(e, showDate)}</span>
         <span class="event-main">
           <span class="event-title">${esc(e.title)}</span>
-          <span class="event-meta"><span class="cat">${cat.label}</span>${e.series ? '<span class="rep">每週</span>' : ''}${e.readonly ? '' : whoHtml(e)}</span>
+          <span class="event-meta"><span class="cat">${esc(cat.label)}</span>${e.series ? '<span class="rep">每週</span>' : ''}${e.readonly ? '' : whoHtml(e)}</span>
           ${e.note ? `<span class="event-note">${esc(e.note)}</span>` : ''}
         </span>`;
     // 生日是自動產生的，不能點開編輯
-    if (e.readonly) return `<div class="event" style="--cat:${cat.color}">${inner}</div>`;
-    return `<button class="event" data-act="edit-event" data-id="${esc(e.id)}" data-date="${e.event_date}" style="--cat:${cat.color}">${inner}</button>`;
+    if (e.readonly) return `<div class="event" style="--cat:${esc(cat.color)}">${inner}</div>`;
+    return `<button class="event" data-act="edit-event" data-id="${esc(e.id)}" data-date="${e.event_date}" style="--cat:${esc(cat.color)}">${inner}</button>`;
   }
 
   function viewUpcoming() {
@@ -989,6 +1003,15 @@
         }).join('')}
       </section>
       <section class="card-list">
+        <h2>行事曆類型<small>${amChild() ? '由家長管理' : '家長可以新增或刪除'}</small></h2>
+        <div class="cats">
+          ${EVENT_CATS.map((k) => `<span class="cat-chip" style="--cat:${CATEGORIES[k].color}">${CATEGORIES[k].label}</span>`).join('')}
+          ${state.categories.map((c) => `
+            <span class="cat-chip" style="--cat:${esc(c.color)}">${esc(c.label)}${amChild() ? '' : `<button data-act="del-category" data-id="${esc(c.id)}" aria-label="刪除類型「${esc(c.label)}」">×</button>`}</span>`).join('')}
+        </div>
+        ${amChild() ? '' : '<button class="btn ghost small" data-act="new-category">新增類型</button>'}
+      </section>
+      <section class="card-list">
         <h2>面板顏色<small>只會改這支手機</small></h2>
         <div class="themes" role="group" aria-label="面板顏色">
           ${THEMES.map(([id, name, a, b]) => `
@@ -1034,7 +1057,7 @@
 
   // 別人新增的行程：只能看，不能改
   function openEventView(ev, occDate) {
-    const cat = CATEGORIES[ev.category];
+    const cat = catOf(ev.category);
     const weekly = ev.repeat === 'weekly';
     const when = weekly
       ? `每週${ev.repeat_days.map((d) => WEEKDAYS[d]).join('、')}，${shortDate(ev.event_date)} 到 ${shortDate(ev.end_date)}`
@@ -1043,9 +1066,9 @@
     showSheet('event-view', {
       title: '行程', readonly: true,
       body: `
-      <div class="view" style="--cat:${cat.color}">
+      <div class="view" style="--cat:${esc(cat.color)}">
         <h3>${esc(ev.title)}</h3>
-        <p class="event-meta"><span class="cat">${cat.label}</span>${whoHtml(ev)}</p>
+        <p class="event-meta"><span class="cat">${esc(cat.label)}</span>${whoHtml(ev)}</p>
         <dl>
           <dt>日期</dt><dd>${when}${weekly && occDate ? `<br><small>這一次是 ${shortDate(occDate)}</small>` : ''}</dd>
           <dt>時間</dt><dd>${time}</dd>
@@ -1065,6 +1088,7 @@
       end_date: null, start_time: null, end_time: null, member_ids: [], note: ''
     };
     const allDay = !e.start_time;
+    if (!eventCatIds().includes(e.category)) e.category = 'other';
     showSheet('event-form', {
       title: ev ? '編輯' : '新增', focus: !ev,
       body: `
@@ -1073,10 +1097,10 @@
 
       <fieldset class="seg">
         <legend>類型</legend>
-        ${EVENT_CATS.map((k) => `
-          <label style="--cat:${CATEGORIES[k].color}">
+        ${eventCatIds().map((k) => `
+          <label style="--cat:${esc(catOf(k).color)}">
             <input type="radio" name="category" value="${k}" ${e.category === k ? 'checked' : ''}>
-            <span>${CATEGORIES[k].label}</span>
+            <span>${esc(catOf(k).label)}</span>
           </label>`).join('')}
       </fieldset>
 
@@ -1154,6 +1178,29 @@
           </label>`).join('')}
       </fieldset>`
     });
+  }
+
+  function openCategorySheet() {
+    showSheet('category-form', {
+      title: '新增行事曆類型', submit: '新增', focus: true,
+      body: `
+      <input class="title-input" name="label" placeholder="類型名稱，例如：社團" maxlength="12" autocomplete="off">
+      <fieldset class="colors">
+        <legend>顏色</legend>
+        ${CAT_COLORS.map((c, i) => `
+          <label style="--c:${c}">
+            <input type="radio" name="color" value="${c}" ${i === 1 ? 'checked' : ''}>
+            <span aria-label="顏色 ${i + 1}"></span>
+          </label>`).join('')}
+      </fieldset>`
+    });
+  }
+
+  async function onDeleteCategory(btn) {
+    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = '確定刪除？'; btn.classList.add('armed'); return; }
+    btn.disabled = true;
+    try { await Api.deleteCategory(btn.dataset.id); toast('已刪除類型'); }
+    catch (e) { console.error(e); btn.disabled = false; toast('刪除失敗，請再試一次'); }
   }
 
   function openProfileSheet(id) {
@@ -1322,6 +1369,19 @@
       remove: (id) => Api.deleteRequest(id),
       after() { refreshTodos(); if (state.tab === 'notes') render(); }
     },
+    'category-form': {
+      done: '已新增',
+      read: (f) => ({ label: f.label.value.trim(), color: f.color.value }),
+      check(c) {
+        if (!c.label) return '請輸入類型名稱';
+        const taken = EVENT_CATS.map((k) => CATEGORIES[k].label).concat(state.categories.map((x) => x.label));
+        if (taken.includes(c.label)) return '已經有這個類型了';
+        if (state.categories.length >= 20) return '自訂類型最多 20 個';
+        return null;
+      },
+      save: (c) => Api.addCategory(c),
+      after() { if (state.tab === 'me') render(); }
+    },
     'post-form': {
       done: '已送出',
       read: (f, form) => ({ text: f.text.value.trim(), to: checkedValues(form, 'to') }),
@@ -1483,6 +1543,8 @@
     else if (act === 'del-post') onDeletePost(el);
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
+    else if (act === 'new-category') { if (!amChild()) openCategorySheet(); }
+    else if (act === 'del-category') onDeleteCategory(el);
     else if (act === 'theme') { applyTheme(el.dataset.themeId); render(); }
     else if (act === 'push-on') onPushOn(el);
     else if (act === 'push-off') { Api.disablePush().then(() => { toast('已關閉通知'); render(); }); }
@@ -1491,7 +1553,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state, {
-          userId: null, tab: 'cal', messages: [], notes: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', posts: [], replies: [],
+          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
         });
         renderLogin();
