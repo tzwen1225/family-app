@@ -5,6 +5,7 @@
 //   posts    新增 → 通知被標註的人
 //   replies  新增 → 通知那則發言的作者
 //   requests 新增 → 小朋友申請費用時，通知家長
+//   polls    新增 → 通知發起人以外的所有成員
 //
 // 部署：在專案資料夾執行 firebase deploy --only functions
 
@@ -63,7 +64,7 @@ exports.onChatMessage = onDocumentCreated('messages/{id}', async (event) => {
   const m = event.data.data();
   const names = await memberNames();
   const others = Object.keys(names).filter((uid) => uid !== m.sender);
-  await notify(others, names[m.sender] || '家人', clip(m.text), 'chat');
+  await notify(others, names[m.sender] || '家人', m.image_id ? '傳了一張照片' : clip(m.text), 'chat');
 });
 
 exports.onPost = onDocumentCreated('posts/{id}', async (event) => {
@@ -93,4 +94,11 @@ exports.onRequest = onDocumentCreated('requests/{id}', async (event) => {
   const [, m, day] = String(r.need_date || '').split('-').map(Number);
   await notify(parents, (names[r.kid] || '小朋友') + '需要一筆費用',
     clip(`${r.title}　$${r.amount}${m ? `（${m}/${day} 要用）` : ''}`), 'request-' + event.params.id);
+});
+
+exports.onPoll = onDocumentCreated('polls/{id}', async (event) => {
+  const p = event.data.data();
+  const names = await memberNames();
+  const others = Object.keys(names).filter((uid) => uid !== p.author);
+  await notify(others, (names[p.author] || '家人') + '發起了投票', clip(p.question), 'poll-' + event.params.id);
 });

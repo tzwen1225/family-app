@@ -79,9 +79,13 @@ service cloud.firestore {
         && d.phone is string && d.phone.size() <= 30;
     }
 
+    // 訊息：一般是文字；如果是照片，文字可以是空的，但要有 image_id 和小縮圖
     function validMessage() {
       let d = request.resource.data;
-      return d.text is string && d.text.size() >= 1 && d.text.size() <= 2000
+      return d.text is string && d.text.size() <= 2000
+        && (d.text.size() >= 1
+            || (d.get('image_id', '') is string && d.get('image_id', '').size() >= 1
+                && d.get('thumb', '') is string && d.get('thumb', '').size() <= 60000))
         && d.sender == request.auth.uid
         && d.sent_at is number;
     }
@@ -108,7 +112,7 @@ service cloud.firestore {
     function validRecall() {
       return resource.data.sender == request.auth.uid
         && request.time.toMillis() - resource.data.sent_at < 3600000
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'recalled'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'recalled', 'thumb', 'image_id'])
         && request.resource.data.recalled == true
         && request.resource.data.text == '';
     }
@@ -185,6 +189,64 @@ service cloud.firestore {
       allow create: if isFamily() && validMessage();
       allow update: if isFamily() && validRecall();
       allow delete: if false;
+    }
+
+    // 聊天照片的原圖：只能以自己的名義上傳；收回訊息時由本人刪除
+    match /chat_images/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.sender == request.auth.uid
+        && request.resource.data.data is string
+        && request.resource.data.data.size() <= 950000;
+      allow delete: if isFamily() && resource.data.sender == request.auth.uid;
+      allow update: if false;
+    }
+
+    // 採買清單：全家都可以新增、打勾、清除
+    match /shopping/{id} {
+      allow read, delete: if isFamily();
+      allow create, update: if isFamily()
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 60
+        && request.resource.data.done is bool;
+    }
+
+    // 投票：全家都看得到；只有發起人可以結束或刪除
+    match /polls/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.author == request.auth.uid
+        && request.resource.data.question is string
+        && request.resource.data.question.size() >= 1 && request.resource.data.question.size() <= 80
+        && request.resource.data.options is list
+        && request.resource.data.options.size() >= 2 && request.resource.data.options.size() <= 6
+        && request.resource.data.closed == false;
+      allow update: if isFamily() && resource.data.author == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['closed'])
+        && request.resource.data.closed is bool;
+      allow delete: if isFamily() && resource.data.author == request.auth.uid;
+    }
+
+    // 每人每個投票一票（文件 ID = 投票id_自己的UID），可以改選；投票結束後不能再投
+    match /poll_votes/{voteId} {
+      allow read: if isFamily();
+      allow create, update: if isFamily()
+        && request.resource.data.uid == request.auth.uid
+        && voteId == request.resource.data.poll_id + '_' + request.auth.uid
+        && request.resource.data.choice is int
+        && request.resource.data.choice >= 0 && request.resource.data.choice < 6
+        && get(/databases/$(database)/documents/polls/$(request.resource.data.poll_id)).data.closed == false;
+      allow delete: if false;
+    }
+
+    // 資料卡：全家都能看，只有家長能新增、修改、刪除
+    match /cards/{id} {
+      allow read: if isFamily();
+      allow create, update: if isFamily() && !isChild()
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 1 && request.resource.data.title.size() <= 40
+        && request.resource.data.body is string && request.resource.data.body.size() <= 2000;
+      allow delete: if isFamily() && !isChild();
     }
 
     // 我有話要說：全家都看得到，只有發言的人可以刪除

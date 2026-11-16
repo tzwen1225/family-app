@@ -15,6 +15,12 @@
 // 零用錢 ledger： { id, kid: 小朋友的 UID, type: 'income' 給零用錢 | 'expense' 支出, amount, note, date }
 //   members 文件裡 child: true 的成員是小朋友，其他人是家長
 // 費用申請 request：{ id, kid, title, amount, need_date, status: 'pending' 還沒給 | 'given' 已給, given_by, given_at }
+// 以下四種用最下面的「通用讀寫」存取（watchList / addDoc / setDoc / updateDoc / deleteDoc / getDoc）：
+//   採買 shopping：  { id, text, done, added_by, done_by, created_at }
+//   投票 polls：     { id, question, options: [文字…], author, created_at, closed }
+//        poll_votes：{ id: 投票id_UID, poll_id, uid, choice: 第幾個選項, voted_at }
+//   資料卡 cards：   { id, title, member: UID 或 ''（全家）, body, updated_at }
+//   聊天照片 chat_images：{ id, data: 圖片內容, sender, sent_at }；訊息本身只放小縮圖 thumb 和 image_id
 // 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
 
@@ -133,12 +139,14 @@
       saveNote: (n) => save('notes', n.id, cleanNote(n, uid())),
       deleteNote: (id) => remove('notes', id),
 
-      async sendMessage(text) {
-        await F.addDoc(col('messages'), { text, sender: uid(), sent_at: Date.now() });
+      // extra：傳照片時帶 { thumb, image_id }
+      async sendMessage(text, extra) {
+        await F.addDoc(col('messages'), { text, ...(extra || {}), sender: uid(), sent_at: Date.now() });
       },
       // 收回：清空內容並標記。安全規則只允許本人在送出一小時內這樣做。
-      async recallMessage(id) {
-        await F.updateDoc(F.doc(db, 'messages', id), { text: '', recalled: true });
+      async recallMessage(id, hasImage) {
+        await F.updateDoc(F.doc(db, 'messages', id),
+          hasImage ? { text: '', recalled: true, thumb: '', image_id: '' } : { text: '', recalled: true });
       },
       watchMessages: (cb) => watch('聊天室', F.query(col('messages'), F.orderBy('sent_at'), F.limitToLast(300)), cb),
 
@@ -180,6 +188,14 @@
         await F.setDoc(F.doc(db, 'presence', uid()), { last_seen: Date.now(), online: !!online });
       },
       watchPresence: (cb) => watch('上線狀態', col('presence'), (rows) => cb(toMap(rows))),
+
+      // ----- 通用讀寫（給採買、投票、資料卡、聊天照片用） -----
+      watchList: (name, cb) => watch(name, col(name), cb),
+      async addDoc(name, data) { return (await F.addDoc(col(name), data)).id; },
+      setDoc: (name, id, data) => F.setDoc(F.doc(db, name, id), data),
+      updateDoc: (name, id, data) => F.updateDoc(F.doc(db, name, id), data),
+      deleteDoc: (name, id) => remove(name, id),
+      async getDoc(name, id) { const d = await F.getDoc(F.doc(db, name, id)); return d.exists() ? row(d) : null; },
 
       // ----- 推播通知 -----
       // 每支手機開啟通知後會拿到一組「裝置代碼」，存進 push_tokens/{代碼} = { uid }。
@@ -306,6 +322,35 @@
     };
     const drop = (key, id) => { const db = load(); db[key] = db[key].filter((x) => x.id !== id); persist(); };
 
+    // 通用讀寫用的示範資料
+    const seedDocs = () => ({
+      shopping: [
+        { id: 'sh1', text: '牛奶', done: false, added_by: 'm2', done_by: null, created_at: ago(120) },
+        { id: 'sh2', text: '衛生紙', done: false, added_by: 'm1', done_by: null, created_at: ago(100) },
+        { id: 'sh3', text: '雞蛋', done: true, added_by: 'm2', done_by: 'm1', created_at: ago(300) }
+      ],
+      polls: [
+        { id: 'po1', question: '今天誰回家吃晚餐？', options: ['回家吃', '不回家吃', '會晚一點'], author: 'm2', created_at: ago(90), closed: false }
+      ],
+      poll_votes: [
+        { id: 'po1_m2', poll_id: 'po1', uid: 'm2', choice: 0, voted_at: ago(89) },
+        { id: 'po1_m3', poll_id: 'po1', uid: 'm3', choice: 2, voted_at: ago(60) }
+      ],
+      cards: [
+        { id: 'ca1', title: '緊急聯絡', member: '', body: '阿嬤家：02-2345-6789\n社區管理室：02-2222-3333', updated_at: ago(600) },
+        { id: 'ca2', title: '學校資料', member: 'm3', body: '學號：1130456\n班級：二年三班 12 號\n導師：王老師 0912-345-678', updated_at: ago(500) }
+      ],
+      chat_images: []
+    });
+    const G = (name) => {
+      const db = load();
+      db.docs = db.docs || {};
+      if (!db.docs[name]) db.docs[name] = seedDocs()[name] || [];
+      return db.docs[name];
+    };
+    const gsubs = {};
+    const gemit = (name) => (gsubs[name] || []).forEach((cb) => cb(G(name).slice()));
+
     // 模擬即時監聽：資料一變就通知
     const subs = { messages: [], posts: [], replies: [], presence: [], requests: [], categories: [] };
     const value = (key) => (key === 'presence' ? { ...load().presence } : load()[key].slice());
@@ -339,14 +384,14 @@
       async saveNote(n) { return upsert('notes', n.id, cleanNote(n, load().user), 'n'); },
       async deleteNote(id) { drop('notes', id); },
 
-      async sendMessage(text) {
-        upsert('messages', null, { text, sender: load().user, sent_at: Date.now() }, 'g');
+      async sendMessage(text, extra) {
+        upsert('messages', null, { text, ...(extra || {}), sender: load().user, sent_at: Date.now() }, 'g');
         emit('messages');
       },
       async recallMessage(id) {
         const m = load().messages.find((x) => x.id === id);
         if (!m || m.sender !== load().user || Date.now() - m.sent_at >= 3600000) throw new Error('permission-denied');
-        m.text = ''; m.recalled = true; persist(); emit('messages');
+        m.text = ''; m.recalled = true; m.thumb = ''; m.image_id = ''; persist(); emit('messages');
       },
       watchMessages: watch('messages'),
 
@@ -389,6 +434,31 @@
         persist(); emit('presence');
       },
       watchPresence: watch('presence'),
+
+      watchList(name, cb) {
+        (gsubs[name] = gsubs[name] || []).push(cb);
+        setTimeout(() => cb(G(name).slice()), 0);
+        return () => { gsubs[name] = gsubs[name].filter((x) => x !== cb); };
+      },
+      async addDoc(name, data) {
+        const id = name.slice(0, 2) + Date.now() + Math.floor(Math.random() * 1000);
+        G(name).push({ ...data, id }); persist(); gemit(name); return id;
+      },
+      async setDoc(name, id, data) {
+        const rows = G(name); const i = rows.findIndex((x) => x.id === id);
+        if (i >= 0) rows[i] = { ...data, id }; else rows.push({ ...data, id });
+        persist(); gemit(name);
+      },
+      async updateDoc(name, id, data) {
+        const item = G(name).find((x) => x.id === id);
+        if (item) Object.assign(item, data);
+        persist(); gemit(name);
+      },
+      async deleteDoc(name, id) {
+        const db = load(); db.docs[name] = G(name).filter((x) => x.id !== id);
+        persist(); gemit(name);
+      },
+      async getDoc(name, id) { return G(name).find((x) => x.id === id) || null; },
 
       pushState() { return 'unsupported'; },
       async enablePush() { return 'denied'; },

@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 15:35';
+  const VERSION = '2026-11-16 16:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -76,7 +76,10 @@
     monthEvents: [],
     upcoming: [],
     notes: [],
-    notesView: 'ledger',     // ledger（零用錢，預設）| notes（雜記）
+    notesView: 'ledger',     // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
+    shopping: [], cards: [],
+    postsView: 'posts',      // posts（留言）| polls（投票）
+    polls: [], votes: [],
     ledger: [],
     ledgerMonth: today().slice(0, 7),
     ledgerKid: null,         // 家長正在看哪位小朋友的帳本
@@ -251,7 +254,7 @@
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
-    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else loadNotes(); }
+    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') loadNotes(); }
   }
 
   // ---------- 啟動 ----------
@@ -293,6 +296,10 @@
       Api.watchPosts((list) => { state.posts = list; refreshPosts(); }),
       Api.watchReplies((list) => { state.replies = list; refreshPosts(); }),
       Api.watchPresence((map) => { state.presence = map; refreshPresence(); }),
+      Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
+      Api.watchList('cards', (list) => { state.cards = list; if (state.tab === 'notes' && state.notesView === 'cards' && !$sheet.innerHTML) render(); }),
+      Api.watchList('polls', (list) => { state.polls = list; refreshPolls(); }),
+      Api.watchList('poll_votes', (list) => { state.votes = list; refreshPolls(); }),
       Api.watchCategories((list) => {
         state.categories = list;
         if ((state.tab === 'cal' || state.tab === 'me') && !$sheet.innerHTML) render();
@@ -357,7 +364,9 @@
     posts: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l7 4.5v-13L7 10zM17.500 9.500a4 4 0 0 1 0 5M7.500 14l1 5h2.500"/></svg>',
     notes: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.500" y="4.500" width="17" height="14" rx="2.500"/><circle cx="12" cy="11.500" r="3"/><path d="M12 8.500v-1M12 15.500v-1M15 11.500h1M8 11.500h1M7 18.500v2M17 18.500v2"/></svg>',
     me: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h10M18 17h2"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="16" cy="17" r="2"/></svg>',
+    photo: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.500" y="5" width="17" height="14" rx="2.500"/><circle cx="9" cy="10" r="1.800"/><path d="M4 17l5-4.500 3.500 3 3-2.500 4.500 4"/></svg>',
     search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.500"/><path d="M16 16l4.500 4.500"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
     send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M12.500 6l6 6-6 6"/></svg>',
     phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.500 4h3l1.500 4-2 1.500a11 11 0 0 0 5.500 5.500l1.500-2 4 1.500v3a2 2 0 0 1-2 2A15.500 15.500 0 0 1 4.500 6a2 2 0 0 1 2-2z"/></svg>'
   };
@@ -365,19 +374,24 @@
   // 右下角的新增鈕在這個畫面要做什麼；沒有東西可新增時不顯示
   function fabLabel() {
     if (state.tab === 'cal') return '新增行程';
-    if (state.tab === 'posts') return '我有話要說';
+    if (state.tab === 'posts') return state.postsView === 'polls' ? '發起投票' : '我有話要說';
     if (state.tab !== 'notes') return '';
     if (state.notesView === 'notes') return '新增雜記';
+    if (state.notesView === 'shop') return '';                       // 採買清單直接在上方輸入
+    if (state.notesView === 'cards') return amChild() ? '' : '新增資料卡';
     return kids().length ? '新增一筆零用錢紀錄' : '';
   }
 
   const hasUnread = () => state.messages.some((m) => m.sender !== state.userId && m.sent_at > state.lastRead);
   const repliedBy = (post, uid) => state.replies.some((r) => r.post_id === post.id && r.author === uid);
   const waitingForMe = () => state.posts.some((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId));
+  // 還開著、而我還沒投的投票
+  const pollsForMe = () => state.polls.filter((p) => !p.closed
+    && !state.votes.some((v) => v.poll_id === p.id && v.uid === state.userId));
   const pendingRequests = () => state.requests.filter((r) => r.status !== 'given')
     .sort((a, b) => a.need_date.localeCompare(b.need_date));
   const badge = (tab) => (tab === 'chat' ? hasUnread()
-    : tab === 'posts' ? waitingForMe()
+    : tab === 'posts' ? (waitingForMe() || pollsForMe().length > 0)
     : tab === 'notes' ? (!amChild() && pendingRequests().length > 0)
     : false);
 
@@ -411,6 +425,14 @@
               <span class="todo-sub">${esc(p.text.length > 40 ? p.text.slice(0, 40) + '…' : p.text)}</span>
             </button>
             <button class="todo-done reply" data-act="tab" data-tab="posts">回覆</button>
+          </div>`));
+    pollsForMe().sort((a, b) => a.created_at - b.created_at).forEach((p) => items.push(`
+          <div class="todo">
+            <button class="todo-main" data-act="open-polls">
+              <span class="todo-title">${esc(nameOf(p.author))}發起了投票</span>
+              <span class="todo-sub">${esc(p.question)}</span>
+            </button>
+            <button class="todo-done reply" data-act="open-polls">投票</button>
           </div>`));
     return items.length ? `<h2>待辦事項<span>${items.length}</span></h2>${items.join('')}` : '';
   }
@@ -458,6 +480,10 @@
       <div class="scroller" id="scroller"><div class="screen">${views[state.tab]()}</div></div>
       ${state.tab === 'chat' && !state.chatSearch ? `
         <form class="chat-bar" id="chat-form">
+          <label class="attach" aria-label="傳照片">
+            <input type="file" id="chat-file" accept="image/*" hidden>
+            ${ICON.photo}
+          </label>
           <input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息">
           <button type="submit" class="send" aria-label="傳送">${ICON.send}</button>
         </form>` : ''}
@@ -651,7 +677,7 @@
     const q = state.chatSearch ? state.chatQuery.trim() : '';
     if (state.chatSearch && !q) return '<div class="empty big"><p>輸入關鍵字，搜尋最近 300 則訊息。</p></div>';
     const list = q
-      ? state.messages.filter((m) => !m.recalled && m.text.toLowerCase().includes(q.toLowerCase()))
+      ? state.messages.filter((m) => !m.recalled && (m.text || '').toLowerCase().includes(q.toLowerCase()))
       : state.messages;
     if (q && !list.length) return '<div class="empty big"><p>找不到含有「' + esc(q) + '」的訊息。</p></div>';
     if (!list.length) return '<div class="empty big"><p>還沒有訊息。說聲嗨吧。</p></div>';
@@ -668,7 +694,9 @@
       const mine = m.sender === state.userId;
       const showName = !mine && (q || m.sender !== lastSender);
       let bubble;
-      if (m.recalled) bubble = `<div class="bubble recalled">${mine ? '你' : esc(nameOf(m.sender))}收回了訊息</div>`;
+      const thumb = m.thumb && String(m.thumb).startsWith('data:image/') ? m.thumb : '';
+      if (!m.recalled && thumb) bubble = `<button class="bubble photo" data-act="view-image" data-id="${esc(m.id)}" aria-label="照片，點一下放大"><img src="${esc(thumb)}" alt="照片"></button>`;
+      else if (m.recalled) bubble = `<div class="bubble recalled">${mine ? '你' : esc(nameOf(m.sender))}收回了訊息</div>`;
       else if (!q && canRecall(m)) bubble = `<button class="bubble" data-act="msg-menu" data-id="${esc(m.id)}" aria-label="${esc(m.text)}，點一下可以收回">${esc(m.text)}</button>`;
       else bubble = `<div class="bubble">${markText(m.text, q)}</div>`;
       html += `
@@ -738,9 +766,79 @@
     }
   }
 
+  // ---------- 聊天照片 ----------
+  // 照片不經過檔案空間，直接壓小後存進資料庫：
+  // 訊息裡只放一張很小的縮圖（聊天列表載入才不會慢），原圖另外存在 chat_images，點開才讀取。
+  function loadImage(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('讀不到這張圖片')); };
+      img.src = url;
+    });
+  }
+  function shrink(img, maxSide, quality) {
+    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', quality);
+  }
+  async function onPickImage(input) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    toast('照片傳送中…');
+    try {
+      const img = await loadImage(file);
+      // 資料庫單筆上限約 1MB：先用 1280 像素試，太大就再縮
+      let full = shrink(img, 1280, 0.72);
+      for (const [side, q] of [[1024, 0.65], [800, 0.6], [640, 0.55]]) {
+        if (full.length <= 900000) break;
+        full = shrink(img, side, q);
+      }
+      if (full.length > 900000) throw new Error('too-large');
+      const thumb = shrink(img, 240, 0.6);
+      const imageId = await Api.addDoc('chat_images', { data: full, sender: state.userId, sent_at: Date.now() });
+      await Api.sendMessage('', { thumb, image_id: imageId });
+      toast('照片已送出');
+      scrollChat();
+    } catch (e) {
+      console.error(e);
+      toast('照片沒有送出，請再試一次');
+    }
+  }
+  async function openImage(id) {
+    const m = findById(state.messages, id);
+    if (!m) return;
+    $sheet.innerHTML = `
+      <div class="viewer" data-act="close">
+        <img src="${esc(m.thumb)}" alt="照片" class="loading">
+        <div class="viewer-bar">
+          <span>${esc(nameOf(m.sender))}　${stamp(m.sent_at)}</span>
+          ${canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回</button>` : ''}
+          <button class="link-btn" data-act="close">關閉</button>
+        </div>
+      </div>`;
+    try {
+      const doc = await Api.getDoc('chat_images', m.image_id);
+      const el = $sheet.querySelector('.viewer img');
+      if (el && doc && String(doc.data).startsWith('data:image/')) { el.src = doc.data; el.classList.remove('loading'); }
+    } catch (e) { console.error(e); toast('原圖讀取失敗'); }
+  }
+
   async function onRecall(id) {
     state.menuMsg = null;
-    try { await Api.recallMessage(id); toast('已收回'); }
+    const msg = findById(state.messages, id);
+    const imageId = msg && msg.image_id;
+    if ($sheet.querySelector('.viewer')) closeSheet();
+    try {
+      await Api.recallMessage(id, !!imageId);
+      if (imageId) Api.deleteDoc('chat_images', imageId).catch((e) => console.warn(e));
+      toast('已收回');
+    }
     catch (e) {
       console.error(e);
       refreshChat(false);
@@ -788,9 +886,198 @@
   }
 
   function viewPosts() {
-    return `
+    const b = (v, label, dot) => `<button class="${state.postsView === v ? 'on' : ''} ${dot ? 'dot' : ''}" data-act="posts-view" data-view="${v}" ${state.postsView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
+    const sw = `<div class="switcher" role="group" aria-label="留言或投票">${b('posts', '留言', waitingForMe())}${b('polls', '投票', pollsForMe().length > 0)}</div>`;
+    if (state.postsView === 'polls') return sw + `
+      <header class="plain-head"><h1>投票</h1><p>全家都看得到誰選了什麼</p></header>
+      <div id="poll-list">${pollListHtml()}</div>`;
+    return sw + `
       <header class="plain-head"><h1>我有話要說</h1><p>被標註的人才能回覆</p></header>
       <div id="post-list">${postListHtml()}</div>`;
+  }
+
+  // ---------- 投票 ----------
+  function pollListHtml() {
+    if (!state.polls.length) return `
+      <div class="empty big">
+        <p>還沒有投票。「今天誰回家吃晚餐」「週末去哪裡」這種事，用投票問最快。</p>
+        <button class="link-btn" data-act="new">發起投票</button>
+      </div>`;
+    return state.polls.slice().sort((a, b) => (a.closed - b.closed) || (b.created_at - a.created_at)).map((p) => {
+      const votes = state.votes.filter((v) => v.poll_id === p.id && member(v.uid));
+      const mine = votes.find((v) => v.uid === state.userId);
+      const waiting = state.members.filter((m) => !votes.some((v) => v.uid === m.id));
+      const author = member(p.author);
+      return `
+        <article class="post poll ${!p.closed && !mine ? 'needs' : ''} ${p.closed ? 'closed' : ''}">
+          <header>
+            ${author ? avatarHtml(author, 'sm') : ''}
+            <b>${esc(nameOf(p.author))}</b>
+            <time>${stamp(p.created_at)}</time>
+            ${p.closed ? '<span class="flag done">已結束</span>' : !mine ? '<span class="flag">等你投票</span>' : ''}
+          </header>
+          <p class="post-text">${esc(p.question)}</p>
+          <div class="opts">
+            ${p.options.map((opt, i) => {
+              const who = votes.filter((v) => v.choice === i);
+              const pct = Math.round(who.length / Math.max(1, state.members.length) * 100);
+              return `
+              <button class="opt ${mine && mine.choice === i ? 'mine' : ''}" data-act="vote" data-id="${esc(p.id)}" data-choice="${i}" ${p.closed ? 'disabled' : ''} ${mine && mine.choice === i ? 'aria-pressed="true"' : ''}>
+                <span class="opt-bar" style="width:${pct}%"></span>
+                <span class="opt-text">${esc(opt)}</span>
+                <span class="opt-who">${who.map((v) => `<span class="who" style="--who:${esc(colorOf(v.uid))}">${esc(nameOf(v.uid))}</span>`).join('')}</span>
+              </button>`;
+            }).join('')}
+          </div>
+          <p class="poll-foot">${votes.length} / ${state.members.length} 人已投${waiting.length && !p.closed ? '　還沒投：' + esc(waiting.map((m) => m.display_name).join('、')) : ''}</p>
+          ${p.author === state.userId ? `
+            <div class="poll-actions">
+              ${p.closed ? '' : `<button class="link-btn del" data-act="close-poll" data-id="${esc(p.id)}">結束投票</button>`}
+              <button class="link-btn del" data-act="del-poll" data-id="${esc(p.id)}">刪除</button>
+            </div>` : ''}
+        </article>`;
+    }).join('');
+  }
+
+  function refreshPolls() {
+    refreshTodos();
+    const el = document.getElementById('poll-list');
+    if (el) el.innerHTML = pollListHtml();
+    document.querySelectorAll('.switcher [data-act="posts-view"]').forEach((btn) => {
+      btn.classList.toggle('dot', btn.dataset.view === 'polls' ? pollsForMe().length > 0 : waitingForMe());
+    });
+  }
+
+  async function onVote(btn) {
+    const p = findById(state.polls, btn.dataset.id);
+    if (!p || p.closed) return;
+    try {
+      await Api.setDoc('poll_votes', p.id + '_' + state.userId,
+        { poll_id: p.id, uid: state.userId, choice: Number(btn.dataset.choice), voted_at: Date.now() });
+    } catch (e) { console.error(e); toast('投票沒有成功，請再試一次'); }
+  }
+
+  async function onPollAction(btn, kind) {
+    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = kind === 'del' ? '再按一次確定刪除' : '再按一次確定結束'; return; }
+    btn.disabled = true;
+    try {
+      if (kind === 'del') await Api.deleteDoc('polls', btn.dataset.id);
+      else await Api.updateDoc('polls', btn.dataset.id, { closed: true });
+      toast(kind === 'del' ? '已刪除' : '投票已結束');
+    } catch (e) { console.error(e); btn.disabled = false; toast('沒有成功，請再試一次'); }
+  }
+
+  function openPollSheet() {
+    showSheet('poll-form', {
+      title: '發起投票', submit: '送出', focus: true,
+      body: `
+      <input class="title-input" name="question" placeholder="想問什麼？" maxlength="80" autocomplete="off">
+      <label>選項（一行一個，2 到 6 個）<textarea name="options" rows="5" maxlength="300" placeholder="選項一&#10;選項二"></textarea></label>
+      <p class="hint">常用的可以直接套用：</p>
+      <div class="presets">
+        <button type="button" class="chip-btn" data-act="poll-preset" data-q="今天誰回家吃晚餐？" data-o="回家吃|不回家吃|會晚一點">晚餐調查</button>
+        <button type="button" class="chip-btn" data-act="poll-preset" data-q="這個週末想去哪裡？" data-o="待在家|出去走走|去阿嬤家">週末去哪</button>
+        <button type="button" class="chip-btn" data-act="poll-preset" data-q="可以嗎？" data-o="可以|不行">可以／不行</button>
+      </div>`
+    });
+  }
+
+  // ---------- 採買清單 ----------
+  function shopListHtml() {
+    if (!state.shopping.length) return '<div class="empty big"><p>清單是空的。想到要買什麼，就在上面打字加進來。</p></div>';
+    const sorted = state.shopping.slice().sort((a, b) => (a.done - b.done) || (a.created_at - b.created_at));
+    const doneCount = sorted.filter((i) => i.done).length;
+    return `
+      <div class="shop-items">
+        ${sorted.map((i) => `
+          <button class="shop-item ${i.done ? 'done' : ''}" data-act="shop-toggle" data-id="${esc(i.id)}" aria-pressed="${!!i.done}">
+            <span class="check" aria-hidden="true"></span>
+            <span class="shop-text">${esc(i.text)}</span>
+            <small>${esc(i.done && i.done_by ? nameOf(i.done_by) + '買了' : nameOf(i.added_by))}</small>
+          </button>`).join('')}
+      </div>
+      ${doneCount ? `<button class="btn ghost small" data-act="shop-clear">清除已經買的（${doneCount}）</button>` : ''}`;
+  }
+  function viewShop() {
+    const left = state.shopping.filter((i) => !i.done).length;
+    return `
+      <header class="plain-head"><h1>採買清單</h1><p id="shop-count">${left ? left + ' 項還沒買' : '都買齊了'}</p></header>
+      <form class="shop-add" id="shop-form">
+        <input id="shop-input" name="text" type="text" placeholder="要買什麼？" maxlength="60" autocomplete="off" enterkeyhint="done" aria-label="要買什麼">
+        <button type="submit" class="send" aria-label="加入清單">${ICON.plus}</button>
+      </form>
+      <div id="shop-list">${shopListHtml()}</div>`;
+  }
+  function refreshShop() {
+    const el = document.getElementById('shop-list');
+    if (!el) return;
+    el.innerHTML = shopListHtml();
+    const left = state.shopping.filter((i) => !i.done).length;
+    document.getElementById('shop-count').textContent = left ? left + ' 項還沒買' : '都買齊了';
+  }
+  async function onShopAdd(form) {
+    const input = form.elements.text;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = ''; input.focus();
+    try { await Api.addDoc('shopping', { text, done: false, added_by: state.userId, done_by: null, created_at: Date.now() }); }
+    catch (e) { console.error(e); input.value = text; toast('沒有加進去，請再試一次'); }
+  }
+  async function onShopToggle(id) {
+    const item = findById(state.shopping, id);
+    if (!item) return;
+    try { await Api.updateDoc('shopping', id, { done: !item.done, done_by: item.done ? null : state.userId }); }
+    catch (e) { console.error(e); toast('沒有成功，請再試一次'); }
+  }
+  async function onShopClear(btn) {
+    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = '再按一次確定清除'; return; }
+    btn.disabled = true;
+    try { await Promise.all(state.shopping.filter((i) => i.done).map((i) => Api.deleteDoc('shopping', i.id))); toast('已清除'); }
+    catch (e) { console.error(e); toast('清除失敗，請再試一次'); }
+  }
+
+  // ---------- 資料卡 ----------
+  // 健保卡號、學號、過敏、緊急聯絡人這類要用時馬上找得到的資料。全家都能看，只有家長能改。
+  function viewCards() {
+    if (!state.cards.length) return `
+      <header class="plain-head"><h1>資料卡</h1></header>
+      <div class="empty big">
+        <p>還沒有資料卡。健保卡號、學號、過敏與用藥、緊急聯絡人，都可以放在這裡。</p>
+        ${amChild() ? '' : '<button class="link-btn" data-act="new">新增資料卡</button>'}
+      </div>`;
+    const groups = [['', '全家']].concat(state.members.map((m) => [m.id, m.display_name]));
+    return `
+      <header class="plain-head"><h1>資料卡</h1><p>${amChild() ? '由家長維護' : '只有家長可以修改'}</p></header>
+      ${groups.map(([id, label]) => {
+        const cards = state.cards.filter((c) => (member(c.member) ? c.member : '') === id)
+          .sort((a, b) => a.title.localeCompare(b.title, 'zh-Hant'));
+        if (!cards.length) return '';
+        return `
+          <section class="card-group" style="--who:${id ? esc(colorOf(id)) : 'var(--green)'}">
+            <h2>${esc(label)}</h2>
+            ${cards.map((c) => `
+              <${amChild() ? 'div' : `button data-act="edit-card" data-id="${esc(c.id)}"`} class="info-card">
+                <span class="info-title">${esc(c.title)}</span>
+                <span class="info-body">${esc(c.body)}</span>
+              </${amChild() ? 'div' : 'button'}>`).join('')}
+          </section>`;
+      }).join('')}`;
+  }
+  function openCardSheet(card) {
+    const c = card || { title: '', member: '', body: '' };
+    showSheet('card-form', {
+      title: card ? '編輯資料卡' : '新增資料卡', focus: !card, footer: card ? DELETE_BTN : '',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(c.id || '')}">
+      <input class="title-input" name="title" placeholder="標題，例如：健保與醫療" value="${esc(c.title)}" maxlength="40" autocomplete="off">
+      <fieldset class="seg">
+        <legend>這是誰的資料？</legend>
+        <label style="--cat:var(--green)"><input type="radio" name="member" value="" ${!member(c.member) ? 'checked' : ''}><span>全家</span></label>
+        ${state.members.map((m) => `
+          <label style="--cat:${esc(m.color)}"><input type="radio" name="member" value="${esc(m.id)}" ${c.member === m.id ? 'checked' : ''}><span>${esc(m.display_name)}</span></label>`).join('')}
+      </fieldset>
+      <label>內容<textarea name="body" rows="8" maxlength="2000" placeholder="健保卡號：&#10;血型：&#10;過敏：&#10;固定用藥：&#10;緊急聯絡人：">${esc(c.body)}</textarea></label>`
+    });
   }
 
   function refreshPosts() {
@@ -829,8 +1116,9 @@
   // ---------- 雜記 ----------
   function viewNotes() {
     const b = (v, label) => `<button class="${state.notesView === v ? 'on' : ''}" data-act="notes-view" data-view="${v}" ${state.notesView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
-    return `<div class="switcher" role="group" aria-label="零用錢或雜記">${b('ledger', '零用錢')}${b('notes', '雜記')}</div>`
-      + (state.notesView === 'ledger' ? viewLedger() : viewNoteList());
+    const views = { ledger: viewLedger, notes: viewNoteList, shop: viewShop, cards: viewCards };
+    return `<div class="switcher" role="group" aria-label="金庫的內容">${b('ledger', '零用錢')}${b('notes', '雜記')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
+      + (views[state.notesView] || viewLedger)();
   }
 
   // ---------- 零用錢記帳本 ----------
@@ -1385,6 +1673,33 @@
       remove: (id) => Api.deleteRequest(id),
       after() { refreshTodos(); if (state.tab === 'notes') render(); }
     },
+    'poll-form': {
+      done: '投票已送出',
+      read: (f) => ({
+        question: f.question.value.trim(),
+        options: f.options.value.split('\n').map((x) => x.trim()).filter(Boolean)
+      }),
+      check(p) {
+        if (!p.question) return '請寫下想問什麼';
+        if (p.options.length < 2) return '至少要有兩個選項，一行一個';
+        if (p.options.length > 6) return '選項最多 6 個';
+        if (p.options.some((o) => o.length > 30)) return '每個選項最多 30 個字';
+        if (new Set(p.options).size !== p.options.length) return '選項有重複';
+        return null;
+      },
+      save: (p) => Api.addDoc('polls', { question: p.question, options: p.options, author: state.userId, created_at: Date.now(), closed: false }),
+      after() { const sc = scroller(); if (sc) sc.scrollTop = 0; }
+    },
+    'card-form': {
+      read: (f) => ({ id: f.item_id.value || null, title: f.title.value.trim(), member: f.member.value, body: f.body.value.trim() }),
+      check: (c) => (!c.title ? '請輸入標題' : !c.body ? '請填寫內容' : null),
+      save(c) {
+        const data = { title: c.title, member: c.member, body: c.body, updated_at: Date.now() };
+        return c.id ? Api.updateDoc('cards', c.id, data) : Api.addDoc('cards', data);
+      },
+      remove: (id) => Api.deleteDoc('cards', id),
+      after() { if (state.tab === 'notes') render(); }
+    },
     'category-form': {
       done: '已新增',
       read: (f) => ({ label: f.label.value.trim(), color: f.color.value }),
@@ -1520,7 +1835,9 @@
     }
     else if (act === 'new') {
       if (state.tab === 'notes' && state.notesView === 'ledger') { if (kids().length) openLedgerSheet(null); }
+      else if (state.tab === 'notes' && state.notesView === 'cards') { if (!amChild()) openCardSheet(null); }
       else if (state.tab === 'notes') openNoteSheet(null);
+      else if (state.tab === 'posts' && state.postsView === 'polls') openPollSheet();
       else if (state.tab === 'posts') openPostSheet();
       else openEventSheet(null);
     }
@@ -1559,6 +1876,19 @@
     else if (act === 'del-post') onDeletePost(el);
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
+    else if (act === 'posts-view') { state.postsView = el.dataset.view; render(); scroller().scrollTop = 0; }
+    else if (act === 'open-polls') { state.tab = 'posts'; state.postsView = 'polls'; render(); }
+    else if (act === 'vote') onVote(el);
+    else if (act === 'close-poll') onPollAction(el, 'close');
+    else if (act === 'del-poll') onPollAction(el, 'del');
+    else if (act === 'poll-preset') {
+      const f = el.closest('form').elements;
+      f.question.value = el.dataset.q; f.options.value = el.dataset.o.split('|').join('\n');
+    }
+    else if (act === 'shop-toggle') onShopToggle(el.dataset.id);
+    else if (act === 'shop-clear') onShopClear(el);
+    else if (act === 'edit-card') { const c = findById(state.cards, el.dataset.id); if (c && !amChild()) openCardSheet(c); }
+    else if (act === 'view-image') openImage(el.dataset.id);
     else if (act === 'new-category') { if (!amChild()) openCategorySheet(); }
     else if (act === 'del-category') onDeleteCategory(el);
     else if (act === 'theme') { applyTheme(el.dataset.themeId); render(); }
@@ -1569,7 +1899,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state, {
-          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', posts: [], replies: [],
+          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', postsView: 'posts', shopping: [], cards: [], polls: [], votes: [], posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
         });
         renderLogin();
@@ -1583,6 +1913,7 @@
     const id = form.getAttribute('id');
     if (id === 'login-form') onLogin(form);
     else if (id === 'chat-form') onSend(form);
+    else if (id === 'shop-form') onShopAdd(form);
     else if (form.classList.contains('reply-form')) onReply(form);
     else if (FORMS[id]) onSave(form);
   });
@@ -1596,6 +1927,7 @@
     if (ev.cancelable) ev.preventDefault();
     const form = btn.closest('form');
     if (form.getAttribute('id') === 'chat-form') onSend(form);
+    else if (form.getAttribute('id') === 'shop-form') onShopAdd(form);
     else if (form.classList.contains('reply-form')) onReply(form);
   }
   // touchstart 要設 passive: false，preventDefault 才有效（iPhone 靠它才不會收鍵盤）
@@ -1636,6 +1968,8 @@
       }
     }
   });
+
+  document.addEventListener('change', (ev) => { if (ev.target.id === 'chat-file') onPickImage(ev.target); });
 
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && $sheet.innerHTML) closeSheet(); });
 
@@ -1692,6 +2026,7 @@
   // App 沒開著時，分頁名稱放在網址的 # 後面；App 開著時，由 service worker 傳訊息過來。
   function goTab(tab) {
     if (tab === 'ledger') { state.notesView = 'ledger'; state.ledgerDay = null; tab = 'notes'; }
+    if (tab === 'polls') { state.postsView = 'polls'; tab = 'posts'; }
     if (!TABS.some(([id]) => id === tab)) return;
     state.tab = tab;
     state.chatSearch = false; state.chatQuery = ''; state.menuMsg = null;
