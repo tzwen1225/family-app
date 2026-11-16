@@ -472,6 +472,13 @@ button.bubble { text-align: left; font: inherit; }
 .todo-done.reply { background: var(--sheet); color: var(--green); border: 1px solid var(--green); }
 .todo-done:disabled { opacity: .5; }
 
+/* ---------- 首頁：今天的行程 ---------- */
+.today-card { background: var(--sheet); border-radius: 16px; padding: 4px 4px 4px 0; margin-bottom: 12px; border-left: 5px solid var(--green); }
+.today-card h2 { font-size: 13px; font-weight: 600; color: var(--green); padding: 10px 12px 2px 14px; display: flex; align-items: center; gap: 8px; }
+.today-card h2 span { font-weight: 400; color: var(--ink-2); }
+.today-card h2 b { margin-left: auto; background: var(--green); color: var(--sheet); border-radius: 99px; padding: 0 7px; font: 700 12px/1.5 var(--num); }
+.today-card .none { padding: 6px 14px 12px; color: var(--ink-2); font-size: 14px; }
+
 /* ---------- 零用錢：需要的費用、小月曆 ---------- */
 .requests, .mini-cal { margin-top: 14px; background: var(--sheet); border-radius: 16px; padding: 4px 16px; }
 .requests h2, .entries h2 {

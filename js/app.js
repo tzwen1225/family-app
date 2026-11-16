@@ -10,7 +10,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-16 15:20';
+  const VERSION = '2026-11-16 15:30';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -484,10 +484,24 @@
     return `<div class="switcher" role="group" aria-label="檢視方式">${b('month', '月曆')}${b('list', '近期')}</div>`;
   }
 
+  // ---------- 首頁：今天的行程 ----------
+  // 家長看到今天所有的行程；小朋友只看到「全家的」和「自己的」（生日算全家的事）。
+  // 每一筆都會標出是誰的事。這只影響這一塊，下面的月曆還是全家共享。
+  function todayHtml() {
+    const t = today();
+    const mine = (e) => e.readonly || !e.member_ids || !e.member_ids.length || e.member_ids.includes(state.userId);
+    const list = eventsOn(state.upcoming, t).filter((e) => !amChild() || mine(e)).sort(byTime);
+    return `
+      <h2>今天的行程<span>${shortDate(t)}</span>${list.length ? `<b>${list.length}</b>` : ''}</h2>
+      ${list.length ? list.map((e) => eventRow(e)).join('')
+        : `<p class="none">${amChild() ? '今天沒有你的行程，也沒有全家的行程。' : '今天沒有行程。'}</p>`}`;
+  }
+
   function viewCalendar() {
     const todos = todosHtml();
     return `<section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>`
       + `<section class="todos" id="todos" aria-label="待辦事項" ${todos ? '' : 'hidden'}>${todos}</section>`
+      + `<section class="today-card" aria-label="今天的行程">${todayHtml()}</section>`
       + calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming());
   }
 
