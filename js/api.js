@@ -232,6 +232,11 @@
       updateDoc: (name, id, data) => F.updateDoc(F.doc(db, name, id), data),
       deleteDoc: (name, id) => remove(name, id),
       async getDoc(name, id) { const d = await F.getDoc(F.doc(db, name, id)); return d.exists() ? row(d) : null; },
+      // 不會再改的資料（例如照片原圖）：手機快取裡有就直接用，不等網路
+      async getDocCached(name, id) {
+        try { const c = await F.getDocFromCache(F.doc(db, name, id)); if (c.exists()) return row(c); } catch (e) { /* 快取裡沒有 */ }
+        return this.getDoc(name, id);
+      },
 
       // ----- 推播通知 -----
       // 每支手機開啟通知後會拿到一組「裝置代碼」，存進 push_tokens/{代碼} = { uid }。
@@ -573,6 +578,7 @@
         persist(); gemit(name);
       },
       async getDoc(name, id) { return G(name).find((x) => x.id === id) || null; },
+      getDocCached(name, id) { return this.getDoc(name, id); },
 
       pushState() { return 'unsupported'; },
       async enablePush() { return 'denied'; },

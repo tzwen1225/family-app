@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 01:30';
+  const VERSION = '2026-11-18 01:50';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1750,19 +1750,55 @@
   const canDeletePhoto = (p) => isAdmin() || p.author === state.userId;
   const commentsOf = (photoId) => state.photoComments.filter((c) => c.photo_id === photoId).sort((a, b) => a.created_at - b.created_at);
 
-  async function loadAlbum() {
+  // 相簿改用即時監聽：手機上已經有的照片（離線快取）會馬上顯示，再只向伺服器要新的；
+  // 家人新放的照片和留言也會自動出現。看過的月份留在記憶體，切回來不用重讀。
+  const albumCache = {};
+  let albumWatch = { month: '', stops: [] };
+  function stopAlbum() { albumWatch.stops.forEach((f) => f && f()); albumWatch = { month: '', stops: [] }; }
+  function drawAlbum() {
+    if (state.tab !== 'notes' || state.notesView !== 'album') return;
+    if (!$sheet.innerHTML) render();
+    else if (state.photoId) refreshPhotoComments();
+  }
+  function loadAlbum() {
     const month = state.albumMonth;
-    try {
-      const [photos, comments] = await Promise.all([Api.listDocs('photos', ['month', month]), Api.listDocs('photo_comments', ['month', month])]);
-      if (month !== state.albumMonth) return;          // 讀的時候已經換到別的月份了
-      state.photos = photos.sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at);
-      state.photoComments = comments;
+    if (albumWatch.month === month) return;
+    stopAlbum();
+    const cached = albumCache[month];
+    if (cached) Object.assign(state, { photos: cached.photos, photoComments: cached.comments, albumLoaded: month });
+    const got = { photos: false, comments: false };
+    const done = () => {
+      if (albumWatch.month !== month || !got.photos || !got.comments) return;
       state.albumLoaded = month;
-    } catch (e) { console.error(e); toast('相簿讀取失敗，請確認網路'); }
-    if (state.tab === 'notes' && state.notesView === 'album') {
-      if (!$sheet.innerHTML) render();
-      else if (state.photoId) refreshPhotoComments();
+      albumCache[month] = { photos: state.photos, comments: state.photoComments };
+      drawAlbum();
+    };
+    albumWatch = { month, stops: [
+      Api.watchWhere('photos', 'month', month, (list) => {
+        if (albumWatch.month !== month) return;
+        state.photos = list.sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at);
+        got.photos = true; done();
+      }),
+      Api.watchWhere('photo_comments', 'month', month, (list) => {
+        if (albumWatch.month !== month) return;
+        state.photoComments = list;
+        got.comments = true; done();
+      })
+    ] };
+    if (cached) drawAlbum();
+  }
+
+  // 原圖：看過的留在記憶體；從手機快取讀得到就不等網路。打開一張時順便先載好前後兩張
+  const fullImages = new Map();
+  async function fullImage(p) {
+    if (fullImages.has(p.image_id)) return fullImages.get(p.image_id);
+    const doc = await Api.getDocCached('chat_images', p.image_id);
+    const data = doc && String(doc.data).startsWith('data:image/') ? doc.data : null;
+    if (data) {
+      fullImages.set(p.image_id, data);
+      if (fullImages.size > 24) fullImages.delete(fullImages.keys().next().value);
     }
+    return data;
   }
 
   function viewAlbum() {
@@ -1793,7 +1829,7 @@
               ${d.items.map((p) => {
                 const n = commentsOf(p.id).length;
                 return `<button class="album-cell" data-act="open-photo" data-id="${esc(p.id)}" aria-label="${esc(nameOf(p.author))}的照片${p.caption ? '：' + esc(p.caption) : ''}">
-                  <img src="${esc(p.thumb)}" alt="" loading="lazy">
+                  <img src="${esc(p.thumb)}" alt="" loading="lazy" decoding="async">
                   ${n ? `<span class="album-n">${n} 則留言</span>` : ''}
                 </button>`;
               }).join('')}
@@ -1842,7 +1878,7 @@
           <button class="link-btn" data-act="close-photo">關閉</button>
         </div>
         <div class="album-stage">
-          <img src="${esc(p.thumb)}" alt="${esc(p.caption || '照片')}" class="loading">
+          <img src="${esc(fullImages.get(p.image_id) || p.thumb)}" alt="${esc(p.caption || '照片')}" class="${fullImages.has(p.image_id) ? '' : 'loading'}">
           ${prev ? `<button class="album-step prev" data-act="open-photo" data-id="${esc(prev.id)}" aria-label="上一張">‹</button>` : ''}
           ${next ? `<button class="album-step next" data-act="open-photo" data-id="${esc(next.id)}" aria-label="下一張">›</button>` : ''}
         </div>
@@ -1856,10 +1892,11 @@
         </div>
       </div>`;
     try {
-      const doc = await Api.getDoc('chat_images', p.image_id);
+      const data = await fullImage(p);
       const el = $sheet.querySelector('.album-stage img');
-      if (state.photoId === id && el && doc && String(doc.data).startsWith('data:image/')) { el.src = doc.data; el.classList.remove('loading'); }
+      if (state.photoId === id && el && data) { el.src = data; el.classList.remove('loading'); }
     } catch (e) { console.error(e); toast('原圖讀取失敗'); }
+    [prev, next].forEach((x) => { if (x) fullImage(x).catch(() => {}); });
   }
   function closePhoto() {
     state.photoId = null;
@@ -1876,9 +1913,7 @@
     input.value = '';
     try {
       const data = { photo_id: p.id, month: p.month, text, author: state.userId, created_by: state.userId, created_at: Date.now() };
-      const id = await Api.addDoc('photo_comments', data);
-      state.photoComments.push({ ...data, id });
-      refreshPhotoComments();
+      await Api.addDoc('photo_comments', data);        // 即時監聽會把新留言帶進畫面
     } catch (e) { console.error(e); input.value = text; toast('留言沒有送出，請再試一次'); }
   }
 
@@ -3245,7 +3280,7 @@
         }
       },
       done: '已放進相簿',
-      after(x) { if (x) state.albumMonth = x.date.slice(0, 7); state.albumLoaded = null; render(); return loadAlbum(); }
+      after(x) { if (x) state.albumMonth = x.date.slice(0, 7); render(); loadAlbum(); }
     },
     'turn-form': {
       read: (f) => ({ key_id: f.key_id.value.trim(), api_token: f.api_token.value.trim() }),
@@ -3653,6 +3688,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state.transit, freshTransit());
+        stopAlbum(); fullImages.clear(); Object.keys(albumCache).forEach((k) => delete albumCache[k]);
         if (call.id) leaveCall(); hideIncoming();
         Object.assign(state, {
           userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'hub', postsView: 'posts', trips: [], tripItems: [], tripId: null, shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
