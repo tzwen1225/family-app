@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 02:20';
+  const VERSION = '2026-11-18 08:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2182,8 +2182,8 @@
     const s = tr.station;
     const isFav = s && tr.favs.tra.some((x) => x.id === s.id);
     const now = clock(Date.now());
-    // 看板只留還沒開走的車（含誤點）
-    const trains = (tr.board || []).filter((t) => addMinutes(t.time, t.delay) >= now || t.time < '03:00' && now > '21:00');
+    // 只留還沒開走的車（含誤點），最多列出接下來的 15 班
+    const trains = (tr.board || []).filter((t) => addMinutes(t.time, t.delay || 0) >= now).slice(0, 15);
     return `
       <div class="station-chips" role="group" aria-label="${tr.favs.tra.length ? '常用車站' : '附近的車站'}">
         ${quick.map((x) => `<button class="chip-btn ${s && s.id === x.id ? 'on' : ''}" data-act="tra-station" data-id="${esc(x.id)}" ${s && s.id === x.id ? 'aria-pressed="true"' : ''}>${esc(x.name)}</button>`).join('')}
@@ -2202,8 +2202,8 @@
           <div class="transit-row train">
             <span class="train-time">${esc(t.time)}</span>
             <span class="transit-main">往 ${esc(t.to)}<small>${esc(t.type)}　${esc(t.no)} 次</small></span>
-            <span class="eta ${t.delay > 0 ? 'late' : 'ok'}">${t.delay > 0 ? '晚 ' + t.delay + ' 分' : '準點'}</span>
-          </div>`).join('') : '<p class="none">接下來一段時間沒有列車進站。</p>'}
+            <span class="eta ${t.delay === null || t.delay === undefined ? 'off' : t.delay > 0 ? 'late' : 'ok'}">${t.delay === null || t.delay === undefined ? '表定' : t.delay > 0 ? '晚 ' + t.delay + ' 分' : '準點'}</span>
+          </div>`).join('') : '<p class="none">今天接下來已經沒有這一站的班次了。</p>'}
       </section>` : ''}`;
   }
   // 'HH:MM' 加上幾分鐘（比對誤點後的實際時間用）

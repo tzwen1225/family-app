@@ -469,7 +469,7 @@
         if (op === 'traStations') return { stations: [['1210', '新竹'], ['1190', '北新竹'], ['1180', '竹北'], ['1203', '竹東'], ['1000', '臺北'], ['1250', '竹南']].map(([id, name]) => ({ id, name })) };
         if (op === 'tra') {
           const now = new Date(); const hm = (m) => { const d = new Date(now.getTime() + m * 60000); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
-          return { trains: [[4, '區間', '1234', '基隆', 0], [11, '自強', '128', '七堵', 6], [19, '區間快', '2012', '后里', 0], [27, '區間', '1187', '竹南', 2], [41, '莒光', '521', '潮州', 0]].map(([m, type, no, to, delay], i) => ({ time: hm(m), type, no, to, delay, dir: i % 2 })) };
+          return { trains: [[4, '區間', '1234', '基隆', 0], [11, '自強', '128', '七堵', 6], [19, '區間快', '2012', '后里', 0], [27, '區間', '1187', '竹南', 2], [41, '莒光', '521', '潮州', null], [75, '區間', '1215', '內灣', null]].map(([m, type, no, to, delay], i) => ({ time: hm(m), type, no, to, delay, dir: i % 2 })) };
         }
         throw new Error('op');
       },
