@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 14:05';
+  const VERSION = '2026-11-17 15:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -65,7 +65,13 @@
   const telHref = (phone) => 'tel:' + String(phone).replace(/[^\d+#*]/g, '');
 
   // ---------- 狀態 ----------
+  // 交通頁的狀態（登出時原地清空，不換物件）
+  const freshTransit = () => ({
+    mode: 'bus', favs: { bus: [], tra: [] }, favsLoaded: false, favEtas: [], q: '', results: null,
+    route: null, routeDir: 0, stations: null, station: null, board: null, traQ: '', loading: false, error: '', updatedAt: 0
+  });
   const state = {
+    transit: freshTransit(),
     userId: null,
     members: [],
     profiles: {},            // { UID: { birthday, phone, org, note } }
@@ -283,7 +289,7 @@
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
-    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'album') loadAlbum(); }
+    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'album') loadAlbum(); else if (state.notesView === 'transit') loadTransit(); }
   }
 
   // ---------- 啟動 ----------
@@ -476,6 +482,7 @@
       return { plan: '新增行程', journal: '寫日誌', cost: '新增花費' }[state.tripTab] || '';   // 行李直接在上方輸入
     }
     if (state.notesView === 'album') return '放照片';
+    if (state.notesView === 'transit') return '';
     if (state.notesView === 'shop') return '';                       // 採買清單直接在上方輸入
     if (state.notesView === 'cards') return amChild() ? '' : '新增資料卡';
     if (state.notesView === 'scores') return kids().length ? '新增成績' : '';
@@ -1876,6 +1883,249 @@
     } catch (e) { console.error(e); btn.disabled = false; toast('刪除失敗，請再試一次'); }
   }
 
+  // ---------- 交通：新竹公車與台鐵的即時資訊 ----------
+  // 鍾家生活 →「交通」。資料由雲端函式向交通部 TDX 平臺查詢（金鑰只放在伺服器，手機拿不到）。
+  // 每個人自己的常用站牌、常用車站存在 transit_favs/{UID}。
+  const tr = state.transit;
+  const TRA_DEFAULT = ['新竹', '北新竹', '竹北'];
+  const sameFav = (a, b) => a.area === b.area && a.route === b.route && a.dir === b.dir && a.uid === b.uid;
+  const isFavStop = (x) => tr.favs.bus.some((f) => sameFav(f, x));
+
+  function etaHtml(eta) {
+    if (!eta) return '<span class="eta wait">…</span>';
+    if (eta.status === 'coming') {
+      const min = Math.round(eta.seconds / 60);
+      return eta.seconds <= 60 ? '<span class="eta now">進站中</span>'
+        : `<span class="eta ${min <= 3 ? 'soon' : 'ok'}"><b>${min}</b> 分</span>`;
+    }
+    const text = { 'not-yet': eta.next ? eta.next + ' 發車' : '尚未發車', skip: '不停靠', 'last-gone': '末班已過', 'no-service': '今日未營運', error: '查不到' }[eta.status] || '沒有資料';
+    return `<span class="eta off">${text}</span>`;
+  }
+  function transitError() {
+    if (!tr.error) return '';
+    const text = tr.error === 'no-key' ? (isAdmin() ? '還沒設定 TDX 金鑰。請到「設定」最下面的「交通查詢」填入金鑰。' : '交通查詢還沒設定好，請爸爸到「設定」裡完成。')
+      : tr.error === 'bad-key' ? (isAdmin() ? 'TDX 金鑰不正確，請到「設定」的「交通查詢」重新填一次。' : '交通查詢的設定有問題，請爸爸檢查。')
+      : tr.error === 'busy' ? '查詢太頻繁了，請過一分鐘再試。'
+      : '現在查不到即時資料，請確認網路後再試一次。';
+    return `<p class="transit-error" role="alert">${text}</p>`;
+  }
+  const updatedHtml = () => (tr.updatedAt ? `<span class="transit-time">${clock(tr.updatedAt)} 更新</span>` : '');
+
+  async function transitCall(op, args) {
+    try { const data = await Api.transit(op, args || {}); tr.error = ''; return data; }
+    catch (e) {
+      console.error(e);
+      const msg = String((e && e.message) || '');
+      tr.error = ['no-key', 'bad-key', 'busy'].find((k) => msg.includes(k)) || 'failed';
+      return null;
+    }
+  }
+  const onTransit = () => state.tab === 'notes' && state.notesView === 'transit';
+  function drawTransit() { if (onTransit() && !$sheet.innerHTML) render(); }
+
+  async function loadTransit(quiet) {
+    if (!tr.favsLoaded) {
+      try {
+        const doc = await Api.getDoc('transit_favs', state.userId);
+        tr.favs = { bus: (doc && doc.bus) || [], tra: (doc && doc.tra) || [] };
+      } catch (e) { console.error(e); }
+      tr.favsLoaded = true;
+    }
+    if (tr.mode === 'tra') return loadTra(quiet);
+    if (tr.route) return loadRoute(tr.route.area, tr.route.name, quiet);
+    if (!tr.favs.bus.length) return drawTransit();
+    if (!quiet) { tr.loading = true; drawTransit(); }
+    const data = await transitCall('etas', { items: tr.favs.bus });
+    tr.loading = false;
+    if (data) { tr.favEtas = data.etas; tr.updatedAt = Date.now(); }
+    drawTransit();
+  }
+  async function loadRoute(area, name, quiet) {
+    if (!quiet) { tr.loading = true; drawTransit(); }
+    const data = await transitCall('route', { area, name });
+    tr.loading = false;
+    if (data) { tr.route = data; tr.updatedAt = Date.now(); if (!data.dirs.some((d) => d.dir === tr.routeDir)) tr.routeDir = data.dirs.length ? data.dirs[0].dir : 0; }
+    drawTransit();
+  }
+  async function loadTra(quiet) {
+    if (!tr.stations) {
+      tr.loading = true; drawTransit();
+      const data = await transitCall('traStations');
+      tr.loading = false;
+      if (!data) return drawTransit();
+      tr.stations = data.stations;
+    }
+    if (!tr.station) {
+      const first = tr.favs.tra[0] || tr.stations.find((s) => s.name === TRA_DEFAULT[0]) || tr.stations[0];
+      if (!first) return drawTransit();
+      tr.station = first;
+    }
+    if (!quiet) { tr.loading = true; drawTransit(); }
+    const id = tr.station.id;
+    const data = await transitCall('tra', { station: id });
+    tr.loading = false;
+    if (data && tr.station && tr.station.id === id) { tr.board = data.trains; tr.updatedAt = Date.now(); }
+    drawTransit();
+  }
+  async function onTransitSearch(form) {
+    const q = form.elements.q.value.trim();
+    tr.q = q;
+    if (!q) { tr.results = null; return render(); }
+    tr.loading = true; tr.results = null; render();
+    const data = await transitCall('searchRoutes', { q });
+    tr.loading = false;
+    tr.results = data ? data.routes : null;
+    drawTransit();
+  }
+  async function saveFavs() {
+    try { await Api.setDoc('transit_favs', state.userId, { bus: tr.favs.bus, tra: tr.favs.tra, updated_at: Date.now() }); }
+    catch (e) { console.error(e); toast('常用清單沒有存到，請再試一次'); }
+  }
+  function toggleFavStop(el) {
+    const d = tr.route.dirs.find((x) => x.dir === tr.routeDir);
+    const s = d && d.stops.find((x) => x.uid === el.dataset.uid);
+    if (!s) return;
+    const fav = { area: tr.route.area, areaName: tr.route.areaName, route: tr.route.name, dir: d.dir, to: d.to, uid: s.uid, name: s.name };
+    if (isFavStop(fav)) tr.favs.bus = tr.favs.bus.filter((f) => !sameFav(f, fav));
+    else if (tr.favs.bus.length >= 20) return toast('常用站牌最多 20 個');
+    else { tr.favs.bus.push(fav); toast('已加入常用站牌'); }
+    tr.favEtas = [];
+    saveFavs(); render();
+  }
+  function toggleFavStation() {
+    const s = tr.station;
+    if (!s) return;
+    if (tr.favs.tra.some((x) => x.id === s.id)) tr.favs.tra = tr.favs.tra.filter((x) => x.id !== s.id);
+    else if (tr.favs.tra.length >= 10) return toast('常用車站最多 10 個');
+    else { tr.favs.tra.push({ id: s.id, name: s.name }); toast('已加入常用車站'); }
+    saveFavs(); render();
+  }
+
+  function viewTransit() {
+    const b = (m, label) => `<button class="${tr.mode === m ? 'on' : ''}" data-act="transit-mode" data-mode="${m}" ${tr.mode === m ? 'aria-pressed="true"' : ''}>${label}</button>`;
+    return `
+      <header class="plain-head"><h1>交通</h1><p>新竹公車、台鐵即時資訊</p></header>
+      <div class="switcher" role="group" aria-label="交通工具">${b('bus', '公車')}${b('tra', '火車')}</div>
+      ${transitError()}
+      ${tr.mode === 'tra' ? transitTraHtml() : tr.route ? transitRouteHtml() : transitBusHtml()}
+      <p class="transit-credit">資料來源：交通部 TDX 運輸資料流通服務。到站時間是預估值，請提早到站牌等車。</p>`;
+  }
+
+  function transitBusHtml() {
+    const search = `
+      <form class="shop-add" id="transit-search-form">
+        <input id="transit-q" name="q" type="search" placeholder="輸入公車路線，例如：藍線、5608、1" value="${esc(tr.q)}" maxlength="12" autocomplete="off" enterkeyhint="search" aria-label="搜尋公車路線">
+        <button type="submit" class="send" aria-label="搜尋">${ICON.search}</button>
+      </form>`;
+    if (tr.results) return search + `
+      <section class="entries transit-list">
+        <h2>找到 ${tr.results.length} 條路線<button class="link-btn" data-act="transit-clear">清除</button></h2>
+        ${tr.results.length ? tr.results.map((r) => `
+          <button class="transit-row" data-act="transit-route" data-area="${esc(r.area)}" data-name="${esc(r.name)}">
+            <span class="route-no">${esc(r.name)}</span>
+            <span class="transit-main">${esc(r.from)}${r.from && r.to ? ' ↔ ' : ''}${esc(r.to)}<small>${esc(r.areaName)}</small></span>
+            <span class="chev" aria-hidden="true">›</span>
+          </button>`).join('') : '<p class="none">找不到這條路線。試試只輸入號碼，或路線名稱的前幾個字。</p>'}
+      </section>`;
+    return search + (tr.loading && !tr.favEtas.length && !tr.favs.bus.length ? '<p class="hint album-wait">查詢中…</p>' : '') + (tr.favs.bus.length ? `
+      <section class="entries transit-list">
+        <h2>常用站牌${updatedHtml()}<button class="link-btn" data-act="transit-refresh">${tr.loading ? '更新中…' : '更新'}</button></h2>
+        ${tr.favs.bus.map((f, i) => `
+          <button class="transit-row fav" data-act="transit-route" data-area="${esc(f.area)}" data-name="${esc(f.route)}" data-dir="${f.dir}">
+            <span class="route-no">${esc(f.route)}</span>
+            <span class="transit-main">${esc(f.name)}<small>往 ${esc(f.to)}</small></span>
+            ${etaHtml(tr.favEtas[i])}
+          </button>`).join('')}
+      </section>` : tr.favsLoaded && !tr.loading ? `
+      <div class="empty big"><p>還沒有常用站牌。在上面輸入公車路線，點進去之後，在每天等車的那一站按 ☆，下次打開就直接看到還有幾分鐘到。</p></div>` : '');
+  }
+
+  function transitRouteHtml() {
+    const r = tr.route;
+    const d = r.dirs.find((x) => x.dir === tr.routeDir) || r.dirs[0];
+    return `
+      <button class="link-btn back" data-act="transit-back">‹ 返回</button>
+      <header class="transit-head">
+        <span class="route-no big">${esc(r.name)}</span>
+        <span>${esc(r.areaName)}公車${updatedHtml()}</span>
+        <button class="chip-btn" data-act="transit-refresh">${tr.loading ? '更新中…' : '更新'}</button>
+      </header>
+      ${r.dirs.length > 1 ? `
+      <div class="kid-picker" role="group" aria-label="方向">
+        ${r.dirs.map((x) => `<button class="${x.dir === d.dir ? 'on' : ''}" style="--who:var(--c-schedule)" data-act="transit-dir" data-dir="${x.dir}" ${x.dir === d.dir ? 'aria-pressed="true"' : ''}>往 ${esc(x.to)}</button>`).join('')}
+      </div>` : ''}
+      ${d ? `
+      <section class="entries transit-list stops">
+        ${d.stops.map((s, i) => {
+          const fav = isFavStop({ area: r.area, route: r.name, dir: d.dir, uid: s.uid });
+          return `
+          <div class="transit-row stop">
+            <span class="stop-no">${i + 1}</span>
+            <span class="transit-main">${esc(s.name)}</span>
+            ${etaHtml(s.eta)}
+            <button class="star ${fav ? 'on' : ''}" data-act="transit-fav" data-uid="${esc(s.uid)}" aria-pressed="${fav}" aria-label="${fav ? '從常用站牌移除' : '加入常用站牌'}：${esc(s.name)}">${fav ? '★' : '☆'}</button>
+          </div>`;
+        }).join('')}
+      </section>` : `<p class="hint album-wait">${tr.loading ? '查詢中…' : '查不到這條路線的站牌資料。'}</p>`}`;
+  }
+
+  function transitTraHtml() {
+    if (!tr.stations) return tr.loading ? '<p class="hint album-wait">查詢中…</p>' : '';
+    // 常用車站排前面，後面補上新竹附近的幾個站
+    const quick = tr.favs.tra.concat(TRA_DEFAULT.map((n) => tr.stations.find((s) => s.name === n)).filter((x) => x && !tr.favs.tra.some((f) => f.id === x.id)));
+    const q = tr.traQ.trim();
+    const found = q ? tr.stations.filter((s) => s.name.includes(q)).slice(0, 12) : [];
+    const s = tr.station;
+    const isFav = s && tr.favs.tra.some((x) => x.id === s.id);
+    const now = clock(Date.now());
+    // 看板只留還沒開走的車（含誤點）
+    const trains = (tr.board || []).filter((t) => addMinutes(t.time, t.delay) >= now || t.time < '03:00' && now > '21:00');
+    return `
+      <div class="station-chips" role="group" aria-label="${tr.favs.tra.length ? '常用車站' : '附近的車站'}">
+        ${quick.map((x) => `<button class="chip-btn ${s && s.id === x.id ? 'on' : ''}" data-act="tra-station" data-id="${esc(x.id)}" ${s && s.id === x.id ? 'aria-pressed="true"' : ''}>${esc(x.name)}</button>`).join('')}
+      </div>
+      <input id="tra-q" class="search" type="search" placeholder="找其他車站，例如：竹東、台北" value="${esc(tr.traQ)}" maxlength="10" autocomplete="off" aria-label="搜尋車站">
+      ${q ? `<div class="station-chips found-stations">${found.length ? found.map((x) => `<button class="chip-btn" data-act="tra-station" data-id="${esc(x.id)}">${esc(x.name)}</button>`).join('') : '<span class="hint">找不到這個車站。</span>'}</div>` : ''}
+      ${s ? `
+      <header class="transit-head">
+        <span class="route-no big tra">${esc(s.name)}</span>
+        <span>台鐵即時看板${updatedHtml()}</span>
+        <button class="star ${isFav ? 'on' : ''}" data-act="tra-fav" aria-pressed="${isFav}" aria-label="${isFav ? '從常用車站移除' : '加入常用車站'}">${isFav ? '★' : '☆'}</button>
+        <button class="chip-btn" data-act="transit-refresh">${tr.loading ? '更新中…' : '更新'}</button>
+      </header>
+      <section class="entries transit-list">
+        ${!tr.board ? '<p class="none">查詢中…</p>' : trains.length ? trains.map((t) => `
+          <div class="transit-row train">
+            <span class="train-time">${esc(t.time)}</span>
+            <span class="transit-main">往 ${esc(t.to)}<small>${esc(t.type)}　${esc(t.no)} 次</small></span>
+            <span class="eta ${t.delay > 0 ? 'late' : 'ok'}">${t.delay > 0 ? '晚 ' + t.delay + ' 分' : '準點'}</span>
+          </div>`).join('') : '<p class="none">接下來一段時間沒有列車進站。</p>'}
+      </section>` : ''}`;
+  }
+  // 'HH:MM' 加上幾分鐘（比對誤點後的實際時間用）
+  function addMinutes(hm, min) {
+    const [h, m] = hm.split(':').map(Number);
+    const t = Math.min(h * 60 + m + (min || 0), 23 * 60 + 59);
+    return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
+  }
+
+  function openTdxSheet() {
+    showSheet('tdx-form', {
+      title: '交通查詢的 TDX 金鑰', focus: true,
+      body: `
+      <label>Client Id<input type="text" name="client_id" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100"></label>
+      <label>Client Secret<input type="text" name="client_secret" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100"></label>
+      <p class="hint">到 tdx.transportdata.tw 登入 →「會員中心」→「資料服務」→「API 金鑰」，把那一組的 Client Id 和 Client Secret 複製貼上。</p>
+      <p class="hint">金鑰只會存在伺服器上，存好之後連這支手機也讀不回來；要更換就再填一次。</p>`
+    });
+  }
+
+  // 停在交通頁時，每 30 秒自動更新一次
+  setInterval(() => {
+    if (state.userId && onTransit() && document.visibilityState === 'visible' && !$sheet.innerHTML && !tr.loading && !tr.results
+      && document.activeElement && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) loadTransit(true);
+  }, 30000);
+
   // ---------- 採買清單 ----------
   function shopListHtml() {
     if (!state.shopping.length) return '<div class="empty big"><p>清單是空的。想到要買什麼，就在上面打字加進來。</p></div>';
@@ -2009,8 +2259,8 @@
   // ---------- 雜記 ----------
   function viewNotes() {
     const b = (v, label) => `<button class="${state.notesView === v ? 'on' : ''}" data-act="notes-view" data-view="${v}" ${state.notesView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
-    const views = { ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, shop: viewShop, cards: viewCards };
-    return `<div class="switcher five six" role="group" aria-label="鍾家生活的內容">${b('ledger', '零用錢')}${b('scores', '成績')}${b('notes', '旅遊')}${b('album', '相簿')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
+    const views = { ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, transit: viewTransit, shop: viewShop, cards: viewCards };
+    return `<div class="switcher five six seven" role="group" aria-label="鍾家生活的內容">${b('ledger', '零用錢')}${b('scores', '成績')}${b('notes', '旅遊')}${b('album', '相簿')}${b('transit', '交通')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
       + (views[state.notesView] || viewLedger)();
   }
 
@@ -2228,6 +2478,12 @@
         </div>
         ${amChild() ? '' : '<button class="btn ghost small" data-act="new-subject">新增科目</button>'}
       </section>
+      ${isAdmin() ? `
+      <section class="card-list">
+        <h2>交通查詢<small>公車、台鐵即時資訊的資料來源</small></h2>
+        <p class="hint">即時資料來自交通部 TDX 平臺，需要一組免費的 API 金鑰。金鑰只存在伺服器上。</p>
+        <button class="btn ghost small" data-act="tdx-key">填入或更換 TDX 金鑰</button>
+      </section>` : ''}
       <section class="card-list">
         <h2>面板顏色<small>只會改這支手機</small></h2>
         <div class="themes" role="group" aria-label="面板顏色">
@@ -2741,6 +2997,13 @@
       done: '已放進相簿',
       after(x) { if (x) state.albumMonth = x.date.slice(0, 7); state.albumLoaded = null; render(); return loadAlbum(); }
     },
+    'tdx-form': {
+      read: (f) => ({ client_id: f.client_id.value.trim(), client_secret: f.client_secret.value.trim() }),
+      check: (x) => (!x.client_id || !x.client_secret ? '兩個欄位都要填' : /\s/.test(x.client_id + x.client_secret) ? '金鑰中間不會有空白，請重新複製一次' : null),
+      save: (x) => Api.setDoc('secrets', 'tdx', { client_id: x.client_id, client_secret: x.client_secret, updated_by: state.userId, updated_at: Date.now() }),
+      done: '金鑰已儲存',
+      after() { state.transit.error = ''; }
+    },
     'score-form': {
       read: (f, form) => ({
         id: f.item_id.value || null, kid: f.kid.value, subject: checkedValues(form, 'subject')[0] || '', term: checkedValues(form, 'term')[0] || '', title: f.title.value.trim(),
@@ -3000,6 +3263,16 @@
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
     else if (act === 'del-journal') onDeleteJournal(el);
+    else if (act === 'transit-mode') { const t = state.transit; t.mode = el.dataset.mode; t.error = ''; t.updatedAt = 0; render(); loadTransit(); }
+    else if (act === 'transit-route') { const t = state.transit; t.results = null; t.routeDir = Number(el.dataset.dir || 0); t.route = { area: el.dataset.area, areaName: '', name: el.dataset.name, dirs: [] }; t.updatedAt = 0; render(); scroller().scrollTop = 0; loadRoute(el.dataset.area, el.dataset.name); }
+    else if (act === 'transit-back') { const t = state.transit; t.route = null; t.updatedAt = 0; render(); scroller().scrollTop = 0; loadTransit(); }
+    else if (act === 'transit-clear') { state.transit.results = null; state.transit.q = ''; render(); }
+    else if (act === 'transit-dir') { state.transit.routeDir = Number(el.dataset.dir); render(); }
+    else if (act === 'transit-refresh') loadTransit();
+    else if (act === 'transit-fav') toggleFavStop(el);
+    else if (act === 'tra-fav') toggleFavStation();
+    else if (act === 'tra-station') { const t = state.transit; const st = (t.stations || []).find((x) => x.id === el.dataset.id); if (st) { t.station = st; t.board = null; t.traQ = ''; t.updatedAt = 0; render(); loadTra(); } }
+    else if (act === 'tdx-key') openTdxSheet();
     else if (act === 'chat-older') {
       // 往上多展開 60 則，畫面停在原本看的位置
       const sc = scroller(), fromBottom = sc.scrollHeight - sc.scrollTop;
@@ -3072,6 +3345,7 @@
       clearCache();
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
+        Object.assign(state.transit, freshTransit());
         Object.assign(state, {
           userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', postsView: 'posts', trips: [], tripItems: [], tripId: null, shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
@@ -3089,6 +3363,7 @@
     else if (id === 'chat-form') onSend(form);
     else if (id === 'shop-form') onShopAdd(form);
     else if (id === 'pack-form') onPackAdd(form);
+    else if (id === 'transit-search-form') onTransitSearch(form);
     else if (id === 'album-comment-form') onPhotoComment(form);
     else if (form.classList.contains('reply-form')) onReply(form);
     else if (FORMS[id]) onSave(form);
@@ -3105,6 +3380,7 @@
     if (form.getAttribute('id') === 'chat-form') onSend(form);
     else if (form.getAttribute('id') === 'shop-form') onShopAdd(form);
     else if (form.getAttribute('id') === 'pack-form') onPackAdd(form);
+    else if (form.getAttribute('id') === 'transit-search-form') onTransitSearch(form);
     else if (form.getAttribute('id') === 'album-comment-form') onPhotoComment(form);
     else if (form.classList.contains('reply-form')) onReply(form);
   }
@@ -3117,6 +3393,8 @@
     const t = ev.target;
     if (t.id === 'chat-input') state.draft = t.value;
     else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
+    else if (t.id === 'transit-q') state.transit.q = t.value;
+    else if (t.id === 'tra-q') { state.transit.traQ = t.value; render(); }
     else if (t.form && t.form.classList.contains('reply-form')) state.postDrafts[t.form.dataset.post] = t.value;
   });
 

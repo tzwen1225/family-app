@@ -25,6 +25,7 @@
 //   旅程內容 trip_items：{ id, trip_id, kind: 'plan' 行程 | 'journal' 日誌 | 'pack' 行李 | 'cost' 花費, … }
 //   相簿 photos：    { id, month: 'YYYY-MM', date, caption, thumb, image_id, author }
 //        photo_comments：{ id, photo_id, month, text, author, created_at }
+//   交通常用清單 transit_favs/{UID}：{ bus: [{ area, route, dir, to, uid, name }], tra: [{ id, name }] }
 //   聊天照片 chat_images：{ id, data: 圖片內容, sender, sent_at }；訊息本身只放小縮圖 thumb 和 image_id
 // 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
@@ -121,6 +122,11 @@
         return cred.user.uid;
       },
       async signOut() { await F.signOut(auth); },
+      // 交通查詢：由雲端函式代查（TDX 金鑰只在伺服器上）
+      async transit(op, args) {
+        const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'transit');
+        return (await call({ op, ...(args || {}) })).data;
+      },
       // 從背景回來：手機常把連線停掉卻沒通知，等它自己發現要好幾秒。直接重連，新訊息馬上進來。
       async reconnect() {
         try { await F.disableNetwork(db); await F.enableNetwork(db); } catch (e) { console.warn(e); }
@@ -417,6 +423,33 @@
       async signIn() { load().user = 'm1'; persist(); return 'm1'; },
       async signOut() { load().user = null; persist(); },
       async reconnect() {},
+      // 示範用的假資料：時間會跟著現在的時刻變
+      async transit(op, args) {
+        await new Promise((r) => setTimeout(r, 150));
+        const eta = (i) => (i % 7 === 6 ? { status: 'last-gone' } : i % 5 === 4 ? { status: 'not-yet', next: '18:40' } : { status: 'coming', seconds: 40 + ((i * 197 + Math.floor(Date.now() / 30000) * 60) % 1500), plate: 'EAL-0' + (10 + i) });
+        const names = ['新竹火車站', '東門市場', '新竹高中', '清華大學', '光復中學', '科學園區', '金山街', '關新路口', '竹科實中', '新莊車站'];
+        if (op === 'searchRoutes') {
+          const all = [
+            { area: 'Hsinchu', areaName: '新竹市', name: '藍線', from: '新竹火車站', to: '竹中' },
+            { area: 'Hsinchu', areaName: '新竹市', name: '藍線1區', from: '新竹火車站', to: '古奇峰' },
+            { area: 'Hsinchu', areaName: '新竹市', name: '1', from: '新竹火車站', to: '竹中' },
+            { area: 'HsinchuCounty', areaName: '新竹縣', name: '快捷1號', from: '竹北高中', to: '高鐵新竹站' },
+            { area: 'InterCity', areaName: '客運', name: '5608', from: '新竹', to: '下公館' }
+          ];
+          return { routes: all.filter((r) => r.name.includes(args.q)) };
+        }
+        if (op === 'route') {
+          const mk = (dir, list) => ({ dir, to: list[list.length - 1], stops: list.map((n, i) => ({ uid: 'S' + dir + i, name: n, eta: eta(i + dir) })) });
+          return { area: args.area, areaName: { Hsinchu: '新竹市', HsinchuCounty: '新竹縣', InterCity: '客運' }[args.area], name: args.name, dirs: [mk(0, names), mk(1, names.slice().reverse())] };
+        }
+        if (op === 'etas') return { etas: args.items.map((x, i) => eta(i)) };
+        if (op === 'traStations') return { stations: [['1210', '新竹'], ['1190', '北新竹'], ['1180', '竹北'], ['1203', '竹東'], ['1000', '臺北'], ['1250', '竹南']].map(([id, name]) => ({ id, name })) };
+        if (op === 'tra') {
+          const now = new Date(); const hm = (m) => { const d = new Date(now.getTime() + m * 60000); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+          return { trains: [[4, '區間', '1234', '基隆', 0], [11, '自強', '128', '七堵', 6], [19, '區間快', '2012', '后里', 0], [27, '區間', '1187', '竹南', 2], [41, '莒光', '521', '潮州', 0]].map(([m, type, no, to, delay], i) => ({ time: hm(m), type, no, to, delay, dir: i % 2 })) };
+        }
+        throw new Error('op');
+      },
       async listMembers() { const flags = load().childFlags || {}; return members.map((m) => (m.id in flags ? { ...m, child: flags[m.id] } : m)); },
 
       async listEvents(from, to) {

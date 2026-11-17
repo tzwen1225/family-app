@@ -964,3 +964,46 @@ html[data-theme="night"] .btn.primary { color: #0E1412; }
 /* 欄位名稱和下面的輸入框之間一律留空隙（大字輸入框原本貼著名稱） */
 label > .title-input { margin: 6px 0 0; }
 form label { line-height: 1.5; }
+
+/* ---------- 交通：公車與台鐵即時資訊 ---------- */
+.switcher.seven { grid-auto-columns: minmax(50px, 1fr); overflow-x: auto; scrollbar-width: none; }
+.switcher.seven::-webkit-scrollbar { display: none; }
+.switcher.seven button { font-size: 12px; padding: 0 1px; white-space: nowrap; }
+.transit-error { margin: 4px 0 10px; padding: 10px 14px; border-radius: 12px; background: var(--amber-soft); border: 1px solid var(--amber-line); font-size: 14px; }
+.transit-credit { font-size: 11px; color: var(--ink-2); text-align: center; margin-top: 18px; }
+.transit-time { font-weight: 400; margin-left: 8px; font-size: 12px; }
+.transit-list h2 { display: flex; align-items: center; }
+.transit-list h2 .link-btn { margin-left: auto; font-size: 13px; min-height: 36px; }
+.transit-list .none { font-size: 14px; color: var(--ink-2); padding: 16px 0; }
+.transit-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 11px 0; min-height: 56px; }
+.transit-row + .transit-row { border-top: 1px solid var(--line); }
+.route-no {
+  flex: none; min-width: 54px; max-width: 96px; padding: 5px 8px; border-radius: 10px; text-align: center;
+  font: 700 15px/1.25 var(--num); color: #fff; background: var(--c-schedule); overflow-wrap: anywhere;
+}
+.route-no.big { font-size: 20px; padding: 7px 12px; max-width: 60%; }
+.route-no.tra { background: var(--c-trip); }
+.transit-main { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.transit-main small { display: block; font-size: 12px; font-weight: 400; color: var(--ink-2); margin-top: 1px; }
+.chev { color: var(--ink-2); font-size: 22px; line-height: 1; }
+.eta { flex: none; min-width: 64px; text-align: center; padding: 6px 10px; border-radius: 99px; font: 600 14px/1.2 var(--num); white-space: nowrap; }
+.eta b { font-size: 18px; font-weight: 800; }
+.eta.ok { background: var(--soft); color: var(--green); }
+.eta.soon { background: var(--amber-soft); color: var(--c-exam); }
+.eta.now { background: var(--danger); color: #fff; }
+.eta.late { background: var(--danger-soft); color: var(--danger); }
+.eta.off, .eta.wait { background: var(--track); color: var(--ink-2); font-weight: 500; font-size: 13px; }
+.transit-head { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; font-size: 13px; color: var(--ink-2); }
+.transit-head > span:nth-child(2) { flex: 1; min-width: 0; }
+.transit-head .transit-time { display: block; margin: 0; }
+.stop-no { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font: 600 12px/1 var(--num); background: var(--track); color: var(--ink-2); }
+.transit-row.stop { gap: 10px; padding: 8px 0; }
+.star { flex: none; width: 40px; height: 40px; border-radius: 50%; font-size: 22px; line-height: 1; color: var(--ink-2); display: grid; place-items: center; }
+.star.on { color: #F5A400; }
+.station-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+.station-chips .chip-btn { min-height: 38px; padding: 8px 16px; font-size: 15px; }
+.station-chips .chip-btn.on { background: var(--c-trip); color: #fff; }
+.found-stations { margin-top: 10px; }
+.train-time { flex: none; min-width: 54px; font: 700 18px/1.2 var(--num); }
+#transit-search-form { margin: 2px 0 4px; }
+#transit-search-form .send svg { stroke: #fff; }

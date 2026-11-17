@@ -312,6 +312,19 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/photos/$(resource.data.photo_id)).data.created_by == request.auth.uid));
     }
 
+    // 交通頁的常用站牌、常用車站：每個人只能讀寫自己的
+    match /transit_favs/{uid} {
+      allow read: if isFamily() && uid == request.auth.uid;
+      allow write: if isFamily() && uid == request.auth.uid
+        && request.resource.data.bus is list && request.resource.data.bus.size() <= 20
+        && request.resource.data.tra is list && request.resource.data.tra.size() <= 10;
+    }
+    // 交通查詢的 TDX 金鑰：只有管理員能寫，任何人都讀不到（只有伺服器上的雲端函式會讀）
+    match /secrets/{id} {
+      allow read: if false;
+      allow write: if isAdmin();
+    }
+
     // 採買清單：全家都可以新增、打勾、清除
     match /shopping/{id} {
       allow read, delete: if isFamily();
