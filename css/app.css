@@ -59,9 +59,11 @@ body.kb-open #app, body.kb-open #sheet-root { bottom: auto; height: var(--vh); }
 }
 h1, h2, p { margin: 0; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, label:focus-within > span {
+button:focus-visible, .seg input:focus-visible + span, .people input:focus-visible + span, .colors input:focus-visible + span {
   outline: 2px solid var(--green); outline-offset: 2px;
 }
+/* 輸入框的焦點框畫在框線上，不往外擴，才不會蓋到上面的欄位名稱 */
+input:focus-visible, textarea:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 [hidden] { display: none !important; }
 
 .screen {
@@ -958,3 +960,7 @@ html[data-theme="night"] .btn.primary { color: #0E1412; }
 .ledger-list .entry-note { font-weight: 600; min-width: 0; }
 .ledger-list .entry-note small { display: block; font-size: 12px; font-weight: 400; color: var(--ink-2); margin-top: 1px; }
 .mini-day { height: 36px; }
+
+/* 欄位名稱和下面的輸入框之間一律留空隙（大字輸入框原本貼著名稱） */
+label > .title-input { margin: 6px 0 0; }
+form label { line-height: 1.5; }
