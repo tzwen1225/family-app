@@ -1073,3 +1073,53 @@ form label { line-height: 1.5; }
 .mine-tasks { padding: 0 8px 4px 14px; }
 .mine-tasks + h3 { border-top: 1px solid var(--line); margin-top: 2px; }
 .todo-sub em.later { color: var(--ink-2); font-weight: 500; }
+
+/* ---------- 視訊通話 ---------- */
+.plain-head.with-action .call-start-btn { margin-left: auto; color: var(--green); }
+.plain-head.with-action .call-start-btn + .icon-btn { margin-left: 0; }
+.call-start-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+body.in-call { overflow: hidden; }
+#call-root:empty { display: none; }
+.call-view, .call-incoming { position: fixed; inset: 0; z-index: 100; background: #0B0F0E; color: #fff; }
+#call-remote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #0B0F0E; }
+.call-wait { position: absolute; inset: 0; display: grid; place-items: center; background: #0B0F0E; }
+.call-wait[hidden] { display: none; }
+.avatar.call-avatar { width: 112px; height: 112px; font-size: 48px; font-weight: 700; color: #fff; }
+.avatar.call-avatar.ring { animation: call-ring 1.6s ease-out infinite; }
+@keyframes call-ring { 0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, .45); } 100% { box-shadow: 0 0 0 28px rgba(255, 255, 255, 0); } }
+@media (prefers-reduced-motion: reduce) { .avatar.call-avatar.ring { animation: none; } }
+.call-top {
+  position: absolute; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top) + 14px) 20px 28px; text-align: center;
+  background: linear-gradient(rgba(0, 0, 0, .55), rgba(0, 0, 0, 0)); text-shadow: 0 1px 2px rgba(0, 0, 0, .5);
+}
+.call-top b { display: block; font-size: 22px; }
+.call-top span { display: block; font: 500 15px/1.4 var(--num); opacity: .9; margin-top: 2px; }
+#call-local {
+  position: absolute; right: 14px; top: calc(env(safe-area-inset-top) + 92px); width: 104px; height: 148px; object-fit: cover;
+  border-radius: 14px; background: #222; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); border: 2px solid rgba(255, 255, 255, .7);
+}
+#call-local.mirror { transform: scaleX(-1); }
+#call-local[hidden] { display: none; }
+.call-ctrls, .call-answer {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-evenly; align-items: flex-start;
+  padding: 24px 12px calc(env(safe-area-inset-bottom) + 22px); background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, .6));
+}
+.call-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; color: #fff; min-width: 64px; }
+.call-btn svg { width: 60px; height: 60px; padding: 15px; border-radius: 50%; background: rgba(255, 255, 255, .22); fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.call-btn.on svg { background: #fff; stroke: #0B0F0E; }
+.call-btn.end svg { background: #E5484D; stroke: none; color: #fff; padding: 13px; }
+.call-btn.ok svg { background: #30A46C; }
+.call-btn small { font-size: 12px; font-weight: 600; }
+.call-incoming { display: flex; flex-direction: column; justify-content: center; background: radial-gradient(circle at 50% 35%, #2C3A36, #0B0F0E 70%); }
+.call-who { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: -80px; }
+.call-who b { font-size: 28px; margin-top: 18px; }
+.call-who span { font-size: 16px; opacity: .8; }
+.call-answer { background: none; padding-bottom: calc(env(safe-area-inset-bottom) + 64px); }
+.call-answer .call-btn svg { width: 72px; height: 72px; padding: 19px; }
+.call-answer .call-btn.end svg { padding: 17px; }
+.call-pick { background: var(--sheet); border-radius: 16px; padding: 2px 14px; }
+.call-pick-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 0; min-height: 60px; }
+.call-pick-row + .call-pick-row { border-top: 1px solid var(--line); }
+.call-pick-row b { font-size: 17px; }
+.call-pick-row small { flex: 1; font-size: 12px; color: var(--ink-2); }
+.call-pick-row svg { width: 26px; height: 26px; fill: none; stroke: var(--green); stroke-width: 1.8; stroke-linejoin: round; }

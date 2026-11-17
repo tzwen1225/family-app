@@ -26,6 +26,7 @@
 //   相簿 photos：    { id, month: 'YYYY-MM', date, caption, thumb, image_id, author }
 //        photo_comments：{ id, photo_id, month, text, author, created_at }
 //   交通常用清單 transit_favs/{UID}：{ bus: [{ area, route, dir, to, uid, name }], tra: [{ id, name }] }
+//   視訊 calls：{ id, from, to: [UID], status, offer, answer, created_at }；call_signals：{ call_id, from, cand, created_at }
 //   聊天照片 chat_images：{ id, data: 圖片內容, sender, sent_at }；訊息本身只放小縮圖 thumb 和 image_id
 // 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
@@ -123,6 +124,11 @@
       },
       async signOut() { await F.signOut(auth); },
       // 交通查詢：由雲端函式代查（TDX 金鑰只在伺服器上）
+      // 視訊的中繼伺服器帳密（雲端函式向 Cloudflare 臨時申請）
+      async callIce() {
+        const fn = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'callIce');
+        return (await fn({})).data;
+      },
       async transit(op, args) {
         const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'transit');
         return (await call({ op, ...(args || {}) })).data;
@@ -336,6 +342,8 @@
       try { mem = JSON.parse(localStorage.getItem(KEY)); } catch (e) { /* 無法使用儲存空間時只留在記憶體 */ }
       const fresh = seed();
       if (!mem) mem = fresh;
+      // 測試用：這個分頁指定以哪個人登入（見 signIn）
+      try { const as = sessionStorage.getItem('family-demo-as'); if (as && mem.user) mem.user = as; } catch (e) { /* 沒有 sessionStorage */ }
       Object.keys(fresh).forEach((k) => { if (mem[k] === undefined) mem[k] = fresh[k]; });
       return mem;
     };
@@ -408,6 +416,9 @@
     };
     const gsubs = {};
     const gemit = (name) => (gsubs[name] || []).forEach((cb) => cb(G(name).slice()));
+    // 另一個分頁改了資料（示範模式下用兩個分頁測試視訊）：讀回最新的，通知畫面
+    const freshDocs = () => { try { const d = JSON.parse(localStorage.getItem(KEY)); if (d && d.docs && mem) mem.docs = d.docs; } catch (e) { /* 讀不到就用手上的 */ } };
+    window.addEventListener('storage', (e) => { if (e.key !== KEY || !mem) return; freshDocs(); Object.keys(gsubs).forEach(gemit); });
 
     // 模擬即時監聽：資料一變就通知
     const subs = { messages: [], posts: [], replies: [], presence: [], requests: [], categories: [] };
@@ -422,7 +433,9 @@
     return {
       isDemo: true,
       async currentUserId() { return load().user; },
-      async signIn() { load().user = 'm1'; persist(); return 'm1'; },
+      // 示範模式預設是 m1；測試時可以用 sessionStorage 的 family-demo-as 指定成別人（每個分頁各自一個人）
+      async signIn() { const as = (() => { try { return sessionStorage.getItem('family-demo-as'); } catch (e) { return null; } })() || 'm1'; load().user = as; persist(); return as; },
+      async callIce() { return { iceServers: [] }; },
       async signOut() { load().user = null; persist(); },
       async reconnect() {},
       // 示範用的假資料：時間會跟著現在的時刻變
@@ -528,20 +541,24 @@
       },
       async listDocs(name, filter) { return G(name).filter((x) => !filter || x[filter[0]] === filter[1]).slice(); },
       async addDoc(name, data) {
+        freshDocs();
         const id = name.slice(0, 2) + Date.now() + Math.floor(Math.random() * 1000);
         G(name).push({ ...data, id }); persist(); gemit(name); return id;
       },
       async setDoc(name, id, data) {
+        freshDocs();
         const rows = G(name); const i = rows.findIndex((x) => x.id === id);
         if (i >= 0) rows[i] = { ...data, id }; else rows.push({ ...data, id });
         persist(); gemit(name);
       },
       async updateDoc(name, id, data) {
+        freshDocs();
         const item = G(name).find((x) => x.id === id);
         if (item) Object.assign(item, data);
         persist(); gemit(name);
       },
       async deleteDoc(name, id) {
+        freshDocs();
         const db = load(); db.docs[name] = G(name).filter((x) => x.id !== id);
         persist(); gemit(name);
       },

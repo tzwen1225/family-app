@@ -312,6 +312,32 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/photos/$(resource.data.photo_id)).data.created_by == request.auth.uid));
     }
 
+    // 視訊通話：撥打的人建立，打的人和被打的人可以更新（接聽、掛斷）和刪除
+    match /calls/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.to is list
+        && request.resource.data.to.size() >= 1 && request.resource.data.to.size() <= 3
+        && request.resource.data.status == 'ringing';
+      allow update: if isFamily()
+        && (resource.data.from == request.auth.uid || request.auth.uid in resource.data.to)
+        && request.resource.data.from == resource.data.from
+        && request.resource.data.to == resource.data.to;
+      allow delete: if isFamily()
+        && (resource.data.from == request.auth.uid || request.auth.uid in resource.data.to);
+    }
+    // 視訊連線用的資訊：只能以自己的名義送出；通話結束後撥打的人整批刪掉
+    match /call_signals/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.call_id is string
+        && request.resource.data.cand is string && request.resource.data.cand.size() <= 2000;
+      allow update: if false;
+      allow delete: if isFamily();
+    }
+
     // 交通頁的常用站牌、常用車站：每個人只能讀寫自己的
     match /transit_favs/{uid} {
       allow read: if isFamily() && uid == request.auth.uid;
@@ -319,7 +345,7 @@ service cloud.firestore {
         && request.resource.data.bus is list && request.resource.data.bus.size() <= 20
         && request.resource.data.tra is list && request.resource.data.tra.size() <= 10;
     }
-    // 交通查詢的 TDX 金鑰：只有管理員能新增、查看、更換；其他家人讀不到
+    // 交通查詢的 TDX 金鑰、視訊的中繼伺服器金鑰：只有管理員能新增、查看、更換；其他家人讀不到
     // （伺服器上的雲端函式不受這裡限制，查詢時由它讀取）
     match /secrets/{id} {
       allow read, write: if isAdmin();

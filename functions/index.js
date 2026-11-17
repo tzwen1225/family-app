@@ -7,6 +7,7 @@
 //   requests 新增 → 小朋友申請費用時，通知家長
 //   polls    新增 → 通知發起人以外的所有成員
 //   shopping 新增 → 日常待辦交給某個人時，通知那個人
+//   calls    新增 → 視訊來電，通知被打的人
 //
 // 部署：在專案資料夾執行 firebase deploy --only functions
 
@@ -111,6 +112,15 @@ exports.onTodo = onDocumentCreated('shopping/{id}', async (event) => {
   const names = await memberNames();
   const when = t.due ? '（' + Number(t.due.slice(5, 7)) + '/' + Number(t.due.slice(8, 10)) + '）' : '';
   await notify([t.who], (names[t.added_by] || '家人') + '交給你一件事', clip(t.text) + when, 'todo-' + event.params.id);
+});
+
+// 視訊：有人撥打時通知被打的人（點通知打開 App 就會出現來電畫面）
+exports.onVideoCall = onDocumentCreated('calls/{id}', async (event) => {
+  const c = event.data.data();
+  if (!c || c.status !== 'ringing') return;
+  const names = await memberNames();
+  const to = (c.to || []).filter((uid) => uid !== c.from);
+  await notify(to, (names[c.from] || '家人') + '邀請你視訊', '點這裡接聽', 'call-' + event.params.id);
 });
 
 // ---------- 交通查詢：新竹的公車與台鐵即時資訊 ----------
@@ -282,5 +292,38 @@ exports.transit = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds
     if (e instanceof HttpsError) throw e;
     logger.error('交通查詢失敗', data.op, e);
     throw new HttpsError('unavailable', 'failed');
+  }
+});
+
+// ---------- 視訊：中繼伺服器（TURN）的臨時帳密 ----------
+// 行動網路常常無法直接連線，影像要經過 Cloudflare 的中繼伺服器。
+// 金鑰放在 secrets/turn（管理員在 App 的「設定」裡填）；這裡用它向 Cloudflare 換一組一天有效的帳密給手機。
+// 沒設定時只回免費的 STUN，在同一個 Wi-Fi 或一般網路下多半還是連得上。
+let iceCache = { servers: null, until: 0 };
+const FREE_STUN = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+exports.callIce = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds: 15, memory: '256MiB' }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'login');
+  const member = await db.doc('members/' + req.auth.uid).get();
+  if (!member.exists) throw new HttpsError('permission-denied', 'not-family');
+  if (iceCache.servers && Date.now() < iceCache.until) return { iceServers: iceCache.servers, turn: true };
+  const doc = await db.doc('secrets/turn').get();
+  const keyId = doc.exists ? String(doc.data().key_id || '').trim() : '';
+  const token = doc.exists ? String(doc.data().api_token || '').trim() : '';
+  if (!keyId || !token) return { iceServers: FREE_STUN, turn: false };
+  try {
+    const res = await fetch('https://rtc.live.cloudflare.com/v1/turn/keys/' + encodeURIComponent(keyId) + '/credentials/generate-ice-servers', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+      body: JSON.stringify({ ttl: 86400 })
+    });
+    if (!res.ok) { logger.warn('Cloudflare TURN 回應', res.status); return { iceServers: FREE_STUN, turn: false }; }
+    const json = await res.json();
+    // 瀏覽器連 53 埠常常逾時，拿掉
+    const servers = (json.iceServers || []).map((s) => ({ ...s, urls: [].concat(s.urls || []).filter((u) => !/:53\b/.test(u)) }));
+    iceCache = { servers, until: Date.now() + 12 * 3600000 };     // 帳密有效一天，快取半天
+    return { iceServers: servers, turn: true };
+  } catch (e) {
+    logger.error('拿不到 TURN 帳密', e);
+    return { iceServers: FREE_STUN, turn: false };
   }
 });
