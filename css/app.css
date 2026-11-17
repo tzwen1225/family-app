@@ -1021,3 +1021,34 @@ form label { line-height: 1.5; }
 .hub-main small { display: block; font-size: 13px; color: var(--ink-2); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-main em { font-style: normal; font-weight: 600; color: var(--c-exam); }
 .hub-back { margin: -4px 0 2px; }
+
+/* ---------- 日常待辦 ---------- */
+.todo-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.todo-picks + .todo-picks { margin-top: 6px; }
+.todo-pick-label { flex: none; width: 34px; font-size: 13px; color: var(--ink-2); }
+.todo-chip { flex: none; min-height: 32px; padding: 0 11px; border-radius: 99px; background: var(--track); color: var(--ink-2); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.todo-chip.on { background: var(--who, var(--green)); color: #fff; }
+.todo-sep { flex: none; width: 1px; margin: 6px 4px; background: var(--line); }
+.todo-filter { margin-top: 14px; }
+.todo-group { margin-top: 16px; }
+.todo-group h2 { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--ink-2); padding: 0 4px; }
+.todo-group h2 > span { min-width: 20px; padding: 0 6px; border-radius: 99px; background: var(--track); font-size: 12px; text-align: center; }
+.todo-group h2 .link-btn { margin-left: auto; font-size: 13px; min-height: 32px; }
+.todo-group .shop-items { margin-top: 6px; }
+.todo-group .btn.small { margin-top: 10px; }
+.todo-clear { text-align: center; margin-top: 18px; }
+.todo-row { display: flex; align-items: center; gap: 4px; }
+.todo-row + .todo-row { border-top: 1px solid var(--line); }
+.todo-check { flex: none; width: 40px; height: 52px; display: grid; place-items: center; margin-left: -8px; }
+.todo-row.done .check { background: var(--green); border-color: var(--green); }
+.todo-row.done .check::after { content: ''; position: absolute; left: 7px; top: 3px; width: 5px; height: 10px; border: solid var(--sheet); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.todo-body { flex: 1; min-width: 0; text-align: left; padding: 11px 0; }
+.todo-body .shop-text { display: block; }
+.todo-row.done .shop-text { text-decoration: line-through; color: var(--ink-2); }
+.todo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; color: var(--ink-2); }
+.todo-meta:empty { display: none; }
+.todo-meta > span { margin-top: 3px; }
+.todo-who { padding: 1px 8px; border-radius: 99px; font-weight: 600; color: var(--who); background: color-mix(in srgb, var(--who) 14%, var(--sheet)); }
+.todo-due { font-weight: 600; }
+.todo-due.today { color: var(--c-exam); }
+.todo-due.late { color: var(--danger); }

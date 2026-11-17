@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 16:15';
+  const VERSION = '2026-11-17 16:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -85,6 +85,7 @@
     notes: [],
     notesView: 'hub',        // hub（鍾家生活的首頁，預設）| ledger（零用錢）| scores | notes（旅遊）| album | transit | shop | cards // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
     shopping: [], cards: [],
+    todoFilter: 'all', todoShowDone: false, todoNewWho: '', todoNewDue: '',   // 日常待辦（資料沿用 shopping）
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
     showOldNotes: false,
@@ -484,7 +485,7 @@
     if (state.notesView === 'hub') return '';
     if (state.notesView === 'album') return '放照片';
     if (state.notesView === 'transit') return '';
-    if (state.notesView === 'shop') return '';                       // 採買清單直接在上方輸入
+    if (state.notesView === 'shop') return '';                       // 待辦直接在上方輸入
     if (state.notesView === 'cards') return amChild() ? '' : '新增資料卡';
     if (state.notesView === 'scores') return kids().length ? '新增成績' : '';
     return kids().length ? '新增一筆零用錢紀錄' : '';
@@ -528,6 +529,17 @@
           </div>`);
       });
     }
+    urgentTodos().forEach((i) => {
+      const n = daysBetween(today(), todoDue(i));
+      items.push(`
+          <div class="todo">
+            <button class="todo-main" data-act="open-todos">
+              <span class="todo-title">${esc(i.text)}</span>
+              <span class="todo-sub">${todoWho(i) ? '交給' + esc(nameOf(todoWho(i))) : '全家'}<em class="${n < 0 ? 'late' : ''}">${n === 0 ? '今天' : '過了 ' + (-n) + ' 天'}</em></span>
+            </button>
+            <button class="todo-done" data-act="shop-toggle" data-id="${esc(i.id)}">完成</button>
+          </div>`);
+    });
     state.posts.filter((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId))
       .sort((a, b) => a.created_at - b.created_at)
       .forEach((p) => items.push(`
@@ -2140,52 +2152,103 @@
       && document.activeElement && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) loadTransit(true);
   }, 30000);
 
-  // ---------- 採買清單 ----------
-  function shopListHtml() {
-    if (!state.shopping.length) return '<div class="empty big"><p>清單是空的。想到要買什麼，就在上面打字加進來。</p></div>';
-    const sorted = state.shopping.slice().sort((a, b) => (a.done - b.done) || (a.created_at - b.created_at));
-    const doneCount = sorted.filter((i) => i.done).length;
-    return `
-      <div class="shop-items">
-        ${sorted.map((i) => `
-          <button class="shop-item ${i.done ? 'done' : ''}" data-act="shop-toggle" data-id="${esc(i.id)}" aria-pressed="${!!i.done}">
-            <span class="check" aria-hidden="true"></span>
-            <span class="shop-text">${esc(i.text)}</span>
-            <small>${esc(i.done && i.done_by ? nameOf(i.done_by) + '買了' : nameOf(i.added_by))}</small>
-          </button>`).join('')}
-      </div>
-      ${doneCount ? `<button class="btn ghost small" data-act="shop-clear">清除已經買的（${doneCount}）</button>` : ''}`;
+  // ---------- 日常待辦 ----------
+  // 鍾家生活 →「待辦」。全家共用的待辦清單：可以交給某個人、可以設日期；打勾記下誰完成。
+  // 沿用原本採買清單的 shopping 資料，舊的採買項目會變成沒有日期、沒有指定人的待辦。
+  // 每一筆：{ text, done, who（成員 UID，'' 代表全家）, due（'YYYY-MM-DD' 或 ''）, added_by, done_by, done_at, created_at }
+  const todoWho = (i) => i.who || '';
+  const todoDue = (i) => i.due || '';
+  const mineTodo = (i) => !todoWho(i) || todoWho(i) === state.userId;
+  // 首頁要提醒的：還沒做、日期是今天或已經過了、交給我或全家
+  const urgentTodos = () => state.shopping.filter((i) => !i.done && todoDue(i) && todoDue(i) <= today() && mineTodo(i))
+    .sort((a, b) => todoDue(a).localeCompare(todoDue(b)) || a.created_at - b.created_at);
+  function todoDueHtml(due, done) {
+    if (!due) return '';
+    const n = daysBetween(today(), due);
+    const text = n === 0 ? '今天' : n === 1 ? '明天' : n < 0 ? '過了 ' + (-n) + ' 天' : shortDate(due);
+    return `<span class="todo-due ${!done && n < 0 ? 'late' : !done && n === 0 ? 'today' : ''}">${text}</span>`;
   }
-  function viewShop() {
-    const left = state.shopping.filter((i) => !i.done).length;
+  function todoRowHtml(i) {
+    const who = todoWho(i) && member(todoWho(i));
     return `
-      <header class="plain-head"><h1>採買清單</h1><p id="shop-count">${left ? left + ' 項還沒買' : '都買齊了'}</p></header>
+      <div class="todo-row ${i.done ? 'done' : ''}">
+        <button class="todo-check" data-act="shop-toggle" data-id="${esc(i.id)}" aria-pressed="${!!i.done}" aria-label="${i.done ? '改回還沒做' : '完成'}：${esc(i.text)}"><span class="check" aria-hidden="true"></span></button>
+        <button class="todo-body" data-act="edit-todo" data-id="${esc(i.id)}">
+          <span class="shop-text">${esc(i.text)}</span>
+          <span class="todo-meta">
+            ${who ? `<span class="todo-who" style="--who:${esc(who.color)}">${esc(who.display_name)}</span>` : ''}
+            ${todoDueHtml(todoDue(i), i.done)}
+            ${i.done && i.done_by ? `<span>${esc(nameOf(i.done_by))}完成</span>` : ''}
+          </span>
+        </button>
+      </div>`;
+  }
+  function shopListHtml() {
+    const list = state.shopping.filter((i) => state.todoFilter !== 'mine' || mineTodo(i));
+    if (!list.length) return `<div class="empty big"><p>${state.todoFilter === 'mine' && state.shopping.length ? '沒有交給你的待辦。' : '沒有待辦事項。倒垃圾、繳費、帶便當袋，想到就在上面打字加進來。'}</p></div>`;
+    const open = list.filter((i) => !i.done);
+    const byDate = (a, b) => todoDue(a).localeCompare(todoDue(b)) || a.created_at - b.created_at;
+    const groups = [
+      ['今天和過期的', open.filter((i) => todoDue(i) && todoDue(i) <= today()).sort(byDate)],
+      ['之後', open.filter((i) => todoDue(i) > today()).sort(byDate)],
+      ['沒有日期', open.filter((i) => !todoDue(i)).sort((a, b) => a.created_at - b.created_at)]
+    ].filter(([, items]) => items.length);
+    const done = list.filter((i) => i.done).sort((a, b) => (b.done_at || 0) - (a.done_at || 0));
+    return groups.map(([title, items]) => `
+      <section class="todo-group"><h2>${title}<span>${items.length}</span></h2>
+        <div class="shop-items">${items.map(todoRowHtml).join('')}</div>
+      </section>`).join('')
+      + (open.length ? '' : '<p class="hint todo-clear">都做完了！</p>')
+      + (done.length ? `
+      <section class="todo-group"><h2>已完成<span>${done.length}</span>
+        <button class="link-btn" data-act="todo-show-done">${state.todoShowDone ? '收起' : '顯示'}</button></h2>
+        ${state.todoShowDone ? `<div class="shop-items">${done.map(todoRowHtml).join('')}</div>` : ''}
+        <button class="btn ghost small" data-act="shop-clear">清除已完成的（${done.length}）</button>
+      </section>` : '');
+  }
+  const todoCountText = () => { const n = state.shopping.filter((i) => !i.done).length; return n ? n + ' 件還沒做' : '都做完了'; };
+  function viewShop() {
+    const chip = (kind, value, label, color) => {
+      const on = (kind === 'who' ? state.todoNewWho : state.todoNewDue) === value;
+      return `<button type="button" class="todo-chip ${on ? 'on' : ''}" ${color ? `style="--who:${esc(color)}"` : ''} data-act="todo-pick" data-kind="${kind}" data-value="${value}" aria-pressed="${on}">${label}</button>`;
+    };
+    const f = (v, label) => `<button class="${state.todoFilter === v ? 'on' : ''}" data-act="todo-filter" data-filter="${v}" ${state.todoFilter === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
+    return `
+      <header class="plain-head"><h1>日常待辦</h1><p id="shop-count">${todoCountText()}</p></header>
       <form class="shop-add" id="shop-form">
-        <input id="shop-input" name="text" type="text" placeholder="要買什麼？" maxlength="60" autocomplete="off" enterkeyhint="done" aria-label="要買什麼">
-        <button type="submit" class="send" aria-label="加入清單">${ICON.plus}</button>
+        <input id="shop-input" name="text" type="text" placeholder="要做什麼？例如：倒垃圾" maxlength="60" autocomplete="off" enterkeyhint="done" aria-label="新增待辦">
+        <button type="submit" class="send" aria-label="加入待辦">${ICON.plus}</button>
       </form>
+      <div class="todo-picks" role="group" aria-label="新增時交給誰">
+        <span class="todo-pick-label">交給</span>${chip('who', '', '全家')}${state.members.map((m) => chip('who', m.id, esc(m.display_name), m.color)).join('')}
+      </div>
+      <div class="todo-picks" role="group" aria-label="新增時的日期">
+        <span class="todo-pick-label">日期</span>${chip('due', '', '不限')}${chip('due', 'today', '今天')}${chip('due', 'tomorrow', '明天')}
+      </div>
+      <div class="switcher todo-filter" role="group" aria-label="顯示哪些">${f('all', '全部')}${f('mine', '我的')}</div>
       <div id="shop-list">${shopListHtml()}</div>`;
   }
   function refreshShop() {
+    refreshTodos();
     if (state.tab === 'notes' && state.notesView === 'hub' && !$sheet.innerHTML) return render();
     const el = document.getElementById('shop-list');
     if (!el) return;
     el.innerHTML = shopListHtml();
-    const left = state.shopping.filter((i) => !i.done).length;
-    document.getElementById('shop-count').textContent = left ? left + ' 項還沒買' : '都買齊了';
+    document.getElementById('shop-count').textContent = todoCountText();
   }
   async function onShopAdd(form) {
     const input = form.elements.text;
     const text = input.value.trim();
     if (!text) return;
     input.value = ''; input.focus();
-    try { await Api.addDoc('shopping', { text, done: false, added_by: state.userId, done_by: null, created_at: Date.now() }); }
+    const due = state.todoNewDue === 'today' ? today() : state.todoNewDue === 'tomorrow' ? addDays(today(), 1) : '';
+    try { await Api.addDoc('shopping', { text, done: false, who: state.todoNewWho, due, added_by: state.userId, done_by: null, done_at: null, created_at: Date.now() }); }
     catch (e) { console.error(e); input.value = text; toast('沒有加進去，請再試一次'); }
   }
   async function onShopToggle(id) {
     const item = findById(state.shopping, id);
     if (!item) return;
-    try { await Api.updateDoc('shopping', id, { done: !item.done, done_by: item.done ? null : state.userId }); }
+    try { await Api.updateDoc('shopping', id, { done: !item.done, done_by: item.done ? null : state.userId, done_at: item.done ? null : Date.now() }); }
     catch (e) { console.error(e); toast('沒有成功，請再試一次'); }
   }
   async function onShopClear(btn) {
@@ -2193,6 +2256,22 @@
     btn.disabled = true;
     try { await Promise.all(state.shopping.filter((i) => i.done).map((i) => Api.deleteDoc('shopping', i.id))); toast('已清除'); }
     catch (e) { console.error(e); toast('清除失敗，請再試一次'); }
+  }
+  function openTodoSheet(item) {
+    showSheet('todo-form', {
+      title: '編輯待辦', footer: DELETE_BTN,
+      body: `
+      <input type="hidden" name="item_id" value="${esc(item.id)}">
+      <label>要做什麼<input class="title-input" type="text" name="text" value="${esc(item.text)}" maxlength="60" autocomplete="off"></label>
+      <fieldset class="seg">
+        <legend>交給誰</legend>
+        <label style="--cat:var(--green)"><input type="radio" name="who" value="" ${todoWho(item) ? '' : 'checked'}><span>全家</span></label>
+        ${state.members.map((m) => `
+          <label style="--cat:${esc(m.color)}"><input type="radio" name="who" value="${esc(m.id)}" ${todoWho(item) === m.id ? 'checked' : ''}><span>${esc(m.display_name)}</span></label>`).join('')}
+      </fieldset>
+      <label>日期（可不填）<input type="date" name="due" value="${esc(todoDue(item))}"></label>
+      <p class="hint">${esc(nameOf(item.added_by))}在 ${stamp(item.created_at)} 新增${item.done && item.done_by ? '；' + esc(nameOf(item.done_by)) + '已完成' : ''}。</p>`
+    });
   }
 
   // ---------- 資料卡 ----------
@@ -2279,7 +2358,7 @@
     ['notes', '旅遊', '#0E9AA7', '<path d="M3.500 12.500l17-7.500-6 15-3-6z"/><path d="M11.500 14l3-3"/>'],
     ['album', '相簿', '#E5557A', '<rect x="3.500" y="5" width="17" height="14" rx="2.500"/><circle cx="9" cy="10" r="1.700"/><path d="M4.500 17l4.500-4 3.500 3 3-2.500 4 3.500"/>'],
     ['transit', '交通', '#3B7BF6', '<rect x="5" y="4" width="14" height="13" rx="3"/><path d="M5 11h14M8 20l1-3M16 20l-1-3"/><circle cx="8.500" cy="14" r=".900" fill="#fff" stroke="none"/><circle cx="15.500" cy="14" r=".900" fill="#fff" stroke="none"/>'],
-    ['shop', '採買', '#8E5CF7', '<path d="M3.500 5h2.300l2.200 10h9.500l2-7.500H7"/><circle cx="9.500" cy="18.500" r="1.200"/><circle cx="16.500" cy="18.500" r="1.200"/>'],
+    ['shop', '待辦', '#8E5CF7', '<path d="M4 7l1.600 1.600L8.500 5.500M4 13.500l1.600 1.600 2.900-3.100"/><path d="M11.500 7.200h8.500M11.500 13.700h8.500M11.500 19h8.500"/>'],
     ['cards', '資料卡', '#6B7A90', '<rect x="3.500" y="5.500" width="17" height="13" rx="2.500"/><circle cx="9" cy="11" r="2"/><path d="M6.500 16c.500-1.500 4.500-1.500 5 0M14.500 10h3.500M14.500 13.500h3.500"/>']
   ];
   function hubNote(id) {
@@ -2294,7 +2373,10 @@
     }
     if (id === 'album') return '日常照片，按月份看';
     if (id === 'transit') return '新竹公車、台鐵即時資訊';
-    if (id === 'shop') { const n = state.shopping.filter((x) => !x.done).length; return n ? `<em>還有 ${n} 樣要買</em>` : '清單是空的'; }
+    if (id === 'shop') {
+      const n = state.shopping.filter((x) => !x.done).length, u = urgentTodos().length;
+      return u ? `<em>今天有 ${u} 件要做</em>` : n ? `還有 ${n} 件沒做` : '沒有待辦事項';
+    }
     return state.cards.length ? state.cards.length + ' 張' : '健保卡號、學號、緊急聯絡人';
   }
   function viewHub() {
@@ -2456,7 +2538,7 @@
       <header class="plain-head"><h1>雜記</h1><p>全家都看得到</p></header>
       ${cards ? `<div class="notes">${cards}</div>` : `
         <div class="empty big">
-          <p>還沒有雜記。密碼、採買清單、要記得的事都可以放這裡。</p>
+          <p>還沒有雜記。密碼、要記得的事都可以放這裡。</p>
         </div>`}`;
   }
 
@@ -3058,6 +3140,13 @@
       done: '金鑰已儲存',
       after() { state.transit.error = ''; }
     },
+    'todo-form': {
+      read: (f) => ({ id: f.item_id.value, text: f.text.value.trim(), who: f.who.value, due: f.due.value }),
+      check: (x) => (!x.text ? '請寫下要做什麼' : null),
+      save: (x) => Api.updateDoc('shopping', x.id, { text: x.text, who: x.who, due: x.due }),
+      remove: (id) => Api.deleteDoc('shopping', id),
+      after() { refreshShop(); }
+    },
     'score-form': {
       read: (f, form) => ({
         id: f.item_id.value || null, kid: f.kid.value, subject: checkedValues(form, 'subject')[0] || '', term: checkedValues(form, 'term')[0] || '', title: f.title.value.trim(),
@@ -3382,6 +3471,14 @@
     else if (act === 'edit-score') { const x = findById(state.scores, el.dataset.id); if (x && canEditScore(x)) openScoreSheet(x); }
     else if (act === 'shop-toggle') onShopToggle(el.dataset.id);
     else if (act === 'shop-clear') onShopClear(el);
+    else if (act === 'edit-todo') { const x = findById(state.shopping, el.dataset.id); if (x) openTodoSheet(x); }
+    else if (act === 'todo-filter') { state.todoFilter = el.dataset.filter; refreshShop(); document.querySelectorAll('.todo-filter button').forEach((b) => { const on = b.dataset.filter === state.todoFilter; b.classList.toggle('on', on); on ? b.setAttribute('aria-pressed', 'true') : b.removeAttribute('aria-pressed'); }); }
+    else if (act === 'todo-show-done') { state.todoShowDone = !state.todoShowDone; refreshShop(); }
+    else if (act === 'todo-pick') {
+      if (el.dataset.kind === 'who') state.todoNewWho = el.dataset.value; else state.todoNewDue = el.dataset.value;
+      document.querySelectorAll('.todo-chip[data-kind="' + el.dataset.kind + '"]').forEach((b) => { const on = b === el; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    }
+    else if (act === 'open-todos') { Object.assign(state, { tab: 'notes', notesView: 'shop' }); render(); scroller().scrollTop = 0; }
     else if (act === 'edit-card') { const c = findById(state.cards, el.dataset.id); if (c && !amChild()) openCardSheet(c); }
     else if (act === 'view-image') openImage(el.dataset.id);
     else if (act === 'tray-cancel') closeSheet();
