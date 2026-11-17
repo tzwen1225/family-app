@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 12:25';
+  const VERSION = '2026-11-17 13:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -448,7 +448,7 @@
     cal: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 9.500V20h4.500v-5.500h3V20H18V9.500"/></svg>',
     chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/></svg>',
     posts: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l7 4.5v-13L7 10zM17.500 9.500a4 4 0 0 1 0 5M7.500 14l1 5h2.500"/></svg>',
-    notes: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.500" y="4.500" width="17" height="14" rx="2.500"/><circle cx="12" cy="11.500" r="3"/><path d="M12 8.500v-1M12 15.500v-1M15 11.500h1M8 11.500h1M7 18.500v2M17 18.500v2"/></svg>',
+    notes: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="2.200"/><rect x="13" y="4" width="7" height="7" rx="2.200"/><rect x="4" y="13" width="7" height="7" rx="2.200"/><rect x="13" y="13" width="7" height="7" rx="2.200"/></svg>',
     me: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h10M18 17h2"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="16" cy="17" r="2"/></svg>',
     photo: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.500" y="5" width="17" height="14" rx="2.500"/><circle cx="9" cy="10" r="1.800"/><path d="M4 17l5-4.500 3.500 3 3-2.500 4.500 4"/></svg>',
     search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.500"/><path d="M16 16l4.500 4.500"/></svg>',
@@ -456,6 +456,15 @@
     send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M12.500 6l6 6-6 6"/></svg>',
     phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.500 4h3l1.500 4-2 1.500a11 11 0 0 0 5.500 5.500l1.500-2 4 1.500v3a2 2 0 0 1-2 2A15.500 15.500 0 0 1 4.500 6a2 2 0 0 1 2-2z"/></svg>'
   };
+  // 底部選單選到的那一格：換成彩色圖示（顏色固定，不跟面板變）
+  const ICON_ON = {
+    cal: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.500 10.400 12 5l6.500 5.400V19a1.500 1.500 0 0 1-1.500 1.500H7A1.500 1.500 0 0 1 5.500 19z" fill="#FFB224"/><path d="M10 20.500v-4.700a2 2 0 0 1 4 0v4.700z" fill="#fff"/><path d="M3.300 11.300 12 3.800l8.700 7.500" fill="none" stroke="#E5484D" stroke-width="2.400" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    chat: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.500 6.500A3 3 0 0 1 6.500 3.500h11a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-6.200L6 21v-4.500a3 3 0 0 1-2.500-3z" fill="#2F8CFF"/><circle cx="8.300" cy="10" r="1.250" fill="#fff"/><circle cx="12" cy="10" r="1.250" fill="#fff"/><circle cx="15.700" cy="10" r="1.250" fill="#fff"/></svg>',
+    notes: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.500" y="3.500" width="8" height="8" rx="2.500" fill="#FF8A3D"/><rect x="12.500" y="3.500" width="8" height="8" rx="2.500" fill="#34C17B"/><rect x="3.500" y="12.500" width="8" height="8" rx="2.500" fill="#3B9BFF"/><rect x="12.500" y="12.500" width="8" height="8" rx="2.500" fill="#A66BFF"/></svg>',
+    posts: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.200 13.500l1.100 5.300a1 1 0 0 0 1 .800h1.200a1 1 0 0 0 1-1.200l-.900-4.900z" fill="#D97A00"/><path d="M3.500 9.800a1 1 0 0 1 1-1H7.300l6.200-4a1 1 0 0 1 1.500.850v12.700a1 1 0 0 1-1.500.850l-6.200-4H4.500a1 1 0 0 1-1-1z" fill="#FF9F1C"/><path d="M17.600 9.300a4 4 0 0 1 0 5.400M19.600 7a7.200 7.200 0 0 1 0 10" fill="none" stroke="#F25F4C" stroke-width="1.800" stroke-linecap="round"/></svg>',
+    me: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="#B4BAC6" stroke-width="2.200" stroke-linecap="round"/><circle cx="15" cy="7" r="2.800" fill="#7C5CFC"/><circle cx="9" cy="12" r="2.800" fill="#FF5A7A"/><circle cx="16" cy="17" r="2.800" fill="#22B8A0"/></svg>'
+  };
+  const TAB_COLOR = { cal: '#E5484D', chat: '#2F8CFF', notes: '#2FA36B', posts: '#E8850C', me: '#7C5CFC' };
   const TABS = [['cal', '首頁'], ['chat', '聊天'], ['notes', '鍾家生活'], ['posts', '我有話要說'], ['me', '設定']];
   // 右下角的新增鈕在這個畫面要做什麼；沒有東西可新增時不顯示
   function fabLabel() {
@@ -586,11 +595,11 @@
           <input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息">
           <button type="submit" class="send" aria-label="傳送">${ICON.send}</button>
         </form>` : ''}
-      ${fabLabel() ? `<button class="fab" data-act="new" aria-label="${fabLabel()}">＋</button>` : ''}
+      ${fabLabel() ? `<div class="addbar"><button class="fab" data-act="new" aria-label="${fabLabel()}"><span class="fab-plus" aria-hidden="true">${ICON.plus}</span>${fabLabel()}</button></div>` : ''}
       <nav class="tabbar" aria-label="主選單">
         ${TABS.map(([id, label]) => `
-          <button class="tab ${state.tab === id ? 'on' : ''} ${badge(id) ? 'unread' : ''}" data-act="tab" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ''}>
-            ${ICON[id]}<span>${label}</span>
+          <button class="tab ${state.tab === id ? 'on' : ''} ${badge(id) ? 'unread' : ''}" style="--tab-c:${TAB_COLOR[id]}" data-act="tab" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ''}>
+            ${state.tab === id ? ICON_ON[id] : ICON[id]}<span>${label}</span>
           </button>`).join('')}
       </nav>`;
     renderedTab = state.tab;

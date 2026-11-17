@@ -877,3 +877,58 @@ html[data-theme="night"] .todo-done.reply { color: var(--green); }
 }
 
 .chat-older { display: block; margin: 4px auto 10px; font-size: 13px; }
+
+/* ---------- iPhone 風格的按鍵 ---------- */
+/* 按下去的回饋：像 iPhone 一樣變淡一下 */
+button, .seg span, .people span, label.attach { transition: opacity .12s, transform .12s, background-color .12s; }
+button:active:not(:disabled) { opacity: .6; }
+
+/* 底部選單：選到的那一格是彩色圖示 */
+.tab { gap: 3px; font-weight: 500; }
+.tab svg.color { stroke: none; width: 26px; height: 26px; margin: -1px 0; animation: tab-pop .22s cubic-bezier(.3, 1.5, .5, 1); }
+.tab.on { color: var(--tab-c); font-weight: 700; }
+@keyframes tab-pop { from { transform: scale(.8); } to { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .tab svg.color { animation: none; } }
+
+/* 新增鈕：改成選單上方的一條工具列（像「提醒事項」），不再浮在內容上面擋住文字 */
+.addbar {
+  flex: none; position: relative; z-index: 5; display: flex; align-items: center;
+  padding: 6px max(12px, calc(50vw - 248px)); background: var(--bar-2); border-top: 1px solid var(--line);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.fab {
+  position: static; width: auto; height: auto; min-height: 40px; padding: 0 14px 0 6px; border-radius: 99px;
+  display: inline-flex; align-items: center; gap: 8px; background: none; box-shadow: none;
+  color: var(--red); font-size: 16px; font-weight: 700; line-height: 1.2;
+}
+.fab:active { transform: none; }
+.fab-plus { width: 28px; height: 28px; border-radius: 50%; background: var(--red); display: grid; place-items: center; flex: none; }
+.fab-plus svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; }
+html[data-theme="night"] .fab-plus svg { stroke: #0E1412; }
+body.kb-open .addbar { display: none; }
+.screen { padding-bottom: 28px; }
+#toast { bottom: calc(var(--tabbar) + var(--safe-b) + 68px); }
+
+/* 一般按鍵 */
+.btn { border-radius: 14px; letter-spacing: .01em; }
+.btn.primary { background: var(--red); color: #fff; }
+html[data-theme="night"] .btn.primary { color: #0E1412; }
+.btn.ghost { border: 0; background: var(--track); color: var(--ink); }
+.btn.danger { border: 0; }
+.chip-btn { border: 0; background: var(--track); color: var(--ink); font-weight: 600; padding: 7px 14px; min-height: 34px; }
+.icon-btn { width: 36px; height: 36px; margin: 4px; background: var(--track); color: var(--ink); font-size: 24px; padding-bottom: 3px; }
+.icon-btn:disabled { opacity: .35; }
+.month-nav { gap: 0; }
+/* 空白畫面裡的動作、「加行程」這類小動作：淡底色的圓角膠囊 */
+.empty .link-btn, .plan-day h2 .link-btn, .old-notes .link-btn, .chat-older {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 16px;
+  border-radius: 99px; background: var(--soft); font-weight: 600;
+}
+.empty .link-btn { margin-top: 14px; min-height: 42px; padding: 0 20px; }
+.plan-day h2 .link-btn { min-height: 30px; padding: 0 12px; }
+.old-notes .link-btn { margin: 6px 0; }
+.seg span, .people span { padding: 9px 16px; border-color: transparent; background: var(--track); }
+.kid-picker button { border: 0; background: var(--track); }
+.switch, input, textarea { border-radius: 13px; }
+.sheet { border-radius: 22px 22px 0 0; }
+.sheet-head .link-btn { padding: 0 8px; font-size: 17px; }
