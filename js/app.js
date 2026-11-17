@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 23:30';
+  const VERSION = '2026-11-18 00:35';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -862,6 +862,7 @@
         <button class="icon-btn call-start-btn" data-act="call-pick" aria-label="視訊通話">${CALL_ICON.video}</button>
         <button class="icon-btn ${state.chatSearch ? 'on' : ''}" data-act="chat-search" aria-label="${state.chatSearch ? '關閉搜尋' : '搜尋訊息'}" aria-pressed="${state.chatSearch}">${ICON.search}</button>
       </header>
+      <div id="call-banner">${callBannerHtml()}</div>
       ${state.chatSearch ? `<input id="chat-q" class="search" type="search" placeholder="搜尋訊息" value="${esc(state.chatQuery)}" autocomplete="off" aria-label="搜尋訊息">` : ''}
       <div class="chat" id="chat-list" aria-live="polite">${chatDrawn = chatListHtml()}</div>`;
   }
@@ -3530,10 +3531,15 @@
     else if (act === 'tdx-key') openTdxSheet();
     else if (act === 'turn-key') openTurnSheet();
     else if (act === 'call-pick') openCallPicker();
-    else if (act === 'call-start') { closeSheet(); startCall(el.dataset.id); }
-    else if (act === 'call-accept') acceptCall();
+    else if (act === 'call-all') document.querySelectorAll('#call-form input[name="call_to"]').forEach((c) => { c.checked = true; });
+    else if (act === 'call-accept') joinCall(call.incoming);
+    else if (act === 'call-join') joinCall(el.dataset.id);
     else if (act === 'call-decline') declineCall();
-    else if (act === 'call-end') hangUp(call.status === 'ringing' ? 'canceled' : 'ended');
+    else if (act === 'call-end') { if (call.id) leaveCall(); else if (!call.preparing) endLocal(); }
+    else if (act === 'call-again') {
+      const d = state.calls.find((x) => x.id === el.dataset.id);
+      if (d) { closeSheet(); startCall(callPeople(d).filter((u) => u !== state.userId)); }
+    }
     else if (act === 'call-mute') toggleMute();
     else if (act === 'call-cam') toggleCam();
     else if (act === 'call-flip') flipCamera();
@@ -3621,7 +3627,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state.transit, freshTransit());
-        if (call.role) hangUp('ended'); hideIncoming();
+        if (call.id) leaveCall(); hideIncoming();
         Object.assign(state, {
           userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'hub', postsView: 'posts', trips: [], tripItems: [], tripId: null, shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
@@ -3639,6 +3645,7 @@
     else if (id === 'chat-form') onSend(form);
     else if (id === 'shop-form') onShopAdd(form);
     else if (id === 'pack-form') onPackAdd(form);
+    else if (id === 'call-form') onCallForm(form);
     else if (id === 'transit-search-form') onTransitSearch(form);
     else if (id === 'album-comment-form') onPhotoComment(form);
     else if (form.classList.contains('reply-form')) onReply(form);
@@ -3779,16 +3786,20 @@
   // 點了手機上的通知後，直接跳到對應的分頁（聊天，或我有話要說）。
   // App 沒開著時，分頁名稱放在網址的 # 後面；App 開著時，由 service worker 傳訊息過來。
   // ---------- 視訊通話 ----------
-  // 一對一視訊，用瀏覽器內建的 WebRTC。雙方交換連線資訊（信令）走 Firestore：
-  //   calls/{id}        { from, to: [對方], status: ringing | active | ended | declined | missed | canceled,
-  //                       offer, answer, created_at, answered_at, ended_at }
-  //   call_signals/{id} { call_id, from, cand（ICE 候選，JSON 字串）, created_at }
-  // 行動網路連不上時，影像經 Cloudflare 的中繼伺服器（TURN）轉送；中繼的帳密由雲端函式 callIce 臨時發給。
-  // 通話結束後由撥打的人把這通電話的資料刪掉。
-  const RING_MS = 60000;                  // 響多久沒接就算未接
-  const call = { id: null, peer: null, role: null, status: '', pc: null, local: null, remote: null, pending: [], seen: new Set(),
-    started: 0, timer: null, tick: null, muted: false, camOff: false, facing: 'user', incoming: null, unsubSig: null, wake: null, ending: false };
+  // 最多四個人一起視訊（每兩個人之間各自直接連線），用瀏覽器內建的 WebRTC。連線資訊（信令）走 Firestore：
+  //   calls/{id}        { from（撥打的人）, to: [被邀請的人], status: live | ended, created_at, answered_at, ended_at,
+  //                       joined: { UID: 加入時間 }, left: { UID: 離開時間 }, declined: { UID: 拒絕時間 } }
+  //   call_signals/{id} { call_id, from, to, kind: offer | answer | cand, data（JSON 字串）, created_at }
+  // 每兩個人之間由 UID 比較小的那一方發起連線，避免兩邊同時發起。
+  // 通話結束後 calls 留著當作「通話紀錄」，連線資訊（call_signals）刪掉；超過 60 天的紀錄由撥打的人刪掉。
+  // 行動網路連不上時，影像經 Cloudflare 的中繼伺服器（TURN）轉送；帳密由雲端函式 callIce 臨時發給。
+  const RING_MS = 60000;                  // 邀請後多久沒接就算未接
+  const MAX_CALL = 4;
+  const call = { id: null, local: null, peers: new Map(), servers: null, started: 0, tick: null, muted: false, camOff: false,
+    facing: 'user', incoming: null, unsubSig: null, wake: null, ending: false, seen: new Set() };
   const dismissedCalls = new Set();
+  let staleChecked = false;
+  if (Api.isDemo) window.__call = call;      // 示範模式：方便在電腦上測試
   state.calls = [];
   let $call = null;
   function callRoot() {
@@ -3801,10 +3812,19 @@
     micOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.500" width="6" height="11" rx="3"/><path d="M5.500 11.500a6.500 6.500 0 0 0 13 0M12 18v2.500M4 4l16 16"/></svg>',
     camOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6.500" width="12.500" height="11" rx="2.500"/><path d="M15.500 10.500l5-3v9l-5-3zM3 4l17 16"/></svg>',
     flip: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9a8 8 0 0 1 14.500-3.500M20 15a8 8 0 0 1-14.500 3.500"/><path d="M18.500 2.500v3.500H15M5.500 21.500V18H9"/></svg>',
-    end: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13.500c5-4.500 13-4.500 18 0l-2 2.500-3.500-1.500v-2.500a10 10 0 0 0-5 0v2.500L7 16z" fill="currentColor"/></svg>'
+    end: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13.500c5-4.500 13-4.500 18 0l-2 2.500-3.500-1.500v-2.500a10 10 0 0 0-5 0v2.500L7 16z" fill="currentColor"/></svg>',
+    out: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>',
+    in: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7L7 17M15 17H7V9"/></svg>'
   };
 
-  // 中繼伺服器的設定：雲端函式發的臨時帳密；拿不到就只用免費的 STUN（同一個 Wi-Fi 或一般網路多半還是連得上）
+  // 這通電話的人：撥打的人＋被邀請的人；現在在通話裡的：加入了、還沒離開的
+  const callPeople = (d) => [d.from].concat(d.to || []);
+  const inCallIds = (d) => Object.keys(d.joined || {}).filter((u) => !(d.left || {})[u] || (d.left[u] < d.joined[u]));
+  const stillRinging = (d) => Date.now() - (d.created_at || 0) < RING_MS;
+  const waitingFor = (d) => (stillRinging(d) ? (d.to || []).filter((u) => !(d.joined || {})[u] && !(d.declined || {})[u]) : []);
+  const callNames = (ids) => ids.map(nameOf).join('、');
+  const liveCall = (d) => d.status !== 'ended' && Date.now() - (d.created_at || 0) < 3 * 3600000;
+
   async function iceServers() {
     try { const r = await Api.callIce(); if (r && Array.isArray(r.iceServers) && r.iceServers.length) return r.iceServers; }
     catch (e) { console.warn('拿不到中繼伺服器', e); }
@@ -3819,83 +3839,148 @@
   const mediaError = (e) => (e && e.name === 'NotAllowedError'
     ? '沒有相機或麥克風的權限。請到 iPhone 的「設定」允許這個 App 使用相機和麥克風。'
     : '打不開相機或麥克風，請確認沒有其他 App 正在使用。');
+  const canVideo = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection);
 
-  function makePeer(servers) {
-    const pc = new RTCPeerConnection({ iceServers: servers });
+  function sendSignal(to, kind, data) {
+    return Api.addDoc('call_signals', { call_id: call.id, from: state.userId, to, kind, data: JSON.stringify(data), created_at: Date.now() })
+      .catch((e) => console.warn(e));
+  }
+
+  // 跟某一個人的連線
+  function peerFor(uid) {
+    let p = call.peers.get(uid);
+    if (p) return p;
+    const pc = new RTCPeerConnection({ iceServers: call.servers });
+    p = { pc, stream: null, pending: [], state: 'connecting' };
+    call.peers.set(uid, p);
     call.local.getTracks().forEach((t) => pc.addTrack(t, call.local));
-    pc.ontrack = (ev) => { call.remote = ev.streams[0] || new MediaStream([ev.track]); attachVideos(); };
-    pc.onicecandidate = (ev) => {
-      if (!ev.candidate) return;
-      const c = JSON.stringify(ev.candidate.toJSON());
-      if (call.id) sendCandidate(c); else call.pending.push(c);
-    };
+    pc.ontrack = (ev) => { p.stream = ev.streams[0] || new MediaStream([ev.track]); drawTiles(); };
+    pc.onicecandidate = (ev) => { if (ev.candidate) sendSignal(uid, 'cand', ev.candidate.toJSON()); };
     pc.onconnectionstatechange = () => {
-      if (pc !== call.pc) return;
-      const s = pc.connectionState;
-      if (s === 'connected') { call.status = 'connected'; if (!call.started) call.started = Date.now(); }
-      else if (s === 'disconnected') call.status = 'reconnecting';
-      else if (s === 'failed') { toast('連線中斷了'); hangUp('ended'); return; }
-      updateCallView();
+      if (call.peers.get(uid) !== p) return;
+      p.state = pc.connectionState;
+      if (p.state === 'connected' && !call.started) call.started = Date.now();
+      if (p.state === 'failed') { toast('和' + nameOf(uid) + '的連線中斷了'); closePeer(uid); }
+      drawTiles();
     };
-    return pc;
+    drawTiles();
+    return p;
   }
-  function sendCandidate(c) {
-    Api.addDoc('call_signals', { call_id: call.id, from: state.userId, cand: c, created_at: Date.now() }).catch((e) => console.warn(e));
+  function closePeer(uid) {
+    const p = call.peers.get(uid);
+    if (!p) return;
+    try { p.pc.close(); } catch (e) { /* 已經關了 */ }
+    call.peers.delete(uid);
+    drawTiles();
   }
-  // 對方的 ICE 候選：先設好對方的連線描述才能加
-  function useSignals(list) {
-    if (!call.pc || !call.pc.remoteDescription) return;
-    list.filter((s) => s.call_id === call.id && s.from === call.peer && !call.seen.has(s.id)).forEach((s) => {
+  async function offerTo(uid) {
+    const p = peerFor(uid);
+    try {
+      const offer = await p.pc.createOffer();
+      await p.pc.setLocalDescription(offer);
+      sendSignal(uid, 'offer', { type: offer.type, sdp: offer.sdp });
+    } catch (e) { console.error(e); }
+  }
+  async function flushCandidates(p) {
+    const list = p.pending.splice(0);
+    for (const c of list) { try { await p.pc.addIceCandidate(c); } catch (e) { console.warn(e); } }
+  }
+  // 收到別人送給我的連線資訊
+  async function onSignals(list) {
+    if (!call.id) return;
+    const mine = list.filter((s) => s.call_id === call.id && s.to === state.userId && !call.seen.has(s.id))
+      .sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+    for (const s of mine) {
       call.seen.add(s.id);
-      try { call.pc.addIceCandidate(JSON.parse(s.cand)).catch((e) => console.warn(e)); } catch (e) { console.warn(e); }
-    });
+      let data;
+      try { data = JSON.parse(s.data); } catch (e) { continue; }
+      try {
+        if (s.kind === 'offer') {
+          const p = peerFor(s.from);
+          await p.pc.setRemoteDescription(data);
+          const answer = await p.pc.createAnswer();
+          await p.pc.setLocalDescription(answer);
+          sendSignal(s.from, 'answer', { type: answer.type, sdp: answer.sdp });
+          await flushCandidates(p);
+        } else if (s.kind === 'answer') {
+          const p = call.peers.get(s.from);
+          if (p && !p.pc.remoteDescription) { await p.pc.setRemoteDescription(data); await flushCandidates(p); }
+        } else if (s.kind === 'cand') {
+          const p = peerFor(s.from);
+          if (p.pc.remoteDescription) await p.pc.addIceCandidate(data); else p.pending.push(data);
+        }
+      } catch (e) { console.warn('連線資訊處理失敗', e); }
+    }
   }
-  let lastSignals = [];
   function watchSignals() {
-    if (call.unsubSig) return;
-    call.unsubSig = Api.watchList('call_signals', (list) => { lastSignals = list; useSignals(list); });
+    if (!call.unsubSig) call.unsubSig = Api.watchList('call_signals', onSignals);
   }
 
-  async function startCall(peerId) {
-    if (call.id || call.role) return;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) return toast('這支手機不支援視訊通話');
-    Object.assign(call, { peer: peerId, role: 'caller', status: 'starting', pending: [], seen: new Set(), started: 0, muted: false, camOff: false, ending: false });
-    buildCallView();
-    try { call.local = await getMedia(); } catch (e) { console.warn(e); endLocal(); return toast(mediaError(e)); }
-    attachVideos();
+  // 依照通話資料，跟現在在通話裡的每個人建立（或關掉）連線
+  function syncPeers(d) {
+    const here = inCallIds(d).filter((u) => u !== state.userId);
+    here.forEach((u) => { if (!call.peers.has(u) && state.userId < u) offerTo(u); });
+    [...call.peers.keys()].forEach((u) => {
+      if (here.includes(u)) return;
+      closePeer(u);
+      // 對方離開了：把我送給他的連線資訊清掉，他回來時重新連
+      Api.listDocs('call_signals', ['call_id', call.id]).then((list) => Promise.all(list
+        .filter((x) => x.from === state.userId && x.to === u).map((x) => Api.deleteDoc('call_signals', x.id)))).catch(() => {});
+    });
+    drawTiles();
+  }
+
+  async function prepareCall() {
+    if (!canVideo()) { toast('這支手機不支援視訊通話'); return false; }
+    Object.assign(call, { peers: new Map(), started: 0, muted: false, camOff: false, ending: false, seen: new Set() });
+    try { call.local = await getMedia(); } catch (e) { console.warn(e); toast(mediaError(e)); return false; }
+    call.servers = await iceServers();
+    return true;
+  }
+
+  async function startCall(uids) {
+    if (call.id || call.preparing) return;
+    const to = uids.filter((u) => u !== state.userId).slice(0, MAX_CALL - 1);
+    if (!to.length) return;
+    call.preparing = true;
+    buildCallView(to);
+    const ok = await prepareCall();
+    if (!ok) { call.preparing = false; return endLocal(); }
     try {
-      call.pc = makePeer(await iceServers());
-      const offer = await call.pc.createOffer();
-      await call.pc.setLocalDescription(offer);
-      if (!call.role) return;                       // 等待時已經掛斷
-      call.id = await Api.addDoc('calls', { from: state.userId, to: [peerId], status: 'ringing', offer: { type: offer.type, sdp: offer.sdp }, created_at: Date.now() });
-      call.pending.splice(0).forEach(sendCandidate);
-      call.status = 'ringing';
+      const now = Date.now();
+      call.id = await Api.addDoc('calls', { from: state.userId, to, status: 'live', joined: { [state.userId]: now }, left: {}, declined: {}, created_at: now });
       watchSignals();
-      updateCallView();
-      call.timer = setTimeout(() => { if (call.status === 'ringing') hangUp('missed'); }, RING_MS);
-    } catch (e) { console.error(e); toast('撥不出去，請確認網路後再試一次'); hangUp('canceled'); }
+      attachLocal();
+    } catch (e) { console.error(e); toast('撥不出去，請確認網路後再試一次'); endLocal(); }
+    call.preparing = false;
   }
 
-  async function acceptCall() {
-    const d = state.calls.find((x) => x.id === call.incoming);
-    if (!d || d.status !== 'ringing') { hideIncoming(); return toast('對方已經掛斷了'); }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) return toast('這支手機不支援視訊通話');
+  // 接聽來電，或加入正在進行的通話
+  async function joinCall(id) {
+    const d = state.calls.find((x) => x.id === id);
+    if (!d || !liveCall(d) || !inCallIds(d).length) { hideIncoming(); return toast('通話已經結束了'); }
+    if (call.id || call.preparing) return;
     hideIncoming();
-    Object.assign(call, { id: d.id, peer: d.from, role: 'callee', status: 'connecting', pending: [], seen: new Set(), started: 0, muted: false, camOff: false, ending: false });
-    buildCallView();
-    try { call.local = await getMedia(); } catch (e) { console.warn(e); toast(mediaError(e)); return hangUp('declined'); }
-    attachVideos();
+    call.preparing = true;
+    buildCallView(callPeople(d).filter((u) => u !== state.userId));
+    const ok = await prepareCall();
+    if (!ok) { call.preparing = false; return endLocal(); }
+    // 上一次加入時留下、送給我或我送出的舊連線資訊：先標成看過並刪掉，免得跟這次的混在一起
     try {
-      call.pc = makePeer(await iceServers());
-      await call.pc.setRemoteDescription(d.offer);
-      const answer = await call.pc.createAnswer();
-      await call.pc.setLocalDescription(answer);
-      await Api.updateDoc('calls', d.id, { answer: { type: answer.type, sdp: answer.sdp }, status: 'active', answered_at: Date.now() });
-      watchSignals();
-      useSignals(lastSignals);
-      updateCallView();
-    } catch (e) { console.error(e); toast('接不起來，請再試一次'); hangUp('ended'); }
+      const old = (await Api.listDocs('call_signals', ['call_id', id])).filter((s) => s.to === state.userId || s.from === state.userId);
+      old.forEach((s) => call.seen.add(s.id));
+      await Promise.all(old.map((s) => Api.deleteDoc('call_signals', s.id)));
+    } catch (e) { console.warn(e); }
+    call.id = id;
+    attachLocal();
+    watchSignals();
+    try {
+      const now = Date.now();
+      const change = { ['joined.' + state.userId]: now };
+      if (!d.answered_at) change.answered_at = now;
+      await Api.updateDoc('calls', id, change);
+    } catch (e) { console.error(e); toast('加入不了，請再試一次'); endLocal(); }
+    call.preparing = false;
   }
 
   function declineCall() {
@@ -3903,87 +3988,113 @@
     if (!id) return;
     dismissedCalls.add(id);
     hideIncoming();
-    Api.updateDoc('calls', id, { status: 'declined', ended_at: Date.now() }).catch((e) => console.warn(e));
+    Api.updateDoc('calls', id, { ['declined.' + state.userId]: Date.now() }).catch((e) => console.warn(e));
   }
 
-  // 自己掛斷（或撥出去沒人接）：通知對方，然後收掉
-  async function hangUp(reason) {
+  // 自己離開；如果離開後通話裡沒人（或只剩一個人而且也沒人在等著接），整通結束
+  async function leaveCall() {
     if (call.ending) return;
     call.ending = true;
-    const id = call.id, peer = call.peer, caller = call.role === 'caller';
+    const id = call.id;
+    const d = state.calls.find((x) => x.id === id);
     endLocal();
     if (!id) return;
-    try { await Api.updateDoc('calls', id, { status: reason || 'ended', ended_at: Date.now() }); } catch (e) { console.warn(e); }
-    if (caller && reason === 'missed') Api.sendMessage('打視訊給' + nameOf(peer) + '，沒有接到').catch(() => {});
-    if (caller) setTimeout(() => cleanupCall(id), 4000);
+    const now = Date.now();
+    const rest = d ? inCallIds(d).filter((u) => u !== state.userId) : [];
+    const change = { ['left.' + state.userId]: now };
+    // 沒有別人了，或只剩一個人而且也沒有人還在響：整通結束
+    const over = !d || !rest.length || (rest.length === 1 && !waitingFor(d).length);
+    if (over) Object.assign(change, { status: 'ended', ended_at: now });
+    try { await Api.updateDoc('calls', id, change); } catch (e) { console.warn(e); }
+    if (over && d) noteMissed(d);
+    clearSignals(id, over ? null : state.userId);
   }
-  // 撥打的人負責清掉這通電話的資料（等幾秒，讓對方先看到「已掛斷」）
-  async function cleanupCall(id) {
+  // 撥出去沒有人接：在聊天室留一句，對方會收到通知
+  function noteMissed(d) {
+    if (d.from !== state.userId || d.answered_at) return;
+    const missed = (d.to || []).filter((u) => !(d.declined || {})[u]);
+    if (missed.length) Api.sendMessage('打視訊給' + callNames(missed) + '，沒有接到').catch(() => {});
+  }
+  // 清掉連線資訊：只清自己送出的（還有人在通話），或整通的（通話結束）
+  async function clearSignals(id, onlyFrom) {
     try {
       const sigs = await Api.listDocs('call_signals', ['call_id', id]);
-      await Promise.all(sigs.map((s) => Api.deleteDoc('call_signals', s.id)));
-      await Api.deleteDoc('calls', id);
+      await Promise.all(sigs.filter((s) => !onlyFrom || s.from === onlyFrom).map((s) => Api.deleteDoc('call_signals', s.id)));
     } catch (e) { console.warn(e); }
   }
 
   function endLocal() {
-    clearTimeout(call.timer); clearInterval(call.tick);
+    clearInterval(call.tick);
     if (call.local) call.local.getTracks().forEach((t) => t.stop());
-    if (call.pc) { try { call.pc.close(); } catch (e) { /* 已經關了 */ } }
+    call.peers.forEach((p) => { try { p.pc.close(); } catch (e) { /* 已經關了 */ } });
     if (call.unsubSig) call.unsubSig();
-    if (call.wake) { call.wake.release().catch(() => {}); }
-    Object.assign(call, { id: null, peer: null, role: null, status: '', pc: null, local: null, remote: null, pending: [], timer: null, tick: null, unsubSig: null, wake: null });
-    if ($call && !call.incoming) $call.innerHTML = '';
-    document.body.classList.remove('in-call');
+    if (call.wake) call.wake.release().catch(() => {});
+    Object.assign(call, { id: null, local: null, peers: new Map(), tick: null, unsubSig: null, wake: null, started: 0, preparing: false });
+    if ($call && !call.incoming) { $call.innerHTML = ''; document.body.classList.remove('in-call'); }
+    refreshCallBanner();
   }
 
-  // 監聽所有通話：有人打給我就跳出來電畫面；目前這通的狀態變了就跟著處理
+  // 所有通話的資料一變就進來
   function onCalls(list) {
     state.calls = list;
     const me = state.userId;
     if (!me) return;
-    // 自己撥出、已經結束或太舊的：順手清掉（例如上次撥到一半 App 被關掉）
-    list.filter((d) => d.from === me && d.id !== call.id && (!['ringing', 'active'].includes(d.status) || Date.now() - (d.created_at || 0) > 3 * 3600000))
-      .forEach((d) => { if (!d.cleaning) { d.cleaning = true; cleanupCall(d.id); } });
+    // 剛打開 App：如果上次在通話中 App 被關掉，幫自己標成已離開（之後還能從聊天室重新加入）
+    if (!staleChecked) {
+      staleChecked = true;
+      list.filter((d) => liveCall(d) && inCallIds(d).includes(me) && d.id !== call.id).forEach((d) => {
+        const rest = inCallIds(d).filter((u) => u !== me);
+        const change = { ['left.' + me]: Date.now() };
+        if (!rest.length) Object.assign(change, { status: 'ended', ended_at: Date.now() });
+        Api.updateDoc('calls', d.id, change).catch(() => {});
+      });
+    }
+    // 自己撥出的：沒結束但已經沒人、或是太舊的，標成結束；超過 60 天的紀錄刪掉
+    list.filter((d) => d.from === me && d.id !== call.id).forEach((d) => {
+      if (d.status !== 'ended' && (!liveCall(d) || (!inCallIds(d).length && !stillRinging(d)))) {
+        Api.updateDoc('calls', d.id, { status: 'ended', ended_at: d.ended_at || Date.now() }).catch(() => {});
+        clearSignals(d.id);
+      } else if (d.status === 'ended' && Date.now() - (d.created_at || 0) > 60 * 86400000 && !d.cleaning) {
+        d.cleaning = true;
+        Api.deleteDoc('calls', d.id).catch(() => {});
+      }
+    });
     if (call.id) {
       const d = list.find((x) => x.id === call.id);
-      if (!d) { if (call.role === 'callee') { toast('通話結束'); endLocal(); } return; }
-      if (['ended', 'declined', 'missed', 'canceled'].includes(d.status) && !call.ending) {
-        if (call.role === 'caller' && d.status === 'declined') toast(nameOf(call.peer) + '現在不方便接');
-        else if (d.status === 'ended') toast('通話結束');
-        call.ending = true;
-        const caller = call.role === 'caller', id = call.id;
-        endLocal();
-        if (caller) setTimeout(() => cleanupCall(id), 1000);
-        return;
-      }
-      if (call.role === 'caller' && d.answer && call.pc && !call.pc.remoteDescription && !call.answering) {
-        call.answering = true;
-        clearTimeout(call.timer);
-        call.status = 'connecting'; updateCallView();
-        call.pc.setRemoteDescription(d.answer).then(() => useSignals(lastSignals)).catch((e) => { console.error(e); hangUp('ended'); })
-          .finally(() => { call.answering = false; });
-      }
+      if (!d || d.status === 'ended') { if (!call.ending) { call.ending = true; toast('通話結束'); endLocal(); } return; }
+      syncPeers(d);
+      checkAlone(d);
+      updateCallView();
       return;
     }
-    const ring = list.find((d) => d.status === 'ringing' && (d.to || []).includes(me) && d.from !== me && d.offer
-      && Date.now() - (d.created_at || 0) < RING_MS + 10000 && !dismissedCalls.has(d.id));
-    if (ring && call.incoming !== ring.id) showIncoming(ring);
-    else if (!ring && call.incoming) {
-      const d = list.find((x) => x.id === call.incoming);
-      if (!d || d.status !== 'ringing') { if (d && d.status === 'missed') toast('錯過了' + nameOf(d.from) + '的視訊'); hideIncoming(); }
+    // 有人邀請我：還在響、我沒加入也沒拒絕、通話裡還有人
+    const ring = list.find((d) => liveCall(d) && (d.to || []).includes(me) && stillRinging(d) && !(d.joined || {})[me]
+      && !(d.declined || {})[me] && inCallIds(d).length && !dismissedCalls.has(d.id));
+    if (ring && call.incoming !== ring.id && !call.preparing) showIncoming(ring);
+    else if (!ring && call.incoming) hideIncoming();
+    refreshCallBanner();
+  }
+  // 通話裡只剩自己、也沒有人在等著接：自動結束
+  function checkAlone(d) {
+    if (!call.id || call.ending || call.preparing) return;
+    const rest = inCallIds(d).filter((u) => u !== state.userId);
+    if (!rest.length && !waitingFor(d).length) {
+      const answered = !!d.answered_at;
+      toast(answered ? '其他人都離開了' : '沒有人接聽');
+      leaveCall();
     }
   }
 
   function showIncoming(d) {
     call.incoming = d.id;
     const who = member(d.from);
+    const others = (d.to || []).filter((u) => u !== state.userId);
     callRoot().innerHTML = `
       <div class="call-incoming" role="alertdialog" aria-label="${esc(nameOf(d.from))}邀請你視訊">
         <div class="call-who">
           ${who ? `<span class="avatar call-avatar ring" style="background:${esc(who.color)}">${esc(who.display_name.slice(0, 1))}</span>` : ''}
           <b>${esc(nameOf(d.from))}</b>
-          <span>邀請你視訊</span>
+          <span>${others.length ? '邀請你和' + esc(callNames(others)) + '一起視訊' : '邀請你視訊'}</span>
         </div>
         <div class="call-answer">
           <button class="call-btn end" data-act="call-decline" aria-label="拒絕">${CALL_ICON.end}<small>拒絕</small></button>
@@ -3994,54 +4105,86 @@
   }
   function hideIncoming() {
     call.incoming = null;
-    if ($call && !call.role) { $call.innerHTML = ''; document.body.classList.remove('in-call'); }
+    if ($call && !call.id && !call.preparing) { $call.innerHTML = ''; document.body.classList.remove('in-call'); }
   }
 
-  function buildCallView() {
-    const who = member(call.peer);
+  // ---- 通話畫面 ----
+  function buildCallView(others) {
     callRoot().innerHTML = `
-      <div class="call-view" role="dialog" aria-label="和${esc(nameOf(call.peer))}視訊">
-        <video id="call-remote" autoplay playsinline></video>
+      <div class="call-view" role="dialog" aria-label="視訊通話">
+        <div class="call-grid" id="call-grid"></div>
         <div class="call-wait" id="call-wait">
-          ${who ? `<span class="avatar call-avatar" style="background:${esc(who.color)}">${esc(who.display_name.slice(0, 1))}</span>` : ''}
+          <div class="call-wait-faces">${others.map((u) => { const m = member(u); return m ? `<span class="avatar call-avatar" style="background:${esc(m.color)}">${esc(m.display_name.slice(0, 1))}</span>` : ''; }).join('')}</div>
         </div>
-        <div class="call-top"><b>${esc(nameOf(call.peer))}</b><span id="call-status"></span></div>
+        <div class="call-top"><b>${esc(callNames(others))}</b><span id="call-status">準備中…</span></div>
         <video id="call-local" autoplay playsinline muted></video>
         <div class="call-ctrls">
           <button class="call-btn" data-act="call-mute" id="call-mute"></button>
           <button class="call-btn" data-act="call-cam" id="call-cam"></button>
           <button class="call-btn" data-act="call-flip" aria-label="切換前後鏡頭">${CALL_ICON.flip}<small>翻轉</small></button>
-          <button class="call-btn end" data-act="call-end" aria-label="掛斷">${CALL_ICON.end}<small>掛斷</small></button>
+          <button class="call-btn end" data-act="call-end" aria-label="離開通話">${CALL_ICON.end}<small>掛斷</small></button>
         </div>
       </div>`;
     document.body.classList.add('in-call');
     if (navigator.wakeLock) navigator.wakeLock.request('screen').then((w) => { call.wake = w; }).catch(() => {});
     clearInterval(call.tick);
-    call.tick = setInterval(updateCallView, 1000);
+    call.tick = setInterval(() => {
+      updateCallView();
+      const d = call.id && state.calls.find((x) => x.id === call.id);
+      if (d) checkAlone(d);
+    }, 1000);
     updateCallView();
   }
-  function attachVideos() {
-    const r = document.getElementById('call-remote'), l = document.getElementById('call-local');
+  function attachLocal() {
+    const l = document.getElementById('call-local');
     if (l && call.local && l.srcObject !== call.local) l.srcObject = call.local;
-    if (r && call.remote && r.srcObject !== call.remote) { r.srcObject = call.remote; r.play().catch(() => {}); }
+    updateCallView();
+  }
+  // 每個人一格；格子數變了才重排，影像不重接
+  function drawTiles() {
+    const grid = document.getElementById('call-grid');
+    if (!grid) return;
+    const ids = [...call.peers.keys()].filter((u) => call.peers.get(u).stream);
+    grid.dataset.n = ids.length;
+    [...grid.children].forEach((t) => { if (!ids.includes(t.dataset.uid)) t.remove(); });
+    ids.forEach((u) => {
+      const p = call.peers.get(u);
+      let tile = grid.querySelector(`[data-uid="${u}"]`);
+      if (!tile) {
+        tile = document.createElement('div');
+        tile.className = 'call-tile'; tile.dataset.uid = u;
+        tile.innerHTML = `<video autoplay playsinline></video><span class="call-name">${esc(nameOf(u))}</span>`;
+        grid.appendChild(tile);
+      }
+      const v = tile.querySelector('video');
+      if (v.srcObject !== p.stream) { v.srcObject = p.stream; v.play().catch(() => {}); }
+      tile.classList.toggle('weak', p.state === 'disconnected');
+    });
     updateCallView();
   }
   function updateCallView() {
-    if (!call.role) return;
     const st = document.getElementById('call-status');
     if (!st) return;
+    const d = call.id && state.calls.find((x) => x.id === call.id);
+    const live = [...call.peers.values()].filter((p) => p.stream).length;
     const sec = call.started ? Math.floor((Date.now() - call.started) / 1000) : 0;
-    st.textContent = { starting: '準備中…', ringing: '正在等' + nameOf(call.peer) + '接聽…', connecting: '連線中…', reconnecting: '網路不穩，重新連線中…' }[call.status]
-      || (call.status === 'connected' ? Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') : '');
+    const waiting = d ? waitingFor(d) : [];
+    let text = '準備中…';
+    if (call.id && live) text = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') + (waiting.length ? '　等' + callNames(waiting) + '加入…' : '');
+    else if (call.id && d && inCallIds(d).length > 1) text = '連線中…';
+    else if (call.id && waiting.length) text = '正在等' + callNames(waiting) + '接聽…';
+    st.textContent = text;
+    const top = document.querySelector('.call-top b');
+    if (top && d) top.textContent = callNames(callPeople(d).filter((u) => u !== state.userId));
     const wait = document.getElementById('call-wait');
-    if (wait) wait.hidden = call.status === 'connected' && !!call.remote;
+    if (wait) wait.hidden = live > 0;
     const mute = document.getElementById('call-mute'), cam = document.getElementById('call-cam');
     mute.innerHTML = (call.muted ? CALL_ICON.micOff : CALL_ICON.mic) + `<small>${call.muted ? '取消靜音' : '靜音'}</small>`;
     mute.classList.toggle('on', call.muted); mute.setAttribute('aria-pressed', call.muted);
     cam.innerHTML = (call.camOff ? CALL_ICON.camOff : CALL_ICON.video) + `<small>${call.camOff ? '開鏡頭' : '關鏡頭'}</small>`;
     cam.classList.toggle('on', call.camOff); cam.setAttribute('aria-pressed', call.camOff);
     const l = document.getElementById('call-local');
-    if (l) { l.hidden = call.camOff; l.classList.toggle('mirror', call.facing === 'user'); }
+    if (l) { l.hidden = call.camOff || !call.local; l.classList.toggle('mirror', call.facing === 'user'); }
   }
   function toggleMute() {
     call.muted = !call.muted;
@@ -4053,7 +4196,6 @@
     if (call.local) call.local.getVideoTracks().forEach((t) => { t.enabled = !call.camOff; });
     updateCallView();
   }
-  // 前後鏡頭：拿新的鏡頭畫面，換掉送給對方的那一路，再關掉舊的
   async function flipCamera() {
     if (!call.local) return;
     const facing = call.facing === 'user' ? 'environment' : 'user';
@@ -4061,8 +4203,10 @@
       const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 } } });
       const track = s.getVideoTracks()[0];
       const old = call.local.getVideoTracks()[0];
-      const sender = call.pc && call.pc.getSenders().find((x) => x.track && x.track.kind === 'video');
-      if (sender) await sender.replaceTrack(track);
+      await Promise.all([...call.peers.values()].map((p) => {
+        const sender = p.pc.getSenders().find((x) => x.track && x.track.kind === 'video');
+        return sender ? sender.replaceTrack(track) : null;
+      }));
       if (old) { call.local.removeTrack(old); old.stop(); }
       track.enabled = !call.camOff;
       call.local.addTrack(track);
@@ -4073,19 +4217,71 @@
     } catch (e) { console.warn(e); toast('切換不了鏡頭'); }
   }
 
+  // ---- 聊天室上方：正在進行、我可以加入的通話 ----
+  function joinableCall() {
+    const me = state.userId;
+    return state.calls.find((d) => liveCall(d) && callPeople(d).includes(me) && inCallIds(d).length && !inCallIds(d).includes(me)
+      && d.id !== call.id && d.id !== call.incoming);
+  }
+  function callBannerHtml() {
+    const d = !call.id && joinableCall();
+    if (!d) return '';
+    return `<button class="call-banner" data-act="call-join" data-id="${esc(d.id)}">${CALL_ICON.video}<span><b>視訊通話進行中</b><small>${esc(callNames(inCallIds(d)))}</small></span><em>加入</em></button>`;
+  }
+  function refreshCallBanner() {
+    const el = document.getElementById('call-banner');
+    if (el) el.innerHTML = callBannerHtml();
+  }
+
+  // ---- 撥打畫面＋通話紀錄 ----
+  function callLogHtml() {
+    const me = state.userId;
+    const list = state.calls.filter((d) => callPeople(d).includes(me) && d.status === 'ended')
+      .sort((a, b) => (b.created_at || 0) - (a.created_at || 0)).slice(0, 30);
+    if (!list.length) return '<p class="hint">還沒有通話紀錄。</p>';
+    return `<div class="call-log">${list.map((d) => {
+      const out = d.from === me;
+      const others = callPeople(d).filter((u) => u !== me);
+      const dur = d.answered_at && d.ended_at ? Math.max(0, Math.round((d.ended_at - d.answered_at) / 1000)) : 0;
+      const joinedMe = !!(d.joined || {})[me];
+      let result, bad = false;
+      if (d.answered_at && joinedMe) result = '通話 ' + (dur >= 60 ? Math.floor(dur / 60) + ' 分 ' : '') + (dur % 60) + ' 秒';
+      else if (out) result = d.answered_at ? '對方有接' : '沒有人接';
+      else if ((d.declined || {})[me]) result = '已拒絕';
+      else { result = '未接來電'; bad = true; }
+      return `
+        <button class="call-log-row" data-act="call-again" data-id="${esc(d.id)}" aria-label="再打一次給${esc(callNames(others))}">
+          <span class="call-dir ${out ? 'out' : bad ? 'missed' : 'in'}" aria-label="${out ? '撥出' : '來電'}">${out ? CALL_ICON.out : CALL_ICON.in}</span>
+          <span class="call-log-main"><b class="${bad ? 'missed' : ''}">${esc(callNames(others))}</b><small>${result}</small></span>
+          <time>${stamp(d.created_at)}</time>
+        </button>`;
+    }).join('')}</div>`;
+  }
   function openCallPicker() {
     const others = state.members.filter((m) => m.id !== state.userId);
-    showSheet('call-pick', {
-      title: '要跟誰視訊？', readonly: true,
+    showSheet('call-form', {
+      title: '視訊通話', submit: '開始視訊',
       body: `
+      <p class="hint">選要一起視訊的人，可以選好幾個（最多 ${MAX_CALL} 個人一起）。</p>
       <div class="call-pick">
         ${others.map((m) => `
-          <button type="button" class="call-pick-row" data-act="call-start" data-id="${esc(m.id)}">
-            ${avatarHtml(m)}<b>${esc(m.display_name)}</b><small>${esc(statusText(m.id))}</small>${CALL_ICON.video}
-          </button>`).join('')}
+          <label class="call-pick-row">
+            ${avatarHtml(m)}<b>${esc(m.display_name)}</b><small>${esc(statusText(m.id))}</small>
+            <input type="checkbox" name="call_to" value="${esc(m.id)}">
+          </label>`).join('')}
       </div>
-      <p class="hint">對方會收到通知，點開 App 就能接聽。通話時 App 要停在畫面上，切到別的 App 或鎖定畫面，視訊會中斷。</p>`
+      ${others.length > 1 ? '<button type="button" class="btn ghost small" data-act="call-all">全家一起</button>' : ''}
+      <p class="hint">對方會收到通知，點開 App 就能接聽。通話時 App 要停在畫面上，切到別的 App 或鎖定畫面，視訊會中斷；回來後可以從聊天室上方重新加入。</p>
+      <h3 class="call-log-head">通話紀錄</h3>
+      ${callLogHtml()}`
     });
+  }
+  function onCallForm(form) {
+    const to = checkedValues(form, 'call_to');
+    const err = form.querySelector('#form-error');
+    if (!to.length) { err.textContent = '請選一個以上的人'; err.hidden = false; return; }
+    closeSheet();
+    startCall(to);
   }
 
   function openTurnSheet() {

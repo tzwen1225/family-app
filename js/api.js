@@ -26,7 +26,8 @@
 //   相簿 photos：    { id, month: 'YYYY-MM', date, caption, thumb, image_id, author }
 //        photo_comments：{ id, photo_id, month, text, author, created_at }
 //   交通常用清單 transit_favs/{UID}：{ bus: [{ area, route, dir, to, uid, name }], tra: [{ id, name }] }
-//   視訊 calls：{ id, from, to: [UID], status, offer, answer, created_at }；call_signals：{ call_id, from, cand, created_at }
+//   視訊 calls：{ id, from, to: [UID], status: live|ended, joined/left/declined: { UID: 時間 }, created_at, answered_at, ended_at }
+//        call_signals：{ call_id, from, to, kind: offer|answer|cand, data, created_at }
 //   聊天照片 chat_images：{ id, data: 圖片內容, sender, sent_at }；訊息本身只放小縮圖 thumb 和 image_id
 // 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
@@ -554,7 +555,13 @@
       async updateDoc(name, id, data) {
         freshDocs();
         const item = G(name).find((x) => x.id === id);
-        if (item) Object.assign(item, data);
+        // 跟 Firestore 一樣支援 'joined.m1' 這種只改一個欄位底下某一項的寫法
+        if (item) Object.entries(data).forEach(([k, v]) => {
+          const path = k.split('.');
+          let o = item;
+          path.slice(0, -1).forEach((p) => { o[p] = o[p] && typeof o[p] === 'object' ? o[p] : {}; o = o[p]; });
+          o[path[path.length - 1]] = v;
+        });
         persist(); gemit(name);
       },
       async deleteDoc(name, id) {

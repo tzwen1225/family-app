@@ -117,10 +117,14 @@ exports.onTodo = onDocumentCreated('shopping/{id}', async (event) => {
 // 視訊：有人撥打時通知被打的人（點通知打開 App 就會出現來電畫面）
 exports.onVideoCall = onDocumentCreated('calls/{id}', async (event) => {
   const c = event.data.data();
-  if (!c || c.status !== 'ringing') return;
+  if (!c || c.status === 'ended') return;
   const names = await memberNames();
   const to = (c.to || []).filter((uid) => uid !== c.from);
-  await notify(to, (names[c.from] || '家人') + '邀請你視訊', '點這裡接聽', 'call-' + event.params.id);
+  // 每個人收到的內容不同：多人時告訴他還有誰
+  await Promise.all(to.map((uid) => {
+    const others = to.filter((u) => u !== uid).map((u) => names[u] || '家人');
+    return notify([uid], (names[c.from] || '家人') + (others.length ? '邀請你和' + others.join('、') + '一起視訊' : '邀請你視訊'), '點這裡接聽', 'call-' + event.params.id);
+  }));
 });
 
 // ---------- 交通查詢：新竹的公車與台鐵即時資訊 ----------

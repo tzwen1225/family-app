@@ -312,28 +312,31 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/photos/$(resource.data.photo_id)).data.created_by == request.auth.uid));
     }
 
-    // 視訊通話：撥打的人建立，打的人和被打的人可以更新（接聽、掛斷）和刪除
+    // 視訊通話：撥打的人建立；通話裡的人（撥打的人和被邀請的人）可以加入、離開、拒絕、結束。
+    // 結束後留著當作通話紀錄，撥打的人可以刪掉
     match /calls/{id} {
       allow read: if isFamily();
       allow create: if isFamily()
         && request.resource.data.from == request.auth.uid
         && request.resource.data.to is list
         && request.resource.data.to.size() >= 1 && request.resource.data.to.size() <= 3
-        && request.resource.data.status == 'ringing';
+        && request.resource.data.status == 'live';
       allow update: if isFamily()
         && (resource.data.from == request.auth.uid || request.auth.uid in resource.data.to)
         && request.resource.data.from == resource.data.from
-        && request.resource.data.to == resource.data.to;
-      allow delete: if isFamily()
-        && (resource.data.from == request.auth.uid || request.auth.uid in resource.data.to);
+        && request.resource.data.to == resource.data.to
+        && request.resource.data.status in ['live', 'ended'];
+      allow delete: if isFamily() && resource.data.from == request.auth.uid;
     }
-    // 視訊連線用的資訊：只能以自己的名義送出；通話結束後撥打的人整批刪掉
+    // 視訊連線用的資訊：只能以自己的名義送出；通話結束後刪掉
     match /call_signals/{id} {
       allow read: if isFamily();
       allow create: if isFamily()
         && request.resource.data.from == request.auth.uid
         && request.resource.data.call_id is string
-        && request.resource.data.cand is string && request.resource.data.cand.size() <= 2000;
+        && request.resource.data.to is string
+        && request.resource.data.kind in ['offer', 'answer', 'cand']
+        && request.resource.data.data is string && request.resource.data.data.size() <= 20000;
       allow update: if false;
       allow delete: if isFamily();
     }
