@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 01:50';
+  const VERSION = '2026-11-18 02:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -28,6 +28,19 @@
     if (id) document.documentElement.dataset.theme = id; else delete document.documentElement.dataset.theme;
     try { if (id) localStorage.setItem(THEME_KEY, id); else localStorage.removeItem(THEME_KEY); } catch (e) { /* 忽略 */ }
     syncThemeColor();
+  }
+  // 介面風格：跟面板顏色分開，可以自由搭配；只存在這支手機
+  const STYLES = [
+    ['', '原始風格', '清爽的日曆感'],
+    ['cute', '可愛風格', '圓圓的、點點底、軟軟的字'],
+    ['simple', '簡約風格', '平面、細線、少裝飾'],
+    ['big', '大字清楚', '字和按鈕都放大，好讀好按']
+  ];
+  const STYLE_KEY = 'family-style';
+  const currentStyle = () => document.documentElement.dataset.style || '';
+  function applyStyle(id) {
+    if (id) document.documentElement.dataset.style = id; else delete document.documentElement.dataset.style;
+    try { if (id) localStorage.setItem(STYLE_KEY, id); else localStorage.removeItem(STYLE_KEY); } catch (e) { /* 忽略 */ }
   }
   // 讓手機最上方狀態列的底色跟著面板走
   function syncThemeColor() {
@@ -2770,6 +2783,16 @@
         <button class="btn ghost small" data-act="turn-key">查看或更換中繼伺服器設定</button>
       </section>` : ''}
       <section class="card-list">
+        <h2>介面風格<small>只會改這支手機，可以和面板顏色自由搭配</small></h2>
+        <div class="styles" role="group" aria-label="介面風格">
+          ${STYLES.map(([id, name, note]) => `
+            <button class="style-opt ${currentStyle() === id ? 'on' : ''}" data-act="ui-style" data-style-id="${id}" ${currentStyle() === id ? 'aria-pressed="true"' : ''}>
+              <span class="style-demo" data-demo="${id || 'classic'}" aria-hidden="true"><i></i><b></b><b></b><em></em></span>
+              <span class="style-name">${name}</span><small>${note}</small>
+            </button>`).join('')}
+        </div>
+      </section>
+      <section class="card-list">
         <h2>面板顏色<small>只會改這支手機</small></h2>
         <div class="themes" role="group" aria-label="面板顏色">
           ${THEMES.map(([id, name, a, b]) => `
@@ -3680,6 +3703,7 @@
     else if (act === 'new-category') { if (!amChild()) openCategorySheet(); }
     else if (act === 'del-category') onDeleteCategory(el);
     else if (act === 'theme') { applyTheme(el.dataset.themeId); render(); }
+    else if (act === 'ui-style') { applyStyle(el.dataset.styleId); render(); toast('已換成' + (STYLES.find(([id]) => id === el.dataset.styleId) || STYLES[0])[1]); }
     else if (act === 'push-on') onPushOn(el);
     else if (act === 'push-off') { Api.disablePush().then(() => { toast('已關閉通知'); render(); }); }
     else if (act === 'logout') {

@@ -1185,3 +1185,116 @@ body.in-call { overflow: hidden; }
 /* 打字留言時鍵盤會把畫面變矮：照片縮小，留言區和輸入框完整露出來，不會被照片蓋住 */
 body.kb-open #album-comments { max-height: 18vh; }
 body.kb-open .album-step { display: none; }
+
+/* ================= 介面風格（和面板顏色分開，可以自由搭配） ================= */
+/* 設定裡的風格選擇：每個選項有一個小小的樣子示範 */
+.styles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 6px 0 12px; }
+.style-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px; border-radius: 14px; background: var(--track); text-align: left; border: 2px solid transparent; }
+.style-opt.on { border-color: var(--green); background: var(--soft); }
+.style-name { font-weight: 700; font-size: 15px; margin-top: 6px; }
+.style-opt small { font-size: 12px; color: var(--ink-2); line-height: 1.35; }
+.style-demo { position: relative; width: 100%; height: 64px; border-radius: 10px; background: var(--paper); overflow: hidden; display: block; }
+.style-demo i { position: absolute; left: 8px; top: 8px; right: 8px; height: 30px; background: var(--sheet); border-left: 4px solid var(--green); border-radius: 8px; box-shadow: 0 2px 6px rgba(0, 0, 0, .08); }
+.style-demo b { position: absolute; left: 18px; top: 15px; width: 46%; height: 6px; border-radius: 3px; background: var(--ink); opacity: .75; }
+.style-demo b + b { top: 26px; width: 30%; opacity: .35; }
+.style-demo em { position: absolute; left: 8px; bottom: 7px; width: 42%; height: 16px; border-radius: 8px; background: var(--green); }
+.style-demo[data-demo="cute"] { background-color: color-mix(in srgb, var(--red) 8%, #FFF8F4); background-image: radial-gradient(color-mix(in srgb, var(--red) 35%, transparent) 1.2px, transparent 1.6px); background-size: 9px 9px; }
+.style-demo[data-demo="cute"] i { border-radius: 16px; border-left: 0; box-shadow: 0 3px 0 color-mix(in srgb, var(--green) 22%, transparent); }
+.style-demo[data-demo="cute"] b, .style-demo[data-demo="cute"] em { border-radius: 99px; }
+.style-demo[data-demo="simple"] i { border-radius: 3px; border-left-width: 2px; box-shadow: none; outline: 1px solid var(--line); }
+.style-demo[data-demo="simple"] em { border-radius: 3px; background: none; outline: 1.5px solid var(--green); }
+.style-demo[data-demo="big"] b { height: 9px; top: 13px; width: 60%; }
+.style-demo[data-demo="big"] b + b { top: 26px; height: 7px; width: 40%; }
+.style-demo[data-demo="big"] em { height: 20px; width: 54%; border-radius: 10px; }
+
+/* 卡片類的區塊（各風格共用的範圍） */
+html[data-style] :is(.today-card, .todos, .hub, .shop-items, .wallet, .entries, .trip, .trip-head, .info-card, .post, .poll,
+  .plan-day, .call-log, .call-pick, .card-list, .mini-cal, .notes .note, .score-card, .album-grid, .transit-list) { transition: none; }
+
+/* ---------- 可愛風格：圓圓的、點點底、圓體字、軟軟的陰影 ---------- */
+html[data-style="cute"] {
+  --text: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "PingFang TC", system-ui, sans-serif;
+  --paper: color-mix(in srgb, var(--red) 7%, #FFF8F4);
+  --track: color-mix(in srgb, var(--red) 9%, #FFFFFF);
+  --line: color-mix(in srgb, var(--red) 14%, #F3ECE8);
+}
+html[data-style="cute"] body, html[data-style="cute"] html {
+  background-image: radial-gradient(color-mix(in srgb, var(--red) 22%, transparent) 1.4px, transparent 1.9px);
+  background-size: 22px 22px;
+}
+html[data-style="cute"] .scroller { background: transparent; }
+html[data-style="cute"] :is(.today-card, .todos, .hub, .shop-items, .wallet, .entries, .trip, .trip-head, .info-card, .post, .poll,
+  .plan-day, .call-log, .call-pick, .mini-cal, .notes .note, .album-grid, .transit-list, .card-group) {
+  border-radius: 26px; box-shadow: 0 5px 0 color-mix(in srgb, var(--green) 13%, transparent);
+}
+html[data-style="cute"] :is(.today-card, .todos) { border-left-width: 0; border-top: 6px solid var(--green); }
+html[data-style="cute"] .todos { border-top-color: var(--red); }
+html[data-style="cute"] .plain-head h1 {
+  font-weight: 800; letter-spacing: .03em;
+  text-decoration: underline wavy color-mix(in srgb, var(--red) 55%, transparent); text-decoration-thickness: 2px; text-underline-offset: 7px;
+}
+html[data-style="cute"] :is(.btn, .chip-btn, .link-btn.back, .switcher, .switcher button, .seg span, .people span, .todo-done, .todo-chip, input, textarea, .switch) { border-radius: 99px; }
+html[data-style="cute"] textarea { border-radius: 22px; }
+html[data-style="cute"] .switcher { padding: 4px; }
+html[data-style="cute"] .btn.primary, html[data-style="cute"] .todo-done { box-shadow: 0 4px 0 color-mix(in srgb, var(--ink) 25%, transparent); }
+html[data-style="cute"] .avatar { box-shadow: 0 0 0 2px var(--sheet), 0 3px 0 color-mix(in srgb, var(--ink) 14%, transparent); }
+html[data-style="cute"] .tabbar { border-radius: 24px 24px 0 0; box-shadow: 0 -4px 0 color-mix(in srgb, var(--green) 10%, transparent); }
+html[data-style="cute"] .tab.on span { background: color-mix(in srgb, var(--tab-c) 14%, transparent); padding: 0 10px; border-radius: 99px; }
+html[data-style="cute"] .tab.on svg.color { animation: tab-bounce .5s cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes tab-bounce { 0% { transform: scale(.7) rotate(-8deg); } 60% { transform: scale(1.12) rotate(4deg); } 100% { transform: none; } }
+html[data-style="cute"] .sheet { border-radius: 30px 30px 0 0; }
+html[data-style="cute"] .hub-icon { border-radius: 16px; transform: rotate(-4deg); }
+html[data-style="cute"] .hub-row:nth-child(even) .hub-icon { transform: rotate(4deg); }
+html[data-style="cute"] .bubble { border-radius: 22px; }
+html[data-style="cute"] .day.today .num, html[data-style="cute"] .day.sel .num { border-radius: 40%; }
+html[data-style="cute"] .album-grid { gap: 6px; padding: 6px; background: var(--sheet); }
+html[data-style="cute"] .album-cell { border-radius: 16px; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) { html[data-style="cute"] .tab.on svg.color { animation: none; } }
+
+/* ---------- 簡約風格：平面、細線、小圓角、少陰影 ---------- */
+html[data-style="simple"] {
+  --paper: color-mix(in srgb, var(--sheet) 92%, var(--ink));
+}
+html[data-style="simple"] :is(.today-card, .todos, .hub, .shop-items, .wallet, .entries, .trip, .trip-head, .info-card, .post, .poll,
+  .plan-day, .call-log, .call-pick, .mini-cal, .notes .note, .album-grid, .transit-list, .card-group) {
+  border-radius: 8px; box-shadow: none; outline: 1px solid var(--line); outline-offset: -1px;
+}
+html[data-style="simple"] :is(.today-card, .todos) { border-left-width: 3px; }
+html[data-style="simple"] .wallet { border-top-width: 3px; }
+html[data-style="simple"] :is(.btn, .chip-btn, .switcher, .switcher button, .seg span, .people span, .todo-done, .todo-chip, input, textarea, .switch, .icon-btn, .call-banner) { border-radius: 6px; }
+html[data-style="simple"] :is(.btn.primary, .todo-done, .fab-plus) { box-shadow: none; }
+html[data-style="simple"] .btn.ghost, html[data-style="simple"] .chip-btn { background: none; outline: 1px solid var(--line); outline-offset: -1px; }
+html[data-style="simple"] .plain-head h1 { font-weight: 600; letter-spacing: -.01em; }
+html[data-style="simple"] .hub-icon { border-radius: 8px; }
+html[data-style="simple"] .sheet { border-radius: 12px 12px 0 0; }
+html[data-style="simple"] .bubble { border-radius: 10px; }
+html[data-style="simple"] .avatar { border-radius: 8px; }
+html[data-style="simple"] .tab svg.color { animation: none; }
+html[data-style="simple"] .tabbar { box-shadow: none; }
+
+/* ---------- 大字清楚：整體放大，字更大、按鈕更好按 ---------- */
+html[data-style="big"] .screen { zoom: 1.16; }
+html[data-style="big"] .tabbar { --tabbar: 66px; }
+html[data-style="big"] .tab span { font-size: 13px; }
+html[data-style="big"] .tab svg { width: 28px; height: 28px; }
+html[data-style="big"] .sheet-body, html[data-style="big"] .sheet-head { zoom: 1.12; }
+html[data-style="big"] .addbar, html[data-style="big"] .chat-bar { zoom: 1.12; }
+html[data-style="big"] :is(.ink-2, .hint, small) { color: color-mix(in srgb, var(--ink) 78%, var(--ink-2)); }
+
+/* 可愛風格：再多一點個性 */
+html[data-style="cute"] :is(.today-card, .todos, .hub, .post, .poll, .wallet) { background: color-mix(in srgb, var(--red) 3%, var(--sheet)); }
+html[data-style="cute"] :is(.today-card, .todos) h2::before, html[data-style="cute"] .section-head::before { content: "✿"; margin-right: 4px; color: var(--red); font-weight: 400; }
+html[data-style="cute"] .bubble { border-width: 2px; }
+html[data-style="cute"] .tab span { font-weight: 700; }
+
+/* 簡約風格：白底、無色塊、按鈕改成線框 */
+html[data-style="simple"] { --paper: var(--sheet); }
+html[data-style="simple"] :is(.today-card, .todos) { border-left-color: var(--ink); }
+html[data-style="simple"] :is(.poll, .post, .wallet) { border-top-color: var(--line) !important; border-top-width: 1px !important; }
+html[data-style="simple"] .todo-done:not(.reply) { background: none; color: var(--ink); outline: 1.5px solid var(--ink); outline-offset: -1.5px; }
+html[data-style="simple"] .btn.primary { background: var(--ink); color: var(--sheet); }
+html[data-style="simple"] .fab-plus { background: var(--ink); border-radius: 6px; }
+html[data-style="simple"] .fab { color: var(--ink); }
+html[data-style="simple"] .hub-icon { background: var(--track) !important; }
+html[data-style="simple"] .hub-icon svg { stroke: var(--ink); }
+html[data-style="simple"] .addbar, html[data-style="simple"] .tabbar { background: var(--sheet); }
