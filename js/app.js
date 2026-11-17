@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 13:55';
+  const VERSION = '2026-11-17 14:05';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -701,7 +701,6 @@
           ${dayEvents.length ? dayEvents.map((e) => eventRow(e)).join('') : `
             <div class="empty">
               <p>這天還沒有安排。</p>
-              <button class="link-btn" data-act="new">新增一件事</button>
             </div>`}
         </div>
       </section>`;
@@ -774,7 +773,6 @@
       ${days || `
         <div class="empty big">
           <p>接下來 90 天沒有任何安排。</p>
-          <button class="link-btn" data-act="new">新增一件事</button>
         </div>`}`;
   }
 
@@ -1058,7 +1056,6 @@
     if (!state.posts.length) return `
       <div class="empty big">
         <p>還沒有人發話。有事要某個人回答時，從這裡說。</p>
-        <button class="link-btn" data-act="new">我有話要說</button>
       </div>`;
     return state.posts.slice().sort((a, b) => b.created_at - a.created_at).map((p) => {
       const mine = p.author === state.userId;
@@ -1197,7 +1194,6 @@
       ? '<div class="empty big"><p>還沒有歷史紀錄。投票結束、過了截止日或作廢之後，會移到這裡。</p></div>'
       : `<div class="empty big">
           <p>目前沒有進行中的投票。「今天誰回家吃晚餐」「週末去哪裡」這種事，用投票問最快。</p>
-          <button class="link-btn" data-act="new">發起投票</button>
         </div>`);
   }
 
@@ -1330,7 +1326,7 @@
       <header class="plain-head"><h1>成績</h1><p>${amChild() ? '只有你和爸媽看得到' : esc(kid.display_name)}</p></header>
       ${picker}
       ${termBar}
-      <div class="empty big"><p>${state.scoreTerm ? state.scoreTerm + '學期還沒有成績紀錄。' : '還沒有成績紀錄。'}</p><button class="link-btn" data-act="new">${state.scoreTerm ? '記一筆' : '記下第一筆'}</button></div>`;
+      <div class="empty big"><p>${state.scoreTerm ? state.scoreTerm + '學期還沒有成績紀錄。' : '還沒有成績紀錄。'}</p></div>`;
 
     // 各科：最近一次、和上一次比、平均
     const subjects = Array.from(new Set(all.map((x) => x.subject)));
@@ -1453,7 +1449,6 @@
       ${state.trips.length ? '' : `
         <div class="empty big">
           <p>還沒有旅程。把下一趟想去的地方建起來，全家一起排行程、列行李，回來再寫日誌、放照片。</p>
-          <button class="link-btn" data-act="new">新增第一趟旅程</button>
         </div>`}
       ${coming.length ? `<section class="trips"><h2>即將出發與進行中</h2>${coming.map(card).join('')}</section>` : ''}
       ${past.length ? `<section class="trips"><h2>去過的地方</h2>${past.map(card).join('')}</section>` : ''}
@@ -1528,7 +1523,7 @@
     const items = itemsOf(t.id, 'journal').sort((a, b) => a.date.localeCompare(b.date) || a.created_at - b.created_at);
     if (!items.length) return `
       <div class="empty big"><p>還沒有日誌。今天去了哪、吃了什麼、最好笑的事，寫下來，再放一張照片。</p>
-      <button class="link-btn" data-act="new">寫第一則</button></div>`;
+</div>`;
     return items.map((j) => {
       const who = member(j.author);
       const mine = j.author === state.userId;
@@ -1571,7 +1566,7 @@
     const items = itemsOf(t.id, 'cost').sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at);
     if (!items.length) return `
       <div class="empty big"><p>還沒有花費紀錄。交通、住宿、門票、吃的，記下來，回來就知道這趟花了多少。</p>
-      <button class="link-btn" data-act="new">記第一筆</button></div>`;
+</div>`;
     const total = items.reduce((n, x) => n + x.amount, 0);
     const payers = state.members.map((m) => [m, items.filter((x) => x.paid_by === m.id).reduce((n, x) => n + x.amount, 0)]).filter(([, n]) => n > 0);
     return `
@@ -1759,7 +1754,6 @@
       ${!loaded ? '<p class="hint album-wait">讀取照片中…</p>' : !photos.length ? `
         <div class="empty big">
           <p>這個月還沒有照片。今天的晚餐、放學路上、週末出去玩，拍了就放上來，全家都能看、能留言。</p>
-          <button class="link-btn" data-act="new">放第一張照片</button>
         </div>` : `
         <p class="album-count">${photos.length} 張照片</p>
         ${days.map((d) => `
@@ -1943,7 +1937,6 @@
       <header class="plain-head"><h1>資料卡</h1></header>
       <div class="empty big">
         <p>還沒有資料卡。健保卡號、學號、過敏與用藥、緊急聯絡人，都可以放在這裡。</p>
-        ${amChild() ? '' : '<button class="link-btn" data-act="new">新增資料卡</button>'}
       </div>`;
     const groups = [['', '全家']].concat(state.members.map((m) => [m.id, m.display_name]));
     return `
@@ -2113,7 +2106,7 @@
       return canEditLedger(e)
         ? `<button class="entry" data-act="edit-ledger" data-id="${esc(e.id)}">${inner}</button>`
         : `<div class="entry">${inner}</div>`;
-    }).join('') : `<div class="empty"><p>${state.ledgerDay ? '這天沒有紀錄。' : '這個月還沒有紀錄。'}</p><button class="link-btn" data-act="new">${amChild() ? '記一筆支出' : '新增一筆'}</button></div>`;
+    }).join('') : `<div class="empty"><p>${state.ledgerDay ? '這天沒有紀錄。' : '這個月還沒有紀錄。'}</p></div>`;
 
     return `
       <header class="month-head">
@@ -2160,7 +2153,6 @@
       ${cards ? `<div class="notes">${cards}</div>` : `
         <div class="empty big">
           <p>還沒有雜記。密碼、採買清單、要記得的事都可以放這裡。</p>
-          <button class="link-btn" data-act="new">寫第一則</button>
         </div>`}`;
   }
 
