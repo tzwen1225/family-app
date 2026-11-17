@@ -875,3 +875,5 @@ html[data-theme="night"] .todo-done.reply { color: var(--green); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.chat-older { display: block; margin: 4px auto 10px; font-size: 13px; }

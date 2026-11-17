@@ -83,7 +83,11 @@
     const F = window.FirebaseSDK;
     const app = F.initializeApp(cfg.firebase);
     const auth = F.getAuth(app);
-    const db = F.getFirestore(app);
+    // 資料在手機上留一份（離線快取）：打開 App 先顯示上次的內容，再只向伺服器要有變動的部分，
+    // 聊天室不用每次重新下載 300 則訊息。手機不支援時退回一般模式。
+    let db;
+    try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); }
+    catch (e) { console.warn('離線快取沒有啟用', e); db = F.getFirestore(app); }
     const col = (name) => F.collection(db, name);
     const row = (d) => ({ id: d.id, ...d.data() });
     const uid = () => auth.currentUser.uid;
@@ -117,6 +121,10 @@
         return cred.user.uid;
       },
       async signOut() { await F.signOut(auth); },
+      // 從背景回來：手機常把連線停掉卻沒通知，等它自己發現要好幾秒。直接重連，新訊息馬上進來。
+      async reconnect() {
+        try { await F.disableNetwork(db); await F.enableNetwork(db); } catch (e) { console.warn(e); }
+      },
       async listMembers() {
         try {
           return await list('members', F.orderBy('sort'));
@@ -408,6 +416,7 @@
       async currentUserId() { return load().user; },
       async signIn() { load().user = 'm1'; persist(); return 'm1'; },
       async signOut() { load().user = null; persist(); },
+      async reconnect() {},
       async listMembers() { const flags = load().childFlags || {}; return members.map((m) => (m.id in flags ? { ...m, child: flags[m.id] } : m)); },
 
       async listEvents(from, to) {

@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 11:20';
+  const VERSION = '2026-11-17 12:25';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -82,6 +82,7 @@
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
     showOldNotes: false,
+    chatShown: 60,           // 聊天室目前畫出最新的幾則
     photos: [], photoComments: [], albumMonth: today().slice(0, 7), albumLoaded: null, photoId: null,   // 家庭相簿：只放正在看的那個月
     subjects: [],                   // 家長自訂的考試科目 { id, label }
     scores: [], scoreSubject: '',   // 成績紀錄
@@ -794,10 +795,13 @@
     if (q && !list.length) return '<div class="empty big"><p>找不到含有「' + esc(q) + '」的訊息。</p></div>';
     if (!list.length) return '<div class="empty big"><p>還沒有訊息。說聲嗨吧。</p></div>';
 
-    let html = q ? `<p class="found">找到 ${list.length} 則</p>` : '';
+    // 平常只畫最新的幾十則（畫得快，新訊息一來馬上出現）；要看更早的再往上展開
+    const shown = q ? list : list.slice(-state.chatShown);
+    let html = q ? `<p class="found">找到 ${list.length} 則</p>`
+      : shown.length < list.length ? '<button class="link-btn chat-older" data-act="chat-older">看更早的訊息</button>' : '';
     const pos = readPositions();
     let lastDay = '', lastSender = '';
-    list.forEach((m) => {
+    shown.forEach((m) => {
       const day = ymd(new Date(m.sent_at));
       if (day !== lastDay) {
         const n = daysBetween(day, today());
@@ -830,7 +834,7 @@
         <button class="icon-btn ${state.chatSearch ? 'on' : ''}" data-act="chat-search" aria-label="${state.chatSearch ? '關閉搜尋' : '搜尋訊息'}" aria-pressed="${state.chatSearch}">${ICON.search}</button>
       </header>
       ${state.chatSearch ? `<input id="chat-q" class="search" type="search" placeholder="搜尋訊息" value="${esc(state.chatQuery)}" autocomplete="off" aria-label="搜尋訊息">` : ''}
-      <div class="chat" id="chat-list" aria-live="polite">${chatListHtml()}</div>`;
+      <div class="chat" id="chat-list" aria-live="polite">${chatDrawn = chatListHtml()}</div>`;
   }
 
   // 捲到最新一則。畫面高度可能還在變（鍵盤彈出、新訊息剛畫上去），所以隔一下再補捲兩次。
@@ -842,9 +846,12 @@
   function refreshChat(toBottom) {
     const el = document.getElementById('chat-list');
     if (!el) return;
-    el.innerHTML = chatListHtml();
+    // 內容沒變就不重畫（別人上線、下線也會觸發這裡，重畫會讓畫面頓一下）
+    const html = chatListHtml();
+    if (html !== chatDrawn || !el.firstChild) { el.innerHTML = html; chatDrawn = html; }
     if (toBottom) scrollChat();
   }
+  let chatDrawn = '';
 
   function markRead() {
     const last = state.messages[state.messages.length - 1];
@@ -2984,6 +2991,12 @@
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
     else if (act === 'del-journal') onDeleteJournal(el);
+    else if (act === 'chat-older') {
+      // 往上多展開 60 則，畫面停在原本看的位置
+      const sc = scroller(), fromBottom = sc.scrollHeight - sc.scrollTop;
+      state.chatShown += 60; refreshChat(false);
+      sc.scrollTop = sc.scrollHeight - fromBottom;
+    }
     else if (act === 'open-photo') openPhoto(el.dataset.id);
     else if (act === 'close-photo') closePhoto();
     else if (act === 'del-photo') onDeletePhoto(el);
@@ -3139,9 +3152,12 @@
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && $sheet.innerHTML) closeSheet(); });
 
   // App 切到背景時標成離線；回來時標成上線並重新讀取目前的分頁
+  let hiddenAt = Date.now();
   document.addEventListener('visibilitychange', () => {
     if (!state.userId) return;
     const visible = document.visibilityState === 'visible';
+    if (visible && Date.now() - hiddenAt > 5000) Api.reconnect();   // 離開超過 5 秒才需要重連
+    if (!visible) hiddenAt = Date.now();
     beat(visible);
     if (!visible || $sheet.innerHTML) return;
     if (state.tab === 'chat') { markRead(); refreshChat(false); refreshBadges(); }
