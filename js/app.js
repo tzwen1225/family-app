@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 21:45';
+  const VERSION = '2026-11-17 22:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -508,13 +508,16 @@
     : tab === 'notes' ? (!amChild() && pendingRequests().length > 0)
     : false);
 
-  // ---------- 首頁的待辦事項 ----------
-  // 家長：小朋友申請、還沒給的費用。所有人：在「我有話要說」被點名、還沒回覆的發言。
+  // ---------- 首頁：我的今天 ----------
+  // 首頁最上面一張卡片，放所有「標註到我」、要我處理的東西：
+  //   要處理的事：交給我的待辦（不論日期）、全家的待辦裡今天或過期的、在「我有話要說」點名我還沒回覆的、
+  //               （家長）小朋友申請還沒給的費用
+  //   今天的行程：有標註我的、全家的、生日和旅程
   const dueText = (date) => {
     const n = daysBetween(today(), date);
     return n === 0 ? '今天要用' : n > 0 ? '還有 ' + n + ' 天' : '已經過了 ' + (-n) + ' 天';
   };
-  function todosHtml() {
+  function mineTaskItems() {
     const items = [];
     if (!amChild()) {
       pendingRequests().forEach((r) => {
@@ -529,13 +532,15 @@
           </div>`);
       });
     }
-    urgentTodos().forEach((i) => {
-      const n = daysBetween(today(), todoDue(i));
+    homeTodos().forEach((i) => {
+      const due = todoDue(i), n = due ? daysBetween(today(), due) : null;
+      const from = todoWho(i) ? (i.added_by && i.added_by !== state.userId ? esc(nameOf(i.added_by)) + '交給你' : '你的待辦') : '全家的待辦';
+      const when = n === null ? '' : n === 0 ? '今天' : n === 1 ? '明天' : n < 0 ? '過了 ' + (-n) + ' 天' : shortDate(due);
       items.push(`
           <div class="todo">
             <button class="todo-main" data-act="open-todos">
-              <span class="todo-title">${esc(i.text)}</span>
-              <span class="todo-sub">${todoWho(i) ? '交給' + esc(nameOf(todoWho(i))) : '全家'}${i.repeat && REPEATS[i.repeat] ? '　' + REPEATS[i.repeat] : ''}<em class="${n < 0 ? 'late' : ''}">${n === 0 ? '今天' : '過了 ' + (-n) + ' 天'}</em></span>
+              <span class="todo-title">${i.star ? '<span class="todo-flag">！</span>' : ''}${esc(i.text)}</span>
+              <span class="todo-sub">${from}${i.repeat && REPEATS[i.repeat] ? '　' + REPEATS[i.repeat] : ''}${when ? `<em class="${n < 0 ? 'late' : n > 0 ? 'later' : ''}">${when}</em>` : ''}</span>
             </button>
             <button class="todo-done" data-act="shop-toggle" data-id="${esc(i.id)}">完成</button>
           </div>`);
@@ -550,14 +555,24 @@
             </button>
             <button class="todo-done reply" data-act="tab" data-tab="posts">回覆</button>
           </div>`));
-    return items.length ? `<h2>待辦事項<span>${items.length}</span></h2>${items.join('')}` : '';
+    return items;
+  }
+  function mineHtml() {
+    const t = today();
+    const mine = (e) => e.readonly || !e.member_ids || !e.member_ids.length || e.member_ids.includes(state.userId);
+    const events = eventsOn(state.upcoming, t).filter(mine).sort(byTime);
+    const tasks = mineTaskItems();
+    const n = events.length + tasks.length;
+    return `
+      <h2>我的今天<span>${shortDate(t)}</span>${holidayName(t) ? `<em class="holiday-tag">${esc(holidayName(t))}</em>` : ''}${n ? `<b>${n}</b>` : ''}</h2>
+      ${tasks.length ? `<h3>要處理的事</h3><div class="mine-tasks">${tasks.join('')}</div>` : ''}
+      ${events.length ? `<h3>今天的行程</h3>${events.map((e) => eventRow(e)).join('')}` : ''}
+      ${n ? '' : '<p class="none">今天沒有跟你有關的事。</p>'}`;
   }
   function refreshTodos() {
     refreshBadges();
-    const el = document.getElementById('todos');
-    if (!el) return;
-    el.innerHTML = todosHtml();
-    el.hidden = !el.innerHTML;
+    const el = document.getElementById('mine');
+    if (el) el.innerHTML = mineHtml();
   }
 
   // 標示「已給」：同時在小朋友的零用錢帳本記一筆收入（金額和用途跟申請相同，日期是今天），
@@ -647,24 +662,9 @@
     return `<div class="switcher" role="group" aria-label="檢視方式">${b('month', '月曆')}${b('list', '近期')}</div>`;
   }
 
-  // ---------- 首頁：我的今天 ----------
-  // 每個人（家長也一樣）只看到今天跟自己有關的：有標註自己的、全家的、生日和旅程。
-  // 別人的補習、家教這類沒標註自己的不放這裡；下面的月曆還是全家共享，都看得到。
-  function todayHtml() {
-    const t = today();
-    const mine = (e) => e.readonly || !e.member_ids || !e.member_ids.length || e.member_ids.includes(state.userId);
-    const list = eventsOn(state.upcoming, t).filter(mine).sort(byTime);
-    return `
-      <h2>我的今天<span>${shortDate(t)}</span>${holidayName(t) ? `<em class="holiday-tag">${esc(holidayName(t))}</em>` : ''}${list.length ? `<b>${list.length}</b>` : ''}</h2>
-      ${list.length ? list.map((e) => eventRow(e)).join('')
-        : '<p class="none">今天沒有標註你的行程，也沒有全家的行程。</p>'}`;
-  }
-
   function viewCalendar() {
-    const todos = todosHtml();
     return `<section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>`
-      + `<section class="todos" id="todos" aria-label="待辦事項" ${todos ? '' : 'hidden'}>${todos}</section>`
-      + `<section class="today-card" aria-label="我的今天">${todayHtml()}</section>`
+      + `<section class="today-card mine-card" id="mine" aria-label="我的今天">${mineHtml()}</section>`
       + `<section class="home-polls" id="home-polls" aria-label="投票" ${homePollsHtml() ? '' : 'hidden'}>${homePollsHtml()}</section>`
       + calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming());
   }
@@ -2165,8 +2165,11 @@
   // 小朋友只能修改、刪除自己新增的；別人交代的只能打勾完成
   const canEditTodo = (i) => !amChild() || i.added_by === state.userId;
   const todoOrder = (a, b) => (!!b.star - !!a.star) || todoDue(a).localeCompare(todoDue(b)) || a.created_at - b.created_at;
-  // 首頁要提醒的：還沒做、日期是今天或已經過了、交給我或全家
+  // 今天或過期、交給我或全家的（鍾家生活清單上的「今天有幾件」用）
   const urgentTodos = () => state.shopping.filter((i) => !i.done && todoDue(i) && todoDue(i) <= today() && mineTodo(i)).sort(todoOrder);
+  // 首頁「我的今天」：交給我的（不論日期），加上全家的裡今天或過期的；有日期的照日期排，沒日期的放後面
+  const homeTodos = () => state.shopping.filter((i) => !i.done && (todoWho(i) === state.userId || (!todoWho(i) && todoDue(i) && todoDue(i) <= today())))
+    .sort((a, b) => (!!b.star - !!a.star) || (todoDue(a) || '9999').localeCompare(todoDue(b) || '9999') || a.created_at - b.created_at);
   // 重複的待辦：完成之後下一次是哪一天（一定排在今天之後）
   function nextDue(item) {
     let d = todoDue(item) || today();

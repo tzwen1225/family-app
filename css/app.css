@@ -1066,3 +1066,10 @@ form label { line-height: 1.5; }
 .slide-back { animation: slide-back .22s ease-out; }
 @keyframes slide-back { from { transform: translateX(-28px); opacity: .4; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .slide-back { animation: none; } }
+
+/* 首頁「我的今天」：要處理的事＋今天的行程放在同一張卡片 */
+.mine-card h3 { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 8px 12px 0 14px; }
+.mine-card h3 + .mine-tasks, .mine-card h3 + .event { margin-top: -2px; }
+.mine-tasks { padding: 0 8px 4px 14px; }
+.mine-tasks + h3 { border-top: 1px solid var(--line); margin-top: 2px; }
+.todo-sub em.later { color: var(--ink-2); font-weight: 500; }
