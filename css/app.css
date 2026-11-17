@@ -1061,3 +1061,8 @@ form label { line-height: 1.5; }
 .todo-undo { flex: none; font-size: 13px; min-height: 36px; padding: 0 8px; }
 .todo-date { position: relative; display: inline-flex; align-items: center; overflow: hidden; }
 .todo-date input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; padding: 0; border: 0; }
+
+/* 往右滑返回時，畫面從左邊滑進來 */
+.slide-back { animation: slide-back .22s ease-out; }
+@keyframes slide-back { from { transform: translateX(-28px); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .slide-back { animation: none; } }

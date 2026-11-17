@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 17:10';
+  const VERSION = '2026-11-17 17:30';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -3723,6 +3723,34 @@
   // ---------- 從通知進來 ----------
   // 點了手機上的通知後，直接跳到對應的分頁（聊天，或我有話要說）。
   // App 沒開著時，分頁名稱放在網址的 # 後面；App 開著時，由 service worker 傳訊息過來。
+  // 手指往右滑＝返回。鍾家生活裡：功能 → 功能清單、旅程 → 所有旅程、公車路線 → 搜尋頁。
+  // 看相簿的照片時，左右滑是上一張、下一張。
+  let swipe = null;
+  document.addEventListener('touchstart', (ev) => {
+    const t = ev.touches[0];
+    const tag = ev.target.tagName;
+    swipe = ev.touches.length === 1 && !['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)
+      ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
+  }, { passive: true });
+  document.addEventListener('touchend', (ev) => {
+    if (!swipe || !state.userId) return;
+    const t = ev.changedTouches[0];
+    const dx = t.clientX - swipe.x, dy = t.clientY - swipe.y, quick = Date.now() - swipe.at < 700;
+    swipe = null;
+    if (!quick || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;      // 要夠長、夠快、夠水平
+    if ($sheet.querySelector('.album-view')) {
+      const step = $sheet.querySelector(dx > 0 ? '.album-step.prev' : '.album-step.next');
+      if (step) step.click();
+      return;
+    }
+    if (dx < 0 || $sheet.innerHTML || state.tab !== 'notes') return;
+    const back = document.querySelector('#scroller .link-btn.back');
+    if (!back) return;
+    back.click();
+    const sc = scroller();
+    if (sc) { sc.classList.remove('slide-back'); void sc.offsetWidth; sc.classList.add('slide-back'); }
+  }, { passive: true });
+
   function goTab(tab) {
     if (tab === 'ledger') { state.notesView = 'ledger'; state.ledgerDay = null; tab = 'notes'; }
     if (tab === 'polls') { state.postsView = 'polls'; tab = 'posts'; }
