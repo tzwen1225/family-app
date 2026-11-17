@@ -327,11 +327,28 @@ service cloud.firestore {
 
     // 採買清單：全家都可以新增、打勾、清除
     match /shopping/{id} {
-      allow read, delete: if isFamily();
-      allow create, update: if isFamily()
-        && request.resource.data.text is string
-        && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 60
-        && request.resource.data.done is bool;
+      // 日常待辦（沿用原本採買清單的資料）。全家都能新增、打勾完成；
+      // 小朋友只能修改、刪除自己新增的，別人交代的只能改「完成」相關的欄位。
+      function validTodo() {
+        let d = request.resource.data;
+        return d.text is string && d.text.size() >= 1 && d.text.size() <= 60
+          && d.done is bool
+          && d.get('note', '') is string && d.get('note', '').size() <= 300
+          && d.get('who', '') is string && d.get('due', '') is string
+          && d.get('repeat', '') in ['', 'daily', 'weekly', 'monthly']
+          && d.get('star', false) is bool;
+      }
+      function ownTodo() {
+        return !isChild() || resource.data.get('added_by', '') == request.auth.uid;
+      }
+      allow read: if isFamily();
+      allow create: if isFamily() && validTodo()
+        && request.resource.data.get('added_by', request.auth.uid) == request.auth.uid;
+      allow update: if isFamily() && validTodo()
+        && request.resource.data.get('added_by', '') == resource.data.get('added_by', '')
+        && (ownTodo() || request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['done', 'done_by', 'done_at', 'due', 'prev_due', 'last_done_by', 'last_done_at']));
+      allow delete: if isFamily() && ownTodo();
     }
 
     // 投票：全家都看得到；只有發起人可以結束或刪除

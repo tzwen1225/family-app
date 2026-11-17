@@ -353,8 +353,8 @@
     // 通用讀寫用的示範資料
     const seedDocs = () => ({
       shopping: [
-        { id: 'sh1', text: '倒垃圾', done: false, who: 'm4', due: day(0), added_by: 'm2', done_by: null, created_at: ago(120) },
-        { id: 'sh2', text: '繳第四台費用', done: false, who: 'm1', due: day(-1), added_by: 'm2', done_by: null, created_at: ago(100) },
+        { id: 'sh1', text: '倒垃圾', note: '垃圾車 19:30 到巷口', repeat: 'daily', done: false, who: 'm4', due: day(0), added_by: 'm2', done_by: null, created_at: ago(120) },
+        { id: 'sh2', text: '繳第四台費用', star: true, done: false, who: 'm1', due: day(-1), added_by: 'm2', done_by: null, created_at: ago(100) },
         { id: 'sh3', text: '買衛生紙', done: false, who: '', due: '', added_by: 'm1', done_by: null, created_at: ago(90) },
         { id: 'sh4', text: '準備校外教學的便當袋', done: false, who: 'm3', due: day(3), added_by: 'm2', done_by: null, created_at: ago(80) },
         { id: 'sh5', text: '收衣服', done: true, who: '', due: day(0), added_by: 'm2', done_by: 'm3', done_at: ago(30), created_at: ago(300) }

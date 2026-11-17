@@ -6,6 +6,7 @@
 //   replies  新增 → 通知那則發言的作者
 //   requests 新增 → 小朋友申請費用時，通知家長
 //   polls    新增 → 通知發起人以外的所有成員
+//   shopping 新增 → 日常待辦交給某個人時，通知那個人
 //
 // 部署：在專案資料夾執行 firebase deploy --only functions
 
@@ -101,6 +102,15 @@ exports.onPoll = onDocumentCreated('polls/{id}', async (event) => {
   const names = await memberNames();
   const others = Object.keys(names).filter((uid) => uid !== p.author);
   await notify(others, (names[p.author] || '家人') + '發起了投票', clip(p.question), 'poll-' + event.params.id);
+});
+
+// 日常待辦（資料在 shopping）：有人把一件事交給你時通知你；交給全家的不通知，免得太吵
+exports.onTodo = onDocumentCreated('shopping/{id}', async (event) => {
+  const t = event.data.data();
+  if (!t.who || t.who === t.added_by || t.done) return;
+  const names = await memberNames();
+  const when = t.due ? '（' + Number(t.due.slice(5, 7)) + '/' + Number(t.due.slice(8, 10)) + '）' : '';
+  await notify([t.who], (names[t.added_by] || '家人') + '交給你一件事', clip(t.text) + when, 'todo-' + event.params.id);
 });
 
 // ---------- 交通查詢：新竹的公車與台鐵即時資訊 ----------

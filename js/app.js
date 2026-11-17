@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 16:40';
+  const VERSION = '2026-11-17 17:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -85,7 +85,7 @@
     notes: [],
     notesView: 'hub',        // hub（鍾家生活的首頁，預設）| ledger（零用錢）| scores | notes（旅遊）| album | transit | shop | cards // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
     shopping: [], cards: [],
-    todoFilter: 'all', todoShowDone: false, todoNewWho: '', todoNewDue: '',   // 日常待辦（資料沿用 shopping）
+    todoFilter: 'all', todoShowDone: false, todoNewWho: '', todoNewDue: '', todoNewRepeat: '',   // 日常待辦（資料沿用 shopping）
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
     showOldNotes: false,
@@ -535,7 +535,7 @@
           <div class="todo">
             <button class="todo-main" data-act="open-todos">
               <span class="todo-title">${esc(i.text)}</span>
-              <span class="todo-sub">${todoWho(i) ? '交給' + esc(nameOf(todoWho(i))) : '全家'}<em class="${n < 0 ? 'late' : ''}">${n === 0 ? '今天' : '過了 ' + (-n) + ' 天'}</em></span>
+              <span class="todo-sub">${todoWho(i) ? '交給' + esc(nameOf(todoWho(i))) : '全家'}${i.repeat && REPEATS[i.repeat] ? '　' + REPEATS[i.repeat] : ''}<em class="${n < 0 ? 'late' : ''}">${n === 0 ? '今天' : '過了 ' + (-n) + ' 天'}</em></span>
             </button>
             <button class="todo-done" data-act="shop-toggle" data-id="${esc(i.id)}">完成</button>
           </div>`);
@@ -2153,15 +2153,30 @@
   }, 30000);
 
   // ---------- 日常待辦 ----------
-  // 鍾家生活 →「待辦」。全家共用的待辦清單：可以交給某個人、可以設日期；打勾記下誰完成。
+  // 鍾家生活 →「待辦」。全家共用的待辦清單：可以交給某個人、設日期、設成每天／每週／每月重複。
   // 沿用原本採買清單的 shopping 資料，舊的採買項目會變成沒有日期、沒有指定人的待辦。
-  // 每一筆：{ text, done, who（成員 UID，'' 代表全家）, due（'YYYY-MM-DD' 或 ''）, added_by, done_by, done_at, created_at }
+  // 每一筆：{ text, note, done, who（成員 UID，'' 代表全家）, due（'YYYY-MM-DD' 或 ''）, repeat（'' | daily | weekly | monthly）,
+  //          star（重要）, added_by, done_by, done_at, created_at,
+  //          重複的待辦完成後不會打勾，而是把日期往後推：last_done_by, last_done_at, prev_due（復原用） }
+  const REPEATS = { daily: '每天', weekly: '每週', monthly: '每月' };
   const todoWho = (i) => i.who || '';
   const todoDue = (i) => i.due || '';
   const mineTodo = (i) => !todoWho(i) || todoWho(i) === state.userId;
+  // 小朋友只能修改、刪除自己新增的；別人交代的只能打勾完成
+  const canEditTodo = (i) => !amChild() || i.added_by === state.userId;
+  const todoOrder = (a, b) => (!!b.star - !!a.star) || todoDue(a).localeCompare(todoDue(b)) || a.created_at - b.created_at;
   // 首頁要提醒的：還沒做、日期是今天或已經過了、交給我或全家
-  const urgentTodos = () => state.shopping.filter((i) => !i.done && todoDue(i) && todoDue(i) <= today() && mineTodo(i))
-    .sort((a, b) => todoDue(a).localeCompare(todoDue(b)) || a.created_at - b.created_at);
+  const urgentTodos = () => state.shopping.filter((i) => !i.done && todoDue(i) && todoDue(i) <= today() && mineTodo(i)).sort(todoOrder);
+  // 重複的待辦：完成之後下一次是哪一天（一定排在今天之後）
+  function nextDue(item) {
+    let d = todoDue(item) || today();
+    do {
+      if (item.repeat === 'monthly') { const x = parse(d); x.setMonth(x.getMonth() + 1); d = ymd(x); }
+      else d = addDays(d, item.repeat === 'weekly' ? 7 : 1);
+    } while (d <= today());
+    return d;
+  }
+  const doneToday = (i) => i.last_done_at && ymd(new Date(i.last_done_at)) === today();
   function todoDueHtml(due, done) {
     if (!due) return '';
     const n = daysBetween(today(), due);
@@ -2171,47 +2186,56 @@
   function todoRowHtml(i) {
     const who = todoWho(i) && member(todoWho(i));
     return `
-      <div class="todo-row ${i.done ? 'done' : ''}">
+      <div class="todo-row ${i.done ? 'done' : ''} ${i.star && !i.done ? 'flagged' : ''}">
         <button class="todo-check" data-act="shop-toggle" data-id="${esc(i.id)}" aria-pressed="${!!i.done}" aria-label="${i.done ? '改回還沒做' : '完成'}：${esc(i.text)}"><span class="check" aria-hidden="true"></span></button>
         <button class="todo-body" data-act="edit-todo" data-id="${esc(i.id)}">
-          <span class="shop-text">${esc(i.text)}</span>
+          <span class="shop-text">${i.star && !i.done ? '<span class="todo-flag" aria-label="重要">！</span>' : ''}${esc(i.text)}</span>
+          ${i.note ? `<span class="todo-note">${esc(i.note)}</span>` : ''}
           <span class="todo-meta">
             ${who ? `<span class="todo-who" style="--who:${esc(who.color)}">${esc(who.display_name)}</span>` : ''}
             ${todoDueHtml(todoDue(i), i.done)}
+            ${i.repeat && REPEATS[i.repeat] ? `<span class="todo-repeat">↻ ${REPEATS[i.repeat]}</span>` : ''}
             ${i.done && i.done_by ? `<span>${esc(nameOf(i.done_by))}完成</span>` : ''}
+            ${!i.done && doneToday(i) ? `<span>${esc(nameOf(i.last_done_by))}今天做完了</span>` : ''}
           </span>
         </button>
+        ${!i.done && doneToday(i) && i.prev_due !== undefined ? `<button class="link-btn todo-undo" data-act="todo-undo" data-id="${esc(i.id)}">復原</button>` : ''}
       </div>`;
   }
   function shopListHtml() {
     const list = state.shopping.filter((i) => state.todoFilter !== 'mine' || mineTodo(i));
     if (!list.length) return `<div class="empty big"><p>${state.todoFilter === 'mine' && state.shopping.length ? '沒有交給你的待辦。' : '沒有待辦事項。倒垃圾、繳費、帶便當袋，想到就在上面打字加進來。'}</p></div>`;
     const open = list.filter((i) => !i.done);
-    const byDate = (a, b) => todoDue(a).localeCompare(todoDue(b)) || a.created_at - b.created_at;
     const groups = [
-      ['今天和過期的', open.filter((i) => todoDue(i) && todoDue(i) <= today()).sort(byDate)],
-      ['之後', open.filter((i) => todoDue(i) > today()).sort(byDate)],
-      ['沒有日期', open.filter((i) => !todoDue(i)).sort((a, b) => a.created_at - b.created_at)]
+      ['今天和過期的', open.filter((i) => todoDue(i) && todoDue(i) <= today())],
+      ['之後', open.filter((i) => todoDue(i) > today())],
+      ['沒有日期', open.filter((i) => !todoDue(i))]
     ].filter(([, items]) => items.length);
     const done = list.filter((i) => i.done).sort((a, b) => (b.done_at || 0) - (a.done_at || 0));
     return groups.map(([title, items]) => `
       <section class="todo-group"><h2>${title}<span>${items.length}</span></h2>
-        <div class="shop-items">${items.map(todoRowHtml).join('')}</div>
+        <div class="shop-items">${items.sort(todoOrder).map(todoRowHtml).join('')}</div>
       </section>`).join('')
+      + (open.some((i) => todoDue(i) && todoDue(i) <= today()) || !open.length ? '' : '<p class="hint todo-clear">今天的都做完了！</p>')
       + (open.length ? '' : '<p class="hint todo-clear">都做完了！</p>')
       + (done.length ? `
       <section class="todo-group"><h2>已完成<span>${done.length}</span>
         <button class="link-btn" data-act="todo-show-done">${state.todoShowDone ? '收起' : '顯示'}</button></h2>
         ${state.todoShowDone ? `<div class="shop-items">${done.map(todoRowHtml).join('')}</div>` : ''}
-        <button class="btn ghost small" data-act="shop-clear">清除已完成的（${done.length}）</button>
+        ${amChild() ? '' : `<button class="btn ghost small" data-act="shop-clear">清除已完成的（${done.length}）</button>`}
       </section>` : '');
   }
-  const todoCountText = () => { const n = state.shopping.filter((i) => !i.done).length; return n ? n + ' 件還沒做' : '都做完了'; };
+  const todoCountText = () => {
+    const n = state.shopping.filter((i) => !i.done).length, u = state.shopping.filter((i) => !i.done && todoDue(i) && todoDue(i) <= today()).length;
+    return n ? (u ? '今天 ' + u + ' 件，' : '') + '共 ' + n + ' 件還沒做' : '都做完了';
+  };
   function viewShop() {
+    const cur = { who: state.todoNewWho, due: state.todoNewDue, repeat: state.todoNewRepeat };
     const chip = (kind, value, label, color) => {
-      const on = (kind === 'who' ? state.todoNewWho : state.todoNewDue) === value;
+      const on = cur[kind] === value;
       return `<button type="button" class="todo-chip ${on ? 'on' : ''}" ${color ? `style="--who:${esc(color)}"` : ''} data-act="todo-pick" data-kind="${kind}" data-value="${value}" aria-pressed="${on}">${label}</button>`;
     };
+    const custom = /^\d{4}-/.test(state.todoNewDue);
     const f = (v, label) => `<button class="${state.todoFilter === v ? 'on' : ''}" data-act="todo-filter" data-filter="${v}" ${state.todoFilter === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
     return `
       <header class="plain-head"><h1>日常待辦</h1><p id="shop-count">${todoCountText()}</p></header>
@@ -2224,6 +2248,10 @@
       </div>
       <div class="todo-picks" role="group" aria-label="新增時的日期">
         <span class="todo-pick-label">日期</span>${chip('due', '', '不限')}${chip('due', 'today', '今天')}${chip('due', 'tomorrow', '明天')}
+        <label class="todo-chip todo-date ${custom ? 'on' : ''}">${custom ? shortDate(state.todoNewDue).replace(/（.*/, '') : '選日期'}<input id="todo-date" type="date" value="${custom ? esc(state.todoNewDue) : ''}" min="${today()}" aria-label="選日期"></label>
+      </div>
+      <div class="todo-picks" role="group" aria-label="新增時要不要重複">
+        <span class="todo-pick-label">重複</span>${chip('repeat', '', '不重複')}${chip('repeat', 'daily', '每天')}${chip('repeat', 'weekly', '每週')}${chip('repeat', 'monthly', '每月')}
       </div>
       <div class="switcher todo-filter" role="group" aria-label="顯示哪些">${f('all', '全部')}${f('mine', '我的')}</div>
       <div id="shop-list">${shopListHtml()}</div>`;
@@ -2241,37 +2269,68 @@
     const text = input.value.trim();
     if (!text) return;
     input.value = ''; input.focus();
-    const due = state.todoNewDue === 'today' ? today() : state.todoNewDue === 'tomorrow' ? addDays(today(), 1) : '';
-    try { await Api.addDoc('shopping', { text, done: false, who: state.todoNewWho, due, added_by: state.userId, done_by: null, done_at: null, created_at: Date.now() }); }
-    catch (e) { console.error(e); input.value = text; toast('沒有加進去，請再試一次'); }
+    const repeat = state.todoNewRepeat;
+    let due = state.todoNewDue === 'today' ? today() : state.todoNewDue === 'tomorrow' ? addDays(today(), 1) : state.todoNewDue;
+    if (repeat && !due) due = today();          // 重複的一定要有日期，沒選就從今天開始
+    try {
+      await Api.addDoc('shopping', { text, note: '', done: false, who: state.todoNewWho, due, repeat, star: false, added_by: state.userId, done_by: null, done_at: null, created_at: Date.now() });
+    } catch (e) { console.error(e); input.value = text; toast('沒有加進去，請再試一次'); }
   }
   async function onShopToggle(id) {
     const item = findById(state.shopping, id);
     if (!item) return;
-    try { await Api.updateDoc('shopping', id, { done: !item.done, done_by: item.done ? null : state.userId, done_at: item.done ? null : Date.now() }); }
+    try {
+      if (item.repeat && !item.done) {
+        // 重複的待辦：不打勾，把日期推到下一次，並記下這次是誰做的
+        const next = nextDue(item);
+        await Api.updateDoc('shopping', id, { due: next, prev_due: todoDue(item), last_done_by: state.userId, last_done_at: Date.now() });
+        toast('完成！下次是 ' + shortDate(next));
+      } else await Api.updateDoc('shopping', id, { done: !item.done, done_by: item.done ? null : state.userId, done_at: item.done ? null : Date.now() });
+    } catch (e) { console.error(e); toast('沒有成功，請再試一次'); }
+  }
+  // 重複的待辦按錯了：把日期改回完成前的那一天
+  async function onTodoUndo(id) {
+    const item = findById(state.shopping, id);
+    if (!item || item.prev_due === undefined) return;
+    try { await Api.updateDoc('shopping', id, { due: item.prev_due, last_done_by: null, last_done_at: null }); toast('已復原'); }
     catch (e) { console.error(e); toast('沒有成功，請再試一次'); }
   }
   async function onShopClear(btn) {
+    if (amChild()) return;
     if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = '再按一次確定清除'; return; }
     btn.disabled = true;
     try { await Promise.all(state.shopping.filter((i) => i.done).map((i) => Api.deleteDoc('shopping', i.id))); toast('已清除'); }
     catch (e) { console.error(e); toast('清除失敗，請再試一次'); }
   }
   function openTodoSheet(item) {
+    const can = canEditTodo(item);
     showSheet('todo-form', {
-      title: '編輯待辦', footer: DELETE_BTN,
+      title: can ? '編輯待辦' : '待辦內容', footer: can ? DELETE_BTN : '', readonly: !can,
       body: `
       <input type="hidden" name="item_id" value="${esc(item.id)}">
       <label>要做什麼<input class="title-input" type="text" name="text" value="${esc(item.text)}" maxlength="60" autocomplete="off"></label>
+      <label>備註（可不填）<textarea name="note" rows="2" maxlength="300" placeholder="例如：垃圾車 19:30 到巷口">${esc(item.note || '')}</textarea></label>
       <fieldset class="seg">
         <legend>交給誰</legend>
         <label style="--cat:var(--green)"><input type="radio" name="who" value="" ${todoWho(item) ? '' : 'checked'}><span>全家</span></label>
         ${state.members.map((m) => `
           <label style="--cat:${esc(m.color)}"><input type="radio" name="who" value="${esc(m.id)}" ${todoWho(item) === m.id ? 'checked' : ''}><span>${esc(m.display_name)}</span></label>`).join('')}
       </fieldset>
-      <label>日期（可不填）<input type="date" name="due" value="${esc(todoDue(item))}"></label>
-      <p class="hint">${esc(nameOf(item.added_by))}在 ${stamp(item.created_at)} 新增${item.done && item.done_by ? '；' + esc(nameOf(item.done_by)) + '已完成' : ''}。</p>`
+      <label>日期<input type="date" name="due" value="${esc(todoDue(item))}"></label>
+      <fieldset class="seg">
+        <legend>重複</legend>
+        <label style="--cat:var(--ink)"><input type="radio" name="repeat" value="" ${item.repeat ? '' : 'checked'}><span>不重複</span></label>
+        ${Object.keys(REPEATS).map((k) => `
+          <label style="--cat:var(--c-schedule)"><input type="radio" name="repeat" value="${k}" ${item.repeat === k ? 'checked' : ''}><span>${REPEATS[k]}</span></label>`).join('')}
+      </fieldset>
+      <label class="switch">
+        <span>重要（排在最前面）</span>
+        <input type="checkbox" name="star" ${item.star ? 'checked' : ''}>
+      </label>
+      <p class="hint">${esc(nameOf(item.added_by))}在 ${stamp(item.created_at)} 新增${item.done && item.done_by ? '；' + esc(nameOf(item.done_by)) + '已完成' : ''}${item.last_done_by ? '；上次是' + esc(nameOf(item.last_done_by)) + '在 ' + stamp(item.last_done_at) + ' 做的' : ''}。${can ? '' : '這件事是別人交代的，你可以打勾完成，但不能修改。'}</p>
+      <p class="hint">重複的待辦完成後不會消失，會自動排到下一次。</p>`
     });
+    if (!can) $sheet.querySelectorAll('input, textarea').forEach((el) => { el.disabled = true; });
   }
 
   // ---------- 資料卡 ----------
@@ -3141,10 +3200,20 @@
       after() { state.transit.error = ''; }
     },
     'todo-form': {
-      read: (f) => ({ id: f.item_id.value, text: f.text.value.trim(), who: f.who.value, due: f.due.value }),
-      check: (x) => (!x.text ? '請寫下要做什麼' : null),
-      save: (x) => Api.updateDoc('shopping', x.id, { text: x.text, who: x.who, due: x.due }),
-      remove: (id) => Api.deleteDoc('shopping', id),
+      read: (f) => ({ id: f.item_id.value, text: f.text.value.trim(), note: f.note.value.trim(), who: f.who.value, due: f.due.value, repeat: f.repeat.value, star: f.star.checked }),
+      check(x) {
+        const old = findById(state.shopping, x.id);
+        if (!old || !canEditTodo(old)) return '這件事是別人交代的，不能修改';
+        if (!x.text) return '請寫下要做什麼';
+        if (x.repeat && !x.due) return '重複的待辦要選一個開始的日期';
+        return null;
+      },
+      save: (x) => Api.updateDoc('shopping', x.id, { text: x.text, note: x.note, who: x.who, due: x.due, repeat: x.repeat, star: x.star }),
+      async remove(id) {
+        const old = findById(state.shopping, id);
+        if (!old || !canEditTodo(old)) throw new Error('not-allowed');
+        await Api.deleteDoc('shopping', id);
+      },
       after() { refreshShop(); }
     },
     'score-form': {
@@ -3475,9 +3544,12 @@
     else if (act === 'todo-filter') { state.todoFilter = el.dataset.filter; refreshShop(); document.querySelectorAll('.todo-filter button').forEach((b) => { const on = b.dataset.filter === state.todoFilter; b.classList.toggle('on', on); on ? b.setAttribute('aria-pressed', 'true') : b.removeAttribute('aria-pressed'); }); }
     else if (act === 'todo-show-done') { state.todoShowDone = !state.todoShowDone; refreshShop(); }
     else if (act === 'todo-pick') {
-      if (el.dataset.kind === 'who') state.todoNewWho = el.dataset.value; else state.todoNewDue = el.dataset.value;
-      document.querySelectorAll('.todo-chip[data-kind="' + el.dataset.kind + '"]').forEach((b) => { const on = b === el; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+      const k = el.dataset.kind;
+      if (k === 'who') state.todoNewWho = el.dataset.value; else if (k === 'repeat') state.todoNewRepeat = el.dataset.value; else state.todoNewDue = el.dataset.value;
+      document.querySelectorAll('.todo-chip[data-kind="' + k + '"]').forEach((b) => { const on = b === el; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+      if (k === 'due') { const d = document.querySelector('.todo-date'); if (d) { d.classList.remove('on'); d.firstChild.textContent = '選日期'; d.querySelector('input').value = ''; } }
     }
+    else if (act === 'todo-undo') onTodoUndo(el.dataset.id);
     else if (act === 'open-todos') { Object.assign(state, { tab: 'notes', notesView: 'shop' }); render(); scroller().scrollTop = 0; }
     else if (act === 'edit-card') { const c = findById(state.cards, el.dataset.id); if (c && !amChild()) openCardSheet(c); }
     else if (act === 'view-image') openImage(el.dataset.id);
@@ -3546,6 +3618,13 @@
     if (t.id === 'chat-input') state.draft = t.value;
     else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
     else if (t.id === 'transit-q') state.transit.q = t.value;
+    else if (t.id === 'todo-date') {
+      // 自己選日期：取代「不限／今天／明天」
+      state.todoNewDue = t.value || '';
+      document.querySelectorAll('.todo-chip[data-kind="due"]').forEach((b) => { const on = !t.value && b.dataset.value === ''; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+      t.parentNode.classList.toggle('on', !!t.value);
+      t.parentNode.firstChild.textContent = t.value ? shortDate(t.value).replace(/（.*/, '') : '選日期';
+    }
     else if (t.id === 'tra-q') { state.transit.traQ = t.value; render(); }
     else if (t.form && t.form.classList.contains('reply-form')) state.postDrafts[t.form.dataset.post] = t.value;
   });
@@ -3647,6 +3726,7 @@
   function goTab(tab) {
     if (tab === 'ledger') { state.notesView = 'ledger'; state.ledgerDay = null; tab = 'notes'; }
     if (tab === 'polls') { state.postsView = 'polls'; tab = 'posts'; }
+    if (tab === 'todos') { state.notesView = 'shop'; tab = 'notes'; }
     if (!TABS.some(([id]) => id === tab)) return;
     state.tab = tab;
     state.chatSearch = false; state.chatQuery = ''; state.menuMsg = null;
