@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 22:00';
+  const VERSION = '2026-11-17 22:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1940,7 +1940,18 @@
     }
   }
   const onTransit = () => state.tab === 'notes' && state.notesView === 'transit';
-  function drawTransit() { if (onTransit() && !$sheet.innerHTML) render(); }
+  // 查詢結果回來時重畫交通頁；但正在搜尋框打字時先不重畫（會打斷中文輸入法），等離開搜尋框再畫
+  let transitDrawLater = false;
+  function drawTransit() {
+    if (!onTransit() || $sheet.innerHTML) return;
+    const a = document.activeElement;
+    if (a && (a.id === 'tra-q' || a.id === 'transit-q')) { transitDrawLater = true; return; }
+    transitDrawLater = false;
+    render();
+  }
+  document.addEventListener('focusout', (ev) => {
+    if (transitDrawLater && (ev.target.id === 'tra-q' || ev.target.id === 'transit-q')) setTimeout(drawTransit, 0);
+  });
 
   async function loadTransit(quiet) {
     if (!tr.favsLoaded) {
@@ -1994,7 +2005,10 @@
     const data = await transitCall('searchRoutes', { q });
     tr.loading = false;
     tr.results = data ? data.routes : null;
-    drawTransit();
+    const box = document.getElementById('transit-q');
+    if (box) box.blur();                  // 搜尋送出了：收起鍵盤，直接顯示結果
+    transitDrawLater = false;
+    if (onTransit() && !$sheet.innerHTML) render();
   }
   async function saveFavs() {
     try { await Api.setDoc('transit_favs', state.userId, { bus: tr.favs.bus, tra: tr.favs.tra, updated_at: Date.now() }); }
@@ -2088,12 +2102,24 @@
       </section>` : `<p class="hint album-wait">${tr.loading ? '查詢中…' : '查不到這條路線的站牌資料。'}</p>`}`;
   }
 
+  // 車站搜尋結果：只更新這一小塊，不重畫整頁（重畫會打斷注音、倉頡這類輸入法的選字）
+  function foundStationsHtml() {
+    const q = tr.traQ.trim().replace(/台/g, '臺');
+    if (!q || !tr.stations) return '';
+    const found = tr.stations.filter((s) => s.name.replace(/台/g, '臺').includes(q)).slice(0, 12);
+    return found.length ? found.map((x) => `<button class="chip-btn" data-act="tra-station" data-id="${esc(x.id)}">${esc(x.name)}</button>`).join('') : '<span class="hint">找不到這個車站。</span>';
+  }
+  function refreshFoundStations() {
+    const el = document.getElementById('tra-found');
+    if (!el) return;
+    el.innerHTML = foundStationsHtml();
+    el.hidden = !tr.traQ.trim();
+  }
   function transitTraHtml() {
     if (!tr.stations) return tr.loading ? '<p class="hint album-wait">查詢中…</p>' : '';
     // 常用車站排前面，後面補上新竹附近的幾個站
     const quick = tr.favs.tra.concat(TRA_DEFAULT.map((n) => tr.stations.find((s) => s.name === n)).filter((x) => x && !tr.favs.tra.some((f) => f.id === x.id)));
     const q = tr.traQ.trim();
-    const found = q ? tr.stations.filter((s) => s.name.includes(q)).slice(0, 12) : [];
     const s = tr.station;
     const isFav = s && tr.favs.tra.some((x) => x.id === s.id);
     const now = clock(Date.now());
@@ -2104,7 +2130,7 @@
         ${quick.map((x) => `<button class="chip-btn ${s && s.id === x.id ? 'on' : ''}" data-act="tra-station" data-id="${esc(x.id)}" ${s && s.id === x.id ? 'aria-pressed="true"' : ''}>${esc(x.name)}</button>`).join('')}
       </div>
       <input id="tra-q" class="search" type="search" placeholder="找其他車站，例如：竹東、台北" value="${esc(tr.traQ)}" maxlength="10" autocomplete="off" aria-label="搜尋車站">
-      ${q ? `<div class="station-chips found-stations">${found.length ? found.map((x) => `<button class="chip-btn" data-act="tra-station" data-id="${esc(x.id)}">${esc(x.name)}</button>`).join('') : '<span class="hint">找不到這個車站。</span>'}</div>` : ''}
+      <div class="station-chips found-stations" id="tra-found" ${q ? '' : 'hidden'}>${foundStationsHtml()}</div>
       ${s ? `
       <header class="transit-head">
         <span class="route-no big tra">${esc(s.name)}</span>
@@ -3628,7 +3654,10 @@
       t.parentNode.classList.toggle('on', !!t.value);
       t.parentNode.firstChild.textContent = t.value ? shortDate(t.value).replace(/（.*/, '') : '選日期';
     }
-    else if (t.id === 'tra-q') { state.transit.traQ = t.value; render(); }
+    else if (t.id === 'tra-q') {
+      state.transit.traQ = t.value;
+      if (!ev.isComposing) refreshFoundStations();     // 注音還在選字時先不動，選好字（compositionend）再更新
+    }
     else if (t.form && t.form.classList.contains('reply-form')) state.postDrafts[t.form.dataset.post] = t.value;
   });
 
@@ -3726,6 +3755,11 @@
   // ---------- 從通知進來 ----------
   // 點了手機上的通知後，直接跳到對應的分頁（聊天，或我有話要說）。
   // App 沒開著時，分頁名稱放在網址的 # 後面；App 開著時，由 service worker 傳訊息過來。
+  // 中文輸入法選好字之後，補做一次搜尋（有些 iPhone 選字完不會再送一次 input）
+  document.addEventListener('compositionend', (ev) => {
+    if (ev.target.id === 'tra-q') { state.transit.traQ = ev.target.value; refreshFoundStations(); }
+  });
+
   // 手指往右滑＝返回。鍾家生活裡：功能 → 功能清單、旅程 → 所有旅程、公車路線 → 搜尋頁。
   // 看相簿的照片時，左右滑是上一張、下一張。
   let swipe = null;
