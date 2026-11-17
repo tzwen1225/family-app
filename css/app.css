@@ -1136,7 +1136,16 @@ body.in-call { overflow: hidden; }
 .call-pick-row + .call-pick-row { border-top: 1px solid var(--line); }
 .call-pick-row b { font-size: 17px; }
 .call-pick-row small { flex: 1; font-size: 12px; color: var(--ink-2); }
-.call-pick-row input { width: 24px; height: 24px; margin: 0; accent-color: var(--green); flex: none; }
+.call-pick-row { position: relative; cursor: pointer; }
+/* 系統的勾選框在這個 App 裡被統一樣式隱藏了，改用自己畫的圓圈打勾 */
+.call-pick-row input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; padding: 0; }
+.call-pick-row .check { flex: none; width: 26px; height: 26px; }
+.call-pick-row input:checked + .check { background: var(--green); border-color: var(--green); }
+.call-pick-row input:checked + .check::after {
+  content: ""; position: absolute; left: 8px; top: 3px; width: 6px; height: 12px;
+  border: solid var(--sheet); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
+}
+.call-pick-row input:focus-visible + .check { outline: 2px solid var(--green); outline-offset: 2px; }
 .call-pick + .btn.small { margin-top: 10px; }
 .call-log-head { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 18px 4px 6px; }
 .call-log { background: var(--sheet); border-radius: 16px; padding: 2px 14px; }

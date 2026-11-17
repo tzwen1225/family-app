@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 00:35';
+  const VERSION = '2026-11-18 00:45';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -4267,7 +4267,7 @@
         ${others.map((m) => `
           <label class="call-pick-row">
             ${avatarHtml(m)}<b>${esc(m.display_name)}</b><small>${esc(statusText(m.id))}</small>
-            <input type="checkbox" name="call_to" value="${esc(m.id)}">
+            <input type="checkbox" name="call_to" value="${esc(m.id)}"><span class="check" aria-hidden="true"></span>
           </label>`).join('')}
       </div>
       ${others.length > 1 ? '<button type="button" class="btn ghost small" data-act="call-all">全家一起</button>' : ''}
