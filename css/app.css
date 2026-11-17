@@ -1169,3 +1169,13 @@ body.in-call { overflow: hidden; }
 .call-banner b { display: block; font-size: 15px; }
 .call-banner small { display: block; font-size: 12px; opacity: .9; }
 .call-banner em { font-style: normal; font-weight: 700; padding: 6px 14px; border-radius: 99px; background: rgba(255, 255, 255, .25); }
+
+/* 聊天室上方（標題、視訊、搜尋、進行中的通話）固定不捲走 */
+.chat-top {
+  position: sticky; top: 0; z-index: 3; background: var(--paper);
+  margin: calc(-1 * (var(--safe-t) + 14px)) -16px 0; padding: calc(var(--safe-t) + 14px) 16px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.chat-top .search { margin-bottom: 6px; }
+.chat-top #call-banner:empty { display: none; }
+.chat-top .call-banner { margin-bottom: 6px; }

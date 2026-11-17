@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 00:45';
+  const VERSION = '2026-11-18 00:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -856,7 +856,9 @@
   }
 
   function viewChat() {
+    // 標題、視訊、搜尋固定在最上面，訊息再多往上捲也不會不見
     return `
+      <div class="chat-top">
       <header class="plain-head with-action">
         <h1>聊天</h1><p>全家 ${state.members.length} 個人</p>
         <button class="icon-btn call-start-btn" data-act="call-pick" aria-label="視訊通話">${CALL_ICON.video}</button>
@@ -864,6 +866,7 @@
       </header>
       <div id="call-banner">${callBannerHtml()}</div>
       ${state.chatSearch ? `<input id="chat-q" class="search" type="search" placeholder="搜尋訊息" value="${esc(state.chatQuery)}" autocomplete="off" aria-label="搜尋訊息">` : ''}
+      </div>
       <div class="chat" id="chat-list" aria-live="polite">${chatDrawn = chatListHtml()}</div>`;
   }
 
