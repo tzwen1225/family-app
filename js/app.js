@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 15:10';
+  const VERSION = '2026-11-17 15:30';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -68,7 +68,7 @@
   // 交通頁的狀態（登出時原地清空，不換物件）
   const freshTransit = () => ({
     mode: 'bus', favs: { bus: [], tra: [] }, favsLoaded: false, favEtas: [], q: '', results: null,
-    route: null, routeDir: 0, stations: null, station: null, board: null, traQ: '', loading: false, error: '', updatedAt: 0
+    route: null, routeDir: 0, stations: null, station: null, board: null, traQ: '', loading: false, error: '', errorDetail: '', updatedAt: 0
   });
   const state = {
     transit: freshTransit(),
@@ -1906,8 +1906,11 @@
     const text = tr.error === 'no-key' ? (isAdmin() ? '還沒設定 TDX 金鑰。請到「設定」最下面的「交通查詢」填入金鑰。' : '交通查詢還沒設定好，請爸爸到「設定」裡完成。')
       : tr.error === 'bad-key' ? (isAdmin() ? 'TDX 金鑰不正確，請到「設定」的「交通查詢」重新填一次。' : '交通查詢的設定有問題，請爸爸檢查。')
       : tr.error === 'busy' ? '查詢太頻繁了，請過一分鐘再試。'
+      : tr.error === 'no-function' ? (isAdmin() ? '查詢用的雲端函式還沒部署好。請重新下載 ZIP、雙擊 deploy.bat，等它顯示 Done 之後再試。' : '交通查詢還沒設定好，請爸爸到電腦上完成部署。')
+      : tr.error === 'denied' ? '這個帳號沒有查詢的權限，請重新登入後再試。'
+      : tr.error === 'tdx' ? '交通部 TDX 平臺現在沒有回應這筆資料，請稍後再試。'
       : '現在查不到即時資料，請確認網路後再試一次。';
-    return `<p class="transit-error" role="alert">${text}</p>`;
+    return `<p class="transit-error" role="alert">${text}${isAdmin() && tr.errorDetail ? `<small>（${esc(tr.errorDetail)}）</small>` : ''}</p>`;
   }
   const updatedHtml = () => (tr.updatedAt ? `<span class="transit-time">${clock(tr.updatedAt)} 更新</span>` : '');
 
@@ -1915,8 +1918,10 @@
     try { const data = await Api.transit(op, args || {}); tr.error = ''; return data; }
     catch (e) {
       console.error(e);
-      const msg = String((e && e.message) || '');
-      tr.error = ['no-key', 'bad-key', 'busy'].find((k) => msg.includes(k)) || 'failed';
+      const msg = String((e && e.message) || ''), code = String((e && e.code) || '');
+      tr.error = ['no-key', 'bad-key', 'busy'].find((k) => msg.includes(k))
+        || (/not-found|internal/.test(code) ? 'no-function' : /unauthenticated|permission-denied/.test(code) ? 'denied' : /^tdx-/.test(msg) ? 'tdx' : 'failed');
+      tr.errorDetail = (code + ' ' + msg).trim().slice(0, 80);
       return null;
     }
   }

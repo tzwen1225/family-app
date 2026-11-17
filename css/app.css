@@ -1007,3 +1007,5 @@ form label { line-height: 1.5; }
 .train-time { flex: none; min-width: 54px; font: 700 18px/1.2 var(--num); }
 #transit-search-form { margin: 2px 0 4px; }
 #transit-search-form .send svg { stroke: #fff; }
+
+.transit-error small { display: block; margin-top: 4px; font-size: 11px; color: var(--ink-2); overflow-wrap: anywhere; }
