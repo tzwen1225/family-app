@@ -692,6 +692,38 @@ em.past { color: var(--ink-2); font-weight: 500; }
 .pack-del { flex: none; width: 40px; height: 44px; font-size: 22px; line-height: 1; color: var(--ink-2); }
 .payer { display: block; font-size: 12px; color: var(--ink-2); }
 
+/* ---------- 家庭相簿 ---------- */
+.switcher.six button { font-size: 12.5px; padding: 0 2px; }
+.album-count { font-size: 13px; color: var(--ink-2); padding: 0 4px; }
+.album-wait { text-align: center; padding: 40px 0; }
+.album-day { margin-top: 14px; }
+.album-day h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); padding: 0 4px 6px; }
+.album-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; border-radius: 16px; overflow: hidden; }
+.album-cell { position: relative; aspect-ratio: 1; background: var(--track); line-height: 0; }
+.album-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.album-n {
+  position: absolute; left: 6px; bottom: 6px; padding: 3px 7px; border-radius: 99px;
+  font-size: 11px; line-height: 1.3; font-weight: 600; color: #fff; background: rgba(0, 0, 0, .6);
+}
+.album-view { position: absolute; inset: 0; background: #0d0f0e; color: #fff; display: flex; flex-direction: column; padding-top: env(safe-area-inset-top); }
+.album-top { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 16px; font-size: 14px; }
+.album-top span { flex: 1; }
+.album-top .link-btn { color: #fff; }
+.album-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; }
+.album-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.album-stage img.loading { width: 70%; filter: blur(6px); opacity: .8; }
+.album-step { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 64px; font-size: 34px; line-height: 1; color: #fff; background: rgba(0, 0, 0, .35); }
+.album-step.prev { left: 0; border-radius: 0 12px 12px 0; }
+.album-step.next { right: 0; border-radius: 12px 0 0 12px; }
+.album-panel { background: var(--sheet); color: var(--ink); border-radius: 18px 18px 0 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); }
+.album-caption { font-weight: 600; overflow-wrap: anywhere; padding-bottom: 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+#album-comments { max-height: 26vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.album-comment { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; font-size: 15px; }
+.album-comment b { flex: none; font-size: 14px; }
+.album-comment span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.album-comment .pack-del { height: 28px; width: 32px; font-size: 18px; align-self: center; }
+.album-none { font-size: 14px; color: var(--ink-2); padding: 8px 0; }
+
 /* ---------- 採買清單 ---------- */
 .shop-add { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .shop-add input { margin: 0; border-radius: 99px; padding: 11px 16px; }

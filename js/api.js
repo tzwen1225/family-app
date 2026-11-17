@@ -23,6 +23,8 @@
 //   成績 scores：    { id, kid: 小朋友的 UID, subject, term: '國一上'…'國三下', title, date, score, full, note }
 //   旅程 trips：     { id, title, place, start_date, end_date, note }
 //   旅程內容 trip_items：{ id, trip_id, kind: 'plan' 行程 | 'journal' 日誌 | 'pack' 行李 | 'cost' 花費, … }
+//   相簿 photos：    { id, month: 'YYYY-MM', date, caption, thumb, image_id, author }
+//        photo_comments：{ id, photo_id, month, text, author, created_at }
 //   聊天照片 chat_images：{ id, data: 圖片內容, sender, sent_at }；訊息本身只放小縮圖 thumb 和 image_id
 // 推播 push_tokens：{ id: 裝置代碼, uid, updated_at }
 //   updated_at、sent_at、created_at、last_seen 都是毫秒時間戳（Date.now()）
@@ -379,6 +381,7 @@
         { id: 'ti10', trip_id: 't2', kind: 'cost', title: '住宿', amount: 4200, paid_by: 'm1', date: day(-52), created_at: 10 },
         { id: 'ti11', trip_id: 't2', kind: 'cost', title: '晚餐', amount: 1350, paid_by: 'm2', date: day(-52), created_at: 11 }
       ],
+      photos: [], photo_comments: [],
       chat_images: []
     });
     const G = (name) => {

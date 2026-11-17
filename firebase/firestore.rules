@@ -227,7 +227,7 @@ service cloud.firestore {
         && request.resource.data.sender == request.auth.uid
         && request.resource.data.data is string
         && request.resource.data.data.size() <= 950000;
-      allow delete: if isFamily() && resource.data.sender == request.auth.uid;
+      allow delete: if isFamily() && (resource.data.sender == request.auth.uid || isAdmin());
       allow update: if false;
     }
 
@@ -282,6 +282,34 @@ service cloud.firestore {
         && (resource.data.kind != 'journal' || madeIt() || isAdmin());
       allow delete: if isFamily()
         && (resource.data.kind != 'journal' || madeIt() || isAdmin() || madeTripOf(resource.data));
+    }
+
+    // 家庭相簿：全家都能看、能放照片和留言；只有放的人和管理員可以刪除，放上去之後不能改
+    match /photos/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.created_by == request.auth.uid
+        && request.resource.data.author == request.auth.uid
+        && request.resource.data.month is string && request.resource.data.date is string
+        && request.resource.data.image_id is string
+        && request.resource.data.caption is string && request.resource.data.caption.size() <= 100
+        && request.resource.data.thumb is string && request.resource.data.thumb.size() <= 200000;
+      allow update: if false;
+      allow delete: if isFamily() && (madeIt() || isAdmin());
+    }
+    match /photo_comments/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.created_by == request.auth.uid
+        && request.resource.data.author == request.auth.uid
+        && request.resource.data.photo_id is string && request.resource.data.month is string
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 200;
+      allow update: if false;
+      // 刪照片時要一併刪掉底下的留言，所以放照片的人也能刪
+      allow delete: if isFamily() && (madeIt() || isAdmin()
+        || (exists(/databases/$(database)/documents/photos/$(resource.data.photo_id))
+            && get(/databases/$(database)/documents/photos/$(resource.data.photo_id)).data.created_by == request.auth.uid));
     }
 
     // 採買清單：全家都可以新增、打勾、清除

@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 09:25';
+  const VERSION = '2026-11-17 11:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -82,6 +82,7 @@
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
     showOldNotes: false,
+    photos: [], photoComments: [], albumMonth: today().slice(0, 7), albumLoaded: null, photoId: null,   // 家庭相簿：只放正在看的那個月
     subjects: [],                   // 家長自訂的考試科目 { id, label }
     scores: [], scoreSubject: '',   // 成績紀錄
     scoreTerm: '',                  // 目前看哪個學期（空的代表全部）；會記在這支手機上；scoreSubject 是目前只看哪一科（空的代表全部）
@@ -281,7 +282,7 @@
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
-    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); }
+    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'album') loadAlbum(); }
   }
 
   // ---------- 啟動 ----------
@@ -464,6 +465,7 @@
       if (!state.tripId) return '新增旅程';
       return { plan: '新增行程', journal: '寫日誌', cost: '新增花費' }[state.tripTab] || '';   // 行李直接在上方輸入
     }
+    if (state.notesView === 'album') return '放照片';
     if (state.notesView === 'shop') return '';                       // 採買清單直接在上方輸入
     if (state.notesView === 'cards') return amChild() ? '' : '新增資料卡';
     if (state.notesView === 'scores') return kids().length ? '新增成績' : '';
@@ -1699,6 +1701,171 @@
     } catch (e) { console.error(e); toast('原圖讀取失敗'); }
   }
 
+  // ---------- 家庭相簿 ----------
+  // 鍾家生活 →「相簿」。日常的照片，按月份看；每張可以留言。
+  // 資料：photos = { month, date, caption, thumb（小圖）, image_id（原圖放在 chat_images）, author, created_by, created_at }
+  //       photo_comments = { photo_id, month, text, author, created_by, created_at }
+  // 只在打開相簿時讀那一個月的照片，不會拖慢 app 啟動。
+  const canDeletePhoto = (p) => isAdmin() || p.author === state.userId;
+  const commentsOf = (photoId) => state.photoComments.filter((c) => c.photo_id === photoId).sort((a, b) => a.created_at - b.created_at);
+
+  async function loadAlbum() {
+    const month = state.albumMonth;
+    try {
+      const [photos, comments] = await Promise.all([Api.listDocs('photos', ['month', month]), Api.listDocs('photo_comments', ['month', month])]);
+      if (month !== state.albumMonth) return;          // 讀的時候已經換到別的月份了
+      state.photos = photos.sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at);
+      state.photoComments = comments;
+      state.albumLoaded = month;
+    } catch (e) { console.error(e); toast('相簿讀取失敗，請確認網路'); }
+    if (state.tab === 'notes' && state.notesView === 'album') {
+      if (!$sheet.innerHTML) render();
+      else if (state.photoId) refreshPhotoComments();
+    }
+  }
+
+  function viewAlbum() {
+    const [y, m] = state.albumMonth.split('-').map(Number);
+    const loaded = state.albumLoaded === state.albumMonth;
+    const photos = loaded ? state.photos : [];
+    // 同一天的照片排在一起
+    const days = [];
+    photos.forEach((p) => { const last = days[days.length - 1]; if (last && last.date === p.date) last.items.push(p); else days.push({ date: p.date, items: [p] }); });
+    return `
+      <header class="month-head">
+        <h1>${y}年${m}月</h1>
+        <div class="month-nav">
+          ${state.albumMonth !== today().slice(0, 7) ? '<button class="chip-btn" data-act="album-now">回到本月</button>' : ''}
+          <button class="icon-btn" data-act="album-prev" aria-label="上個月">‹</button>
+          <button class="icon-btn" data-act="album-next" aria-label="下個月" ${state.albumMonth >= today().slice(0, 7) ? 'disabled' : ''}>›</button>
+        </div>
+      </header>
+      ${!loaded ? '<p class="hint album-wait">讀取照片中…</p>' : !photos.length ? `
+        <div class="empty big">
+          <p>這個月還沒有照片。今天的晚餐、放學路上、週末出去玩，拍了就放上來，全家都能看、能留言。</p>
+          <button class="link-btn" data-act="new">放第一張照片</button>
+        </div>` : `
+        <p class="album-count">${photos.length} 張照片</p>
+        ${days.map((d) => `
+          <section class="album-day">
+            <h2>${shortDate(d.date)}</h2>
+            <div class="album-grid">
+              ${d.items.map((p) => {
+                const n = commentsOf(p.id).length;
+                return `<button class="album-cell" data-act="open-photo" data-id="${esc(p.id)}" aria-label="${esc(nameOf(p.author))}的照片${p.caption ? '：' + esc(p.caption) : ''}">
+                  <img src="${esc(p.thumb)}" alt="" loading="lazy">
+                  ${n ? `<span class="album-n">${n} 則留言</span>` : ''}
+                </button>`;
+              }).join('')}
+            </div>
+          </section>`).join('')}`}`;
+  }
+
+  function openAlbumSheet() {
+    showSheet('photo-form', {
+      title: '放照片到相簿', submit: '上傳',
+      body: `
+      <label>照片（一次最多 10 張）<input type="file" name="photos" accept="image/*" multiple></label>
+      <label>說明（可不填）<input type="text" name="caption" maxlength="100" autocomplete="off" placeholder="例如：阿嬤家的年夜飯"></label>
+      <label>哪一天拍的<input type="date" name="date" value="${today()}" max="${today()}"></label>
+      <p class="hint">一次選很多張時，同一句說明會放在每一張上。</p>`
+    });
+  }
+
+  const commentsHtml = (photoId) => {
+    const list = commentsOf(photoId);
+    return list.length ? list.map((c) => `
+      <div class="album-comment">
+        <b style="color:${esc(colorOf(c.author))}">${esc(nameOf(c.author))}</b>
+        <span>${esc(c.text)}</span>
+        ${isAdmin() || c.author === state.userId ? `<button class="pack-del" data-act="del-comment" data-id="${esc(c.id)}" aria-label="刪除這則留言">×</button>` : ''}
+      </div>`).join('') : '<p class="album-none">還沒有留言。</p>';
+  };
+  function refreshPhotoComments() {
+    const box = document.getElementById('album-comments');
+    if (box) { box.innerHTML = commentsHtml(state.photoId); box.scrollTop = box.scrollHeight; }
+  }
+
+  // 看一張照片：先顯示小圖，原圖讀到再換上；下面是說明和留言
+  async function openPhoto(id) {
+    const p = findById(state.photos, id);
+    if (!p) return;
+    state.photoId = id;
+    const i = state.photos.indexOf(p);
+    const prev = state.photos[i - 1], next = state.photos[i + 1];
+    document.body.classList.add('sheet-open');
+    $sheet.innerHTML = `
+      <div class="album-view" role="dialog" aria-label="照片">
+        <div class="album-top">
+          <span>${esc(nameOf(p.author))}　${shortDate(p.date)}</span>
+          ${canDeletePhoto(p) ? `<button class="link-btn" data-act="del-photo" data-id="${esc(p.id)}">刪除</button>` : ''}
+          <button class="link-btn" data-act="close-photo">關閉</button>
+        </div>
+        <div class="album-stage">
+          <img src="${esc(p.thumb)}" alt="${esc(p.caption || '照片')}" class="loading">
+          ${prev ? `<button class="album-step prev" data-act="open-photo" data-id="${esc(prev.id)}" aria-label="上一張">‹</button>` : ''}
+          ${next ? `<button class="album-step next" data-act="open-photo" data-id="${esc(next.id)}" aria-label="下一張">›</button>` : ''}
+        </div>
+        <div class="album-panel">
+          ${p.caption ? `<p class="album-caption">${esc(p.caption)}</p>` : ''}
+          <div id="album-comments">${commentsHtml(id)}</div>
+          <form class="shop-add" id="album-comment-form">
+            <input name="text" type="text" placeholder="留言…" maxlength="200" autocomplete="off" enterkeyhint="send" aria-label="留言">
+            <button type="submit" class="send" aria-label="送出留言">${ICON.send || ICON.plus}</button>
+          </form>
+        </div>
+      </div>`;
+    try {
+      const doc = await Api.getDoc('chat_images', p.image_id);
+      const el = $sheet.querySelector('.album-stage img');
+      if (state.photoId === id && el && doc && String(doc.data).startsWith('data:image/')) { el.src = doc.data; el.classList.remove('loading'); }
+    } catch (e) { console.error(e); toast('原圖讀取失敗'); }
+  }
+  function closePhoto() {
+    state.photoId = null;
+    $sheet.innerHTML = '';
+    document.body.classList.remove('sheet-open');
+    render();
+  }
+
+  async function onPhotoComment(form) {
+    const input = form.elements.text;
+    const text = input.value.trim();
+    const p = findById(state.photos, state.photoId);
+    if (!text || !p) return;
+    input.value = '';
+    try {
+      const data = { photo_id: p.id, month: p.month, text, author: state.userId, created_by: state.userId, created_at: Date.now() };
+      const id = await Api.addDoc('photo_comments', data);
+      state.photoComments.push({ ...data, id });
+      refreshPhotoComments();
+    } catch (e) { console.error(e); input.value = text; toast('留言沒有送出，請再試一次'); }
+  }
+
+  async function onDeleteComment(btn) {
+    try {
+      await Api.deleteDoc('photo_comments', btn.dataset.id);
+      state.photoComments = state.photoComments.filter((c) => c.id !== btn.dataset.id);
+      refreshPhotoComments();
+    } catch (e) { console.error(e); toast('刪除失敗，請再試一次'); }
+  }
+
+  async function onDeletePhoto(btn) {
+    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = '再按一次確定刪除'; return; }
+    const p = findById(state.photos, btn.dataset.id);
+    if (!p || !canDeletePhoto(p)) return;
+    btn.disabled = true;
+    try {
+      await Api.deleteDoc('photos', p.id);
+      Api.deleteDoc('chat_images', p.image_id).catch(() => {});
+      commentsOf(p.id).forEach((c) => Api.deleteDoc('photo_comments', c.id).catch(() => {}));
+      state.photos = state.photos.filter((x) => x.id !== p.id);
+      state.photoComments = state.photoComments.filter((c) => c.photo_id !== p.id);
+      closePhoto();
+      toast('已刪除');
+    } catch (e) { console.error(e); btn.disabled = false; toast('刪除失敗，請再試一次'); }
+  }
+
   // ---------- 採買清單 ----------
   function shopListHtml() {
     if (!state.shopping.length) return '<div class="empty big"><p>清單是空的。想到要買什麼，就在上面打字加進來。</p></div>';
@@ -1833,8 +2000,8 @@
   // ---------- 雜記 ----------
   function viewNotes() {
     const b = (v, label) => `<button class="${state.notesView === v ? 'on' : ''}" data-act="notes-view" data-view="${v}" ${state.notesView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
-    const views = { ledger: viewLedger, scores: viewScores, notes: viewTravel, shop: viewShop, cards: viewCards };
-    return `<div class="switcher five" role="group" aria-label="鍾家生活的內容">${b('ledger', '零用錢')}${b('scores', '成績')}${b('notes', '旅遊')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
+    const views = { ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, shop: viewShop, cards: viewCards };
+    return `<div class="switcher five six" role="group" aria-label="鍾家生活的內容">${b('ledger', '零用錢')}${b('scores', '成績')}${b('notes', '旅遊')}${b('album', '相簿')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
       + (views[state.notesView] || viewLedger)();
   }
 
@@ -2529,6 +2696,35 @@
       remove: (id) => Api.deleteDoc('trip_items', id),
       after() { render(); }
     },
+    'photo-form': {
+      read: (f) => ({ files: Array.from(f.photos.files || []), caption: f.caption.value.trim(), date: f.date.value }),
+      check(x) {
+        if (!x.files.length) return '請選擇照片';
+        if (x.files.length > 10) return '一次最多 10 張，請分幾次上傳';
+        if (!x.date) return '請選擇哪一天拍的';
+        if (x.date > today()) return '日期不能是未來';
+        return null;
+      },
+      async save(x) {
+        const err = document.getElementById('form-error');
+        let n = 0;
+        for (const file of x.files) {
+          n++;
+          if (err && x.files.length > 1) { err.hidden = false; err.textContent = '上傳中 ' + n + ' / ' + x.files.length + '…'; }
+          const img = await loadImage(file);
+          let full = shrink(img, 1280, 0.72);
+          for (const [side, q] of [[1024, 0.65], [800, 0.6], [640, 0.55]]) { if (full.length <= 900000) break; full = shrink(img, side, q); }
+          if (full.length > 900000) throw new Error('too-large');
+          const image_id = await Api.addDoc('chat_images', { data: full, sender: state.userId, sent_at: Date.now() });
+          await Api.addDoc('photos', {
+            month: x.date.slice(0, 7), date: x.date, caption: x.caption, thumb: shrink(img, 360, 0.6), image_id,
+            author: state.userId, created_by: state.userId, created_at: Date.now()
+          });
+        }
+      },
+      done: '已放進相簿',
+      after(x) { if (x) state.albumMonth = x.date.slice(0, 7); state.albumLoaded = null; render(); return loadAlbum(); }
+    },
     'score-form': {
       read: (f, form) => ({
         id: f.item_id.value || null, kid: f.kid.value, subject: checkedValues(form, 'subject')[0] || '', term: checkedValues(form, 'term')[0] || '', title: f.title.value.trim(),
@@ -2740,6 +2936,7 @@
       if (state.tab === 'notes' && state.notesView === 'ledger') { if (kids().length) openLedgerSheet(null); }
       else if (state.tab === 'notes' && state.notesView === 'cards') { if (!amChild()) openCardSheet(null); }
       else if (state.tab === 'notes' && state.notesView === 'scores') { if (kids().length) openScoreSheet(null); }
+      else if (state.tab === 'notes' && state.notesView === 'album') openAlbumSheet();
       else if (state.tab === 'notes' && state.notesView === 'notes') {
         if (!state.tripId) openTripSheet(null);
         else if (state.tripTab === 'plan') openPlanSheet(null);
@@ -2787,6 +2984,16 @@
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
     else if (act === 'del-journal') onDeleteJournal(el);
+    else if (act === 'open-photo') openPhoto(el.dataset.id);
+    else if (act === 'close-photo') closePhoto();
+    else if (act === 'del-photo') onDeletePhoto(el);
+    else if (act === 'del-comment') onDeleteComment(el);
+    else if (act === 'album-prev' || act === 'album-next' || act === 'album-now') {
+      const d = parse(state.albumMonth + '-01');
+      d.setMonth(d.getMonth() + (act === 'album-prev' ? -1 : 1));
+      const to = act === 'album-now' ? today().slice(0, 7) : ymd(d).slice(0, 7);
+      if (to <= today().slice(0, 7)) { state.albumMonth = to; render(); scroller().scrollTop = 0; loadAlbum(); }
+    }
     else if (act === 'posts-view') { state.postsView = el.dataset.view; render(); scroller().scrollTop = 0; }
     else if (act === 'open-polls') { state.tab = 'posts'; state.postsView = 'polls'; state.pollHistory = false; render(); }
     else if (act === 'vote') onVote(el);
@@ -2860,6 +3067,7 @@
     else if (id === 'chat-form') onSend(form);
     else if (id === 'shop-form') onShopAdd(form);
     else if (id === 'pack-form') onPackAdd(form);
+    else if (id === 'album-comment-form') onPhotoComment(form);
     else if (form.classList.contains('reply-form')) onReply(form);
     else if (FORMS[id]) onSave(form);
   });
@@ -2875,6 +3083,7 @@
     if (form.getAttribute('id') === 'chat-form') onSend(form);
     else if (form.getAttribute('id') === 'shop-form') onShopAdd(form);
     else if (form.getAttribute('id') === 'pack-form') onPackAdd(form);
+    else if (form.getAttribute('id') === 'album-comment-form') onPhotoComment(form);
     else if (form.classList.contains('reply-form')) onReply(form);
   }
   // touchstart 要設 passive: false，preventDefault 才有效（iPhone 靠它才不會收鍵盤）
