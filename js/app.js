@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 08:50';
+  const VERSION = '2026-11-17 09:25';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1393,6 +1393,9 @@
   // 鍾家生活 →「旅遊」。每趟旅程底下有四個分頁：行程（每天要去哪）、日誌（文字和照片）、行李（要帶的東西）、花費。
   // 資料：trips = 旅程；trip_items = 旅程底下的每一筆，用 kind 區分 plan / journal / pack / cost。
   const tripOf = (id) => findById(state.trips, id);
+  // 整趟旅程和每則日誌：只有建立的人和管理員可以刪除
+  const canDeleteTrip = (t) => isAdmin() || t.created_by === state.userId;
+  const canDeleteJournal = (j) => isAdmin() || j.author === state.userId;
   const itemsOf = (tripId, kind) => state.tripItems.filter((x) => x.trip_id === tripId && x.kind === kind);
   const tripDays = (t) => daysBetween(t.start_date, t.end_date) + 1;
   function tripStatus(t) {
@@ -1518,6 +1521,7 @@
         <article class="post journal" style="--who:${esc(colorOf(j.author))}">
           ${mine ? `<button class="journal-main" data-act="edit-journal" data-id="${esc(j.id)}">${inner}</button>` : `<div class="journal-main">${inner}</div>`}
           ${j.thumb ? `<button class="journal-photo" data-act="trip-photo" data-id="${esc(j.id)}" aria-label="照片，點一下放大"><img src="${esc(j.thumb)}" alt="照片"></button>` : ''}
+          ${!mine && canDeleteJournal(j) ? `<button class="link-btn danger journal-del" data-act="del-journal" data-id="${esc(j.id)}">刪除這則日誌</button>` : ''}
         </article>`;
     }).join('');
   }
@@ -1589,7 +1593,7 @@
     const t = trip || { title: '', place: '', start_date: today(), end_date: today(), note: '' };
     showSheet('trip-form', {
       title: trip ? '編輯旅程' : '新增旅程', focus: !trip,
-      footer: trip ? '<button type="button" class="btn danger" data-act="delete">刪除整趟旅程</button>' : '',
+      footer: trip && canDeleteTrip(trip) ? '<button type="button" class="btn danger" data-act="delete">刪除整趟旅程</button>' : '',
       body: `
       <input type="hidden" name="item_id" value="${esc(t.id || '')}">
       <input class="title-input" name="title" placeholder="旅程名稱，例如：寒假花蓮三日遊" value="${esc(t.title)}" maxlength="40" autocomplete="off">
@@ -1599,7 +1603,7 @@
         <label>回程<input type="date" name="end_date" value="${esc(t.end_date)}"></label>
       </div>
       <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="住哪裡、訂位代號、集合時間…">${esc(t.note || '')}</textarea></label>
-      ${trip ? '<p class="hint">刪除旅程會連同底下的行程、日誌、行李和花費一起刪掉。</p>' : '<p class="hint">建立後，這趟旅程會自動出現在首頁的月曆上。</p>'}`
+      ${trip ? `<p class="hint">${canDeleteTrip(trip) ? '刪除旅程會連同底下的行程、日誌、行李和花費一起刪掉。' : '這趟旅程是' + esc(nameOf(trip.created_by)) + '建立的，只有建立的人和管理員可以刪除。'}</p>` : '<p class="hint">建立後，這趟旅程會自動出現在首頁的月曆上。</p>'}`
     });
   }
 
@@ -1670,6 +1674,14 @@
     catch (e) { console.error(e); input.value = text; toast('沒有加進去，請再試一次'); }
     const again = document.getElementById('pack-input');
     if (again) again.focus();
+  }
+
+  // 管理員刪別人的日誌（自己的日誌從編輯畫面刪）
+  async function onDeleteJournal(btn) {
+    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = '再按一次確定刪除'; return; }
+    btn.disabled = true;
+    try { await FORMS['journal-form'].remove(btn.dataset.id); toast('已刪除'); render(); }
+    catch (e) { console.error(e); btn.disabled = false; toast('刪除失敗，請再試一次'); }
   }
 
   async function openTripPhoto(id) {
@@ -2457,6 +2469,8 @@
       },
       async remove(id) {
         // 連同底下的行程、日誌、行李、花費一起刪掉（日誌的原圖也刪）
+        const t = tripOf(id);
+        if (!t || !canDeleteTrip(t)) throw new Error('not-allowed');
         const items = state.tripItems.filter((x) => x.trip_id === id);
         await Promise.all(items.map((x) => Api.deleteDoc('trip_items', x.id)));
         items.filter((x) => x.image_id).forEach((x) => Api.deleteDoc('chat_images', x.image_id).catch(() => {}));
@@ -2496,6 +2510,7 @@
       },
       async remove(id) {
         const old = findById(state.tripItems, id);
+        if (!old || !canDeleteJournal(old)) throw new Error('not-allowed');
         await Api.deleteDoc('trip_items', id);
         if (old && old.image_id) Api.deleteDoc('chat_images', old.image_id).catch(() => {});
       },
@@ -2771,6 +2786,7 @@
     else if (act === 'del-post') onDeletePost(el);
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
+    else if (act === 'del-journal') onDeleteJournal(el);
     else if (act === 'posts-view') { state.postsView = el.dataset.view; render(); scroller().scrollTop = 0; }
     else if (act === 'open-polls') { state.tab = 'posts'; state.postsView = 'polls'; state.pollHistory = false; render(); }
     else if (act === 'vote') onVote(el);

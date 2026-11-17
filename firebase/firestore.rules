@@ -242,22 +242,46 @@ service cloud.firestore {
         && (!isChild() || resource.data.kid == request.auth.uid);
     }
 
-    // 家庭旅遊：全家都可以新增、修改、刪除旅程，以及底下的行程、日誌、行李、花費
+    // 家庭旅遊：全家都可以新增、修改旅程，以及底下的行程、日誌、行李、花費。
+    // 刪除整趟旅程、刪除日誌：只有建立的人和管理員可以；日誌也只有寫的人和管理員能改。
+    function validTrip() {
+      let d = request.resource.data;
+      return d.title is string && d.title.size() >= 1 && d.title.size() <= 40
+        && d.start_date is string && d.end_date is string && d.end_date >= d.start_date;
+    }
+    function validTripItem() {
+      let d = request.resource.data;
+      return d.trip_id is string
+        && d.kind in ['plan', 'journal', 'pack', 'cost']
+        && d.get('text', '') is string && d.get('text', '').size() <= 3000
+        && d.get('thumb', '') is string && d.get('thumb', '').size() <= 200000;
+    }
+    function madeIt() {
+      return resource.data.get('created_by', null) == request.auth.uid;
+    }
+    // 這一筆所屬的旅程是不是自己建立的（刪除整趟旅程時，要能一併刪掉別人寫的日誌）
+    function madeTripOf(item) {
+      return exists(/databases/$(database)/documents/trips/$(item.trip_id))
+        && get(/databases/$(database)/documents/trips/$(item.trip_id)).data.get('created_by', null) == request.auth.uid;
+    }
     match /trips/{id} {
-      allow read, delete: if isFamily();
-      allow create, update: if isFamily()
-        && request.resource.data.title is string
-        && request.resource.data.title.size() >= 1 && request.resource.data.title.size() <= 40
-        && request.resource.data.start_date is string && request.resource.data.end_date is string
-        && request.resource.data.end_date >= request.resource.data.start_date;
+      allow read: if isFamily();
+      allow create: if isFamily() && validTrip()
+        && request.resource.data.get('created_by', request.auth.uid) == request.auth.uid;
+      allow update: if isFamily() && validTrip()
+        && request.resource.data.get('created_by', null) == resource.data.get('created_by', null);
+      allow delete: if isFamily() && (madeIt() || isAdmin());
     }
     match /trip_items/{id} {
-      allow read, delete: if isFamily();
-      allow create, update: if isFamily()
-        && request.resource.data.trip_id is string
-        && request.resource.data.kind in ['plan', 'journal', 'pack', 'cost']
-        && request.resource.data.get('text', '') is string && request.resource.data.get('text', '').size() <= 3000
-        && request.resource.data.get('thumb', '') is string && request.resource.data.get('thumb', '').size() <= 200000;
+      allow read: if isFamily();
+      allow create: if isFamily() && validTripItem()
+        && request.resource.data.get('created_by', request.auth.uid) == request.auth.uid;
+      allow update: if isFamily() && validTripItem()
+        && request.resource.data.kind == resource.data.kind
+        && request.resource.data.get('created_by', null) == resource.data.get('created_by', null)
+        && (resource.data.kind != 'journal' || madeIt() || isAdmin());
+      allow delete: if isFamily()
+        && (resource.data.kind != 'journal' || madeIt() || isAdmin() || madeTripOf(resource.data));
     }
 
     // 採買清單：全家都可以新增、打勾、清除

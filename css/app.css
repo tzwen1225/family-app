@@ -685,6 +685,7 @@ em.past { color: var(--ink-2); font-weight: 500; }
 .journal-photo { display: block; margin-top: 10px; border-radius: 14px; overflow: hidden; line-height: 0; width: 100%; }
 .journal-photo img { width: 100%; max-height: 320px; object-fit: cover; display: block; }
 
+.journal-del { display: block; margin: 8px 0 -6px auto; font-size: 13px; min-height: 34px; color: var(--danger); }
 .pack-row { display: flex; align-items: center; }
 .pack-row + .pack-row { border-top: 1px solid var(--line); }
 .pack-row .shop-item { flex: 1; min-width: 0; }
