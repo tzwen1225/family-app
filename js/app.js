@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 16:00';
+  const VERSION = '2026-11-17 16:15';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2116,14 +2116,21 @@
     return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
   }
 
-  function openTdxSheet() {
+  // TDX 金鑰：只有管理員能新增、查看、更換（安全規則也只放行管理員）
+  async function openTdxSheet() {
+    if (!isAdmin()) return;
+    let cur = null;
+    try { cur = await Api.getDoc('secrets', 'tdx'); }
+    catch (e) { console.error(e); return toast('讀不到目前的金鑰，請確認已經執行過 deploy.bat'); }
+    const has = !!(cur && cur.client_id);
     showSheet('tdx-form', {
-      title: '交通查詢的 TDX 金鑰', focus: true,
+      title: '交通查詢的 TDX 金鑰', focus: !has,
       body: `
-      <label>Client Id<input type="text" name="client_id" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100"></label>
-      <label>Client Secret<input type="text" name="client_secret" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100"></label>
+      <p class="hint">${has ? '目前已經設定金鑰' + (cur.updated_at ? '（' + stamp(cur.updated_at) + ' 儲存）' : '') + '。要更換就直接改掉再儲存。' : '還沒有設定金鑰。'}</p>
+      <label>Client Id<input type="text" name="client_id" value="${esc((cur && cur.client_id) || '')}" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100"></label>
+      <label>Client Secret<input type="text" name="client_secret" value="${esc((cur && cur.client_secret) || '')}" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100"></label>
       <p class="hint">到 tdx.transportdata.tw 登入 →「會員中心」→「資料服務」→「API 金鑰」，把那一組的 Client Id 和 Client Secret 複製貼上。</p>
-      <p class="hint">金鑰只會存在伺服器上，存好之後連這支手機也讀不回來；要更換就再填一次。</p>`
+      <p class="hint">只有管理員看得到、改得了這組金鑰；其他家人的手機讀不到。</p>`
     });
   }
 
@@ -2528,8 +2535,8 @@
       ${isAdmin() ? `
       <section class="card-list">
         <h2>交通查詢<small>公車、台鐵即時資訊的資料來源</small></h2>
-        <p class="hint">即時資料來自交通部 TDX 平臺，需要一組免費的 API 金鑰。金鑰只存在伺服器上。</p>
-        <button class="btn ghost small" data-act="tdx-key">填入或更換 TDX 金鑰</button>
+        <p class="hint">即時資料來自交通部 TDX 平臺，需要一組免費的 API 金鑰。只有管理員可以新增和查看。</p>
+        <button class="btn ghost small" data-act="tdx-key">查看或更換 TDX 金鑰</button>
       </section>` : ''}
       <section class="card-list">
         <h2>面板顏色<small>只會改這支手機</small></h2>

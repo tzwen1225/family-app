@@ -106,7 +106,7 @@ exports.onPoll = onDocumentCreated('polls/{id}', async (event) => {
 // ---------- 交通查詢：新竹的公車與台鐵即時資訊 ----------
 // 資料來自交通部 TDX 平臺（https://tdx.transportdata.tw）。
 // TDX 的金鑰放在資料庫的 secrets/tdx 文件（管理員在 App 的「設定」裡填），
-// 手機讀不到那份文件，只有這支在伺服器上的程式讀得到；手機只會拿到查詢結果。
+// 那份文件只有管理員和這支在伺服器上的程式讀得到；其他家人的手機只會拿到查詢結果。
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 
 const TDX = 'https://tdx.transportdata.tw/api/basic';
