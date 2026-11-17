@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 08:10';
+  const VERSION = '2026-11-17 08:50';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1829,7 +1829,7 @@
   // ---------- 零用錢記帳本 ----------
   // 每位小朋友一本。家長可以記「給零用錢」和支出，也能修改任何一筆；
   // 小朋友只看得到自己的帳本，只能新增、修改、刪除自己的支出。
-  const canEditLedger = (e) => !amChild() || (e.kid === state.userId && e.type === 'expense');
+  const canEditLedger = (e) => !amChild() || (e.kid === state.userId && e.type === 'expense' && !e.by_parent);
 
   function viewLedger() {
     const list = kids();
@@ -1844,8 +1844,9 @@
     const kid = member(kidId);
     const all = state.ledger.filter((e) => e.kid === kidId);
     const rows = all.filter((e) => e.date.slice(0, 7) === state.ledgerMonth);
-    const sum = (items, type) => items.filter((e) => e.type === type).reduce((n, e) => n + e.amount, 0);
-    const income = sum(rows, 'income'), spent = sum(rows, 'expense');
+    // 父母幫忙付的支出（by_parent）只做紀錄，不從零用錢扣
+    const sum = (items, type, byParent) => items.filter((e) => e.type === type && !!e.by_parent === !!byParent).reduce((n, e) => n + e.amount, 0);
+    const income = sum(rows, 'income'), spent = sum(rows, 'expense'), parentPaid = sum(rows, 'expense', true);
     const left = income - spent;
     const total = sum(all, 'income') - sum(all, 'expense');
     const [y, m] = state.ledgerMonth.split('-').map(Number);
@@ -1889,7 +1890,8 @@
       if (d.slice(0, 7) !== state.ledgerMonth) { cells += '<span class="mini-day blank"></span>'; continue; }
       const dayRows = rows.filter((e) => e.date === d);
       const marks = (dayRows.some((e) => e.type === 'income') ? '<i class="in"></i>' : '')
-        + (dayRows.some((e) => e.type === 'expense') ? '<i class="out"></i>' : '')
+        + (dayRows.some((e) => e.type === 'expense' && !e.by_parent) ? '<i class="out"></i>' : '')
+        + (dayRows.some((e) => e.by_parent) ? '<i class="par"></i>' : '')
         + (reqs.some((r) => r.need_date === d) ? '<i class="req"></i>' : '');
       const dayNum = parse(d).getDate();
       cells += `<button class="mini-day ${d === today() ? 'today' : ''} ${d === state.ledgerDay ? 'sel' : ''}" data-act="ledger-day" data-date="${d}" aria-label="${m}月${dayNum}日" ${d === state.ledgerDay ? 'aria-pressed="true"' : ''}><span>${dayNum}</span><span class="marks">${marks}</span></button>`;
@@ -1898,7 +1900,7 @@
       <section class="mini-cal" aria-label="這個月的收支日期">
         <div class="mini-week" aria-hidden="true">${WEEKDAYS.map((w) => `<span>${w}</span>`).join('')}</div>
         <div class="mini-grid">${cells}</div>
-        <div class="mini-legend"><span><i class="in"></i>領零用錢</span><span><i class="out"></i>支出</span><span><i class="req"></i>需要費用</span></div>
+        <div class="mini-legend"><span><i class="in"></i>領零用錢</span><span><i class="out"></i>支出</span><span><i class="par"></i>父母支出</span><span><i class="req"></i>需要費用</span></div>
       </section>`;
 
     const shown = state.ledgerDay ? rows.filter((e) => e.date === state.ledgerDay) : rows;
@@ -1910,8 +1912,8 @@
       const d = parse(e.date);
       const inner = `
           <span class="entry-date">${d.getMonth() + 1}/${d.getDate()}</span>
-          <span class="entry-note">${esc(e.note || (e.type === 'income' ? '零用錢' : '支出'))}</span>
-          <span class="entry-amount ${e.type}">${e.type === 'income' ? '+' : '−'}${money(e.amount)}</span>`;
+          <span class="entry-note">${esc(e.note || (e.type === 'income' ? '零用錢' : '支出'))}${e.by_parent ? '<small class="payer">父母支出，不扣零用錢</small>' : ''}</span>
+          <span class="entry-amount ${e.by_parent ? 'parent' : e.type}">${e.by_parent ? '' : e.type === 'income' ? '+' : '−'}${money(e.amount)}</span>`;
       return canEditLedger(e)
         ? `<button class="entry" data-act="edit-ledger" data-id="${esc(e.id)}">${inner}</button>`
         : `<div class="entry">${inner}</div>`;
@@ -1933,6 +1935,7 @@
         <div class="wallet-row">
           <span>零用錢 <b>${money(income)}</b></span>
           <span>已花 <b>${money(spent)}</b></span>
+          <span>父母支出 <b>${money(parentPaid)}</b></span>
           <span>累計結餘 <b>${total < 0 ? '−' : ''}${money(total)}</b></span>
         </div>
       </section>
@@ -2271,16 +2274,21 @@
       body: `
       <input type="hidden" name="item_id" value="${esc(e.id || '')}">
       <input type="hidden" name="kid" value="${esc(kid.id)}">
-      ${entry ? `<input type="hidden" name="type" value="${e.type}">` : `
+      ${entry ? `<input type="hidden" name="type" value="${e.type}">${parent && e.type === 'expense' ? `
+      <label class="switch">
+        <span>父母支出（不從零用錢扣）</span>
+        <input type="checkbox" name="by_parent" ${e.by_parent ? 'checked' : ''}>
+      </label>` : ''}` : `
       <fieldset class="seg">
         <legend>要記什麼？</legend>
-        <label style="--cat:var(--ink)"><input type="radio" name="type" value="expense" checked><span>支出</span></label>
+        <label style="--cat:${parent ? 'var(--c-birthday)' : 'var(--ink)'}"><input type="radio" name="type" value="expense" checked><span>${parent ? '父母支出' : '支出'}</span></label>
         ${parent ? '<label style="--cat:var(--green)"><input type="radio" name="type" value="income"><span>給零用錢</span></label>' : ''}
         <label style="--cat:var(--c-exam)"><input type="radio" name="type" value="request"><span>${parent ? '需要費用' : '跟爸媽申請費用'}</span></label>
       </fieldset>`}
       <label>金額（元）<input class="title-input" type="number" name="amount" inputmode="numeric" min="1" step="1" value="${esc(e.amount)}" placeholder="0"></label>
       <label><span id="note-label">項目</span><input type="text" name="note" value="${esc(e.note)}" maxlength="100" autocomplete="off" placeholder="${parent ? '買了什麼，或是哪個月的零用錢' : '買了什麼？'}"></label>
-      <label><span id="date-label">日期</span><input type="date" name="date" value="${esc(e.date)}"></label>`
+      <label><span id="date-label">日期</span><input type="date" name="date" value="${esc(e.date)}"></label>
+      ${parent && !entry ? `<p class="hint" id="parent-hint">父母支出只做紀錄，不會從${esc(kid.display_name)}的零用錢扣。</p>` : ''}`
     });
   }
 
@@ -2367,7 +2375,9 @@
     'ledger-form': {
       read: (f) => ({
         id: f.item_id.value || null, kid: f.kid.value, type: f.type.value,
-        amount: Number(f.amount.value), note: f.note.value.trim(), date: f.date.value
+        amount: Number(f.amount.value), note: f.note.value.trim(), date: f.date.value,
+        // 家長新增的支出一律算父母支出；編輯時看開關。小朋友自己記的才從零用錢扣
+        by_parent: f.type.value === 'expense' && !amChild() && (f.by_parent ? f.by_parent.checked : true)
       }),
       check(e) {
         if (!Number.isInteger(e.amount) || e.amount < 1) return '請輸入金額（整數，至少 1 元）';
@@ -2878,6 +2888,8 @@
     form.querySelector('#note-label').textContent = request ? '用途' : '項目';
     form.querySelector('#date-label').textContent = request ? '哪一天需要' : '日期';
     form.elements.note.placeholder = request ? '例如：學校舞會' : ev.target.value === 'income' ? '例如：11 月零用錢' : '買了什麼？';
+    const hint = form.querySelector('#parent-hint');
+    if (hint) hint.hidden = ev.target.value !== 'expense';
   });
 
   document.addEventListener('change', (ev) => {

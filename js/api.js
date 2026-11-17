@@ -56,7 +56,8 @@
   });
   const cleanLedger = (e) => ({
     kid: e.kid, type: e.type === 'income' ? 'income' : 'expense',
-    amount: Math.round(Number(e.amount)), note: e.note || '', date: e.date
+    amount: Math.round(Number(e.amount)), note: e.note || '', date: e.date,
+    by_parent: e.type !== 'income' && !!e.by_parent   // 父母支出：只做紀錄，不從零用錢扣
   });
   const cleanRequest = (r) => ({
     kid: r.kid, title: r.title, amount: Math.round(Number(r.amount)), need_date: r.need_date,
@@ -292,6 +293,7 @@
         { id: 'l1', kid: 'm3', type: 'income', amount: 800, note: '這個月零用錢', date: day(0).slice(0, 8) + '01' },
         { id: 'l2', kid: 'm3', type: 'expense', amount: 65, note: '珍珠奶茶', date: day(-2) },
         { id: 'l3', kid: 'm3', type: 'expense', amount: 180, note: '文具', date: day(-1) },
+        { id: 'l6', kid: 'm3', type: 'expense', amount: 450, note: '運動鞋', date: day(-1), by_parent: true },
         { id: 'l4', kid: 'm4', type: 'income', amount: 600, note: '這個月零用錢', date: day(0).slice(0, 8) + '01' },
         { id: 'l5', kid: 'm4', type: 'expense', amount: 120, note: '卡牌', date: day(-1) }
       ],

@@ -30,7 +30,8 @@ service cloud.firestore {
         && d.type in ['income', 'expense']
         && d.amount is number && d.amount >= 1 && d.amount <= 1000000
         && d.note is string && d.note.size() <= 100
-        && d.date is string;
+        && d.date is string
+        && d.get('by_parent', false) is bool;
     }
 
     function validScore() {
@@ -68,7 +69,8 @@ service cloud.firestore {
 
     // 小朋友只能動「自己的支出」
     function ownExpense(d) {
-      return d.kid == request.auth.uid && d.type == 'expense';
+      // 父母支出（by_parent）只有家長能記、能改
+      return d.kid == request.auth.uid && d.type == 'expense' && d.get('by_parent', false) == false;
     }
 
     function ownsEvent() {
