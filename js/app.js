@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 00:55';
+  const VERSION = '2026-11-18 01:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -147,6 +147,7 @@
   // 小朋友：members 文件裡有 child: true 的成員。其他人都算家長。
   const kids = () => state.members.filter((m) => m.child === true);
   const amChild = () => { const m = me(); return !!(m && m.child === true); };
+  const isChildId = (id) => { const m = member(id); return !!(m && m.child); };
   const money = (n) => '$' + Math.abs(n).toLocaleString('en-US');
   const member = (id) => state.members.find((m) => m.id === id);
   const nameOf = (id) => { const m = member(id); return m ? m.display_name : '已離開的成員'; };
@@ -391,7 +392,9 @@
       Api.watchList('calls', onCalls),
       Api.watchList('trip_items', (list) => { state.tripItems = list; refreshTravel(); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
-      Api.watchList('cards', (list) => { state.cards = list; if (state.tab === 'notes' && state.notesView === 'cards' && !$sheet.innerHTML) render(); }),
+      // 資料卡：家長看全部；小朋友只讀得到自己新增的（安全規則也是這樣擋）
+      (amChild() ? (cb) => Api.watchWhere('cards', 'created_by', state.userId, cb) : (cb) => Api.watchList('cards', cb))(
+        (list) => { state.cards = list; if (state.tab === 'notes' && state.notesView === 'cards' && !$sheet.innerHTML) render(); }),
       Api.watchList('polls', (list) => { state.polls = list; refreshPolls(); }),
       Api.watchList('poll_votes', (list) => { state.votes = list; refreshPolls(); }),
       Api.watchCategories((list) => {
@@ -487,7 +490,7 @@
     if (state.notesView === 'album') return '放照片';
     if (state.notesView === 'transit') return '';
     if (state.notesView === 'shop') return '';                       // 待辦直接在上方輸入
-    if (state.notesView === 'cards') return amChild() ? '' : '新增資料卡';
+    if (state.notesView === 'cards') return '新增資料卡';
     if (state.notesView === 'scores') return kids().length ? '新增成績' : '';
     return kids().length ? '新增一筆零用錢紀錄' : '';
   }
@@ -2370,15 +2373,20 @@
 
   // ---------- 資料卡 ----------
   // 健保卡號、學號、過敏、緊急聯絡人這類要用時馬上找得到的資料。全家都能看，只有家長能改。
+  // 資料卡：家長新增的只有家長看得到；小朋友可以新增自己的，只有自己和家長看得到。
+  // 家長可以改所有的卡；小朋友只能改自己新增的。
+  const canEditCard = (c) => !amChild() || c.created_by === state.userId;
   function viewCards() {
+    const child = amChild();
     if (!state.cards.length) return `
       <header class="plain-head"><h1>資料卡</h1></header>
       <div class="empty big">
-        <p>還沒有資料卡。健保卡號、學號、過敏與用藥、緊急聯絡人，都可以放在這裡。</p>
+        <p>${child ? '還沒有你的資料卡。學號、置物櫃密碼、社團資料，都可以記在這裡，只有你和爸媽看得到。'
+          : '還沒有資料卡。健保卡號、學號、過敏與用藥、緊急聯絡人，都可以放在這裡。小朋友看不到家長新增的卡。'}</p>
       </div>`;
     const groups = [['', '全家']].concat(state.members.map((m) => [m.id, m.display_name]));
     return `
-      <header class="plain-head"><h1>資料卡</h1><p>${amChild() ? '由家長維護' : '只有家長可以修改'}</p></header>
+      <header class="plain-head"><h1>資料卡</h1><p>${child ? '只有你和爸媽看得到' : '小朋友只看得到自己新增的'}</p></header>
       ${groups.map(([id, label]) => {
         const cards = state.cards.filter((c) => (member(c.member) ? c.member : '') === id)
           .sort((a, b) => a.title.localeCompare(b.title, 'zh-Hant'));
@@ -2386,28 +2394,33 @@
         return `
           <section class="card-group" style="--who:${id ? esc(colorOf(id)) : 'var(--green)'}">
             <h2>${esc(label)}</h2>
-            ${cards.map((c) => `
-              <${amChild() ? 'div' : `button data-act="edit-card" data-id="${esc(c.id)}"`} class="info-card">
-                <span class="info-title">${esc(c.title)}</span>
-                <span class="info-body">${esc(c.body)}</span>
-              </${amChild() ? 'div' : 'button'}>`).join('')}
+            ${cards.map((c) => {
+              const byKid = c.created_by && isChildId(c.created_by);
+              const inner = `
+                <span class="info-title">${esc(c.title)}${!child && byKid ? `<small class="info-by">${esc(nameOf(c.created_by))}新增</small>` : ''}</span>
+                <span class="info-body">${esc(c.body)}</span>`;
+              return canEditCard(c) ? `<button data-act="edit-card" data-id="${esc(c.id)}" class="info-card">${inner}</button>` : `<div class="info-card">${inner}</div>`;
+            }).join('')}
           </section>`;
       }).join('')}`;
   }
   function openCardSheet(card) {
-    const c = card || { title: '', member: '', body: '' };
+    const child = amChild();
+    const c = card || { title: '', member: child ? state.userId : '', body: '' };
+    const who = child ? state.members.filter((m) => m.id === state.userId) : state.members;
     showSheet('card-form', {
       title: card ? '編輯資料卡' : '新增資料卡', focus: !card, footer: card ? DELETE_BTN : '',
       body: `
       <input type="hidden" name="item_id" value="${esc(c.id || '')}">
-      <input class="title-input" name="title" placeholder="標題，例如：健保與醫療" value="${esc(c.title)}" maxlength="40" autocomplete="off">
+      <input class="title-input" name="title" placeholder="標題，例如：${child ? '學校資料' : '健保與醫療'}" value="${esc(c.title)}" maxlength="40" autocomplete="off">
       <fieldset class="seg">
         <legend>這是誰的資料？</legend>
-        <label style="--cat:var(--green)"><input type="radio" name="member" value="" ${!member(c.member) ? 'checked' : ''}><span>全家</span></label>
-        ${state.members.map((m) => `
+        ${child ? '' : `<label style="--cat:var(--green)"><input type="radio" name="member" value="" ${!member(c.member) ? 'checked' : ''}><span>全家</span></label>`}
+        ${who.map((m) => `
           <label style="--cat:${esc(m.color)}"><input type="radio" name="member" value="${esc(m.id)}" ${c.member === m.id ? 'checked' : ''}><span>${esc(m.display_name)}</span></label>`).join('')}
       </fieldset>
-      <label>內容<textarea name="body" rows="8" maxlength="2000" placeholder="健保卡號：&#10;血型：&#10;過敏：&#10;固定用藥：&#10;緊急聯絡人：">${esc(c.body)}</textarea></label>`
+      <label>內容<textarea name="body" rows="8" maxlength="2000" placeholder="${child ? '學號：&#10;班級座號：&#10;置物櫃密碼：' : '健保卡號：&#10;血型：&#10;過敏：&#10;固定用藥：&#10;緊急聯絡人：'}">${esc(c.body)}</textarea></label>
+      <p class="hint">${child ? '這張卡只有你和爸媽看得到。' : card && card.created_by && isChildId(card.created_by) ? '這張卡是' + esc(nameOf(card.created_by)) + '新增的，他也看得到。' : '家長新增的資料卡，小朋友看不到。'}</p>`
     });
   }
 
@@ -3314,13 +3327,21 @@
       after() { state.pollHistory = false; refreshPolls(); const sc = scroller(); if (sc) sc.scrollTop = 0; }
     },
     'card-form': {
-      read: (f) => ({ id: f.item_id.value || null, title: f.title.value.trim(), member: f.member.value, body: f.body.value.trim() }),
-      check: (c) => (!c.title ? '請輸入標題' : !c.body ? '請填寫內容' : null),
+      read: (f) => ({ id: f.item_id.value || null, title: f.title.value.trim(), member: amChild() ? state.userId : f.member.value, body: f.body.value.trim() }),
+      check(c) {
+        const old = c.id && findById(state.cards, c.id);
+        if (old && !canEditCard(old)) return '這張卡不能修改';
+        return !c.title ? '請輸入標題' : !c.body ? '請填寫內容' : null;
+      },
       save(c) {
         const data = { title: c.title, member: c.member, body: c.body, updated_at: Date.now() };
-        return c.id ? Api.updateDoc('cards', c.id, data) : Api.addDoc('cards', data);
+        return c.id ? Api.updateDoc('cards', c.id, data) : Api.addDoc('cards', { ...data, created_by: state.userId, created_at: Date.now() });
       },
-      remove: (id) => Api.deleteDoc('cards', id),
+      async remove(id) {
+        const old = findById(state.cards, id);
+        if (!old || !canEditCard(old)) throw new Error('not-allowed');
+        await Api.deleteDoc('cards', id);
+      },
       after() { if (state.tab === 'notes') render(); }
     },
     'subject-form': {
@@ -3472,7 +3493,7 @@
     }
     else if (act === 'new') {
       if (state.tab === 'notes' && state.notesView === 'ledger') { if (kids().length) openLedgerSheet(null); }
-      else if (state.tab === 'notes' && state.notesView === 'cards') { if (!amChild()) openCardSheet(null); }
+      else if (state.tab === 'notes' && state.notesView === 'cards') openCardSheet(null);
       else if (state.tab === 'notes' && state.notesView === 'scores') { if (kids().length) openScoreSheet(null); }
       else if (state.tab === 'notes' && state.notesView === 'album') openAlbumSheet();
       else if (state.tab === 'notes' && state.notesView === 'notes') {
@@ -3611,7 +3632,7 @@
     }
     else if (act === 'todo-undo') onTodoUndo(el.dataset.id);
     else if (act === 'open-todos') { Object.assign(state, { tab: 'notes', notesView: 'shop' }); render(); scroller().scrollTop = 0; }
-    else if (act === 'edit-card') { const c = findById(state.cards, el.dataset.id); if (c && !amChild()) openCardSheet(c); }
+    else if (act === 'edit-card') { const c = findById(state.cards, el.dataset.id); if (c && canEditCard(c)) openCardSheet(c); }
     else if (act === 'view-image') openImage(el.dataset.id);
     else if (act === 'tray-cancel') closeSheet();
     else if (act === 'tray-remove') { pendingPhotos.splice(Number(el.dataset.i), 1); if (pendingPhotos.length) renderTray(); else closeSheet(); }

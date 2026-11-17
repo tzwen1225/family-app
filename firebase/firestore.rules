@@ -416,13 +416,21 @@ service cloud.firestore {
     }
 
     // 資料卡：全家都能看，只有家長能新增、修改、刪除
+    // 資料卡：家長看得到、改得了全部；小朋友只能看、改、刪自己新增的（家長新增的看不到）
     match /cards/{id} {
-      allow read: if isFamily();
-      allow create, update: if isFamily() && !isChild()
-        && request.resource.data.title is string
-        && request.resource.data.title.size() >= 1 && request.resource.data.title.size() <= 40
-        && request.resource.data.body is string && request.resource.data.body.size() <= 2000;
-      allow delete: if isFamily() && !isChild();
+      function validCard() {
+        return request.resource.data.title is string
+          && request.resource.data.title.size() >= 1 && request.resource.data.title.size() <= 40
+          && request.resource.data.body is string && request.resource.data.body.size() <= 2000;
+      }
+      allow read: if isFamily() && (!isChild() || resource.data.created_by == request.auth.uid);
+      allow create: if isFamily() && validCard()
+        && request.resource.data.created_by == request.auth.uid
+        && (!isChild() || request.resource.data.member == request.auth.uid);
+      allow update: if isFamily() && validCard()
+        && request.resource.data.get('created_by', null) == resource.data.get('created_by', null)
+        && (!isChild() || (resource.data.created_by == request.auth.uid && request.resource.data.member == request.auth.uid));
+      allow delete: if isFamily() && (!isChild() || resource.data.created_by == request.auth.uid);
     }
 
     // 我有話要說：全家都看得到，只有發言的人可以刪除

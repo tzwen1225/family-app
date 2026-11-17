@@ -1179,3 +1179,5 @@ body.in-call { overflow: hidden; }
 .chat-top .search { margin-bottom: 6px; }
 .chat-top #call-banner:empty { display: none; }
 .chat-top .call-banner { margin-bottom: 6px; }
+
+.info-by { margin-left: 8px; font-size: 12px; font-weight: 500; color: var(--ink-2); }

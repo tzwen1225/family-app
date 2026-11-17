@@ -223,6 +223,8 @@
 
       // ----- 通用讀寫（給採買、投票、資料卡、聊天照片用） -----
       watchList: (name, cb) => watch(name, col(name), cb),
+      // 只看某個欄位等於某個值的（例如小朋友只讀自己新增的資料卡；安全規則要求查詢本身就帶這個條件）
+      watchWhere: (name, field, value, cb) => watch(name, F.query(col(name), F.where(field, '==', value)), cb),
       // 讀一次清單；filter 是 [欄位, 值]，只讀符合的（小朋友讀自己的資料時一定要帶，否則會被安全規則擋下）
       listDocs: (name, filter) => (filter ? list(name, F.where(filter[0], '==', filter[1])) : list(name)),
       async addDoc(name, data) { return (await F.addDoc(col(name), data)).id; },
@@ -540,6 +542,7 @@
         setTimeout(() => cb(G(name).slice()), 0);
         return () => { gsubs[name] = gsubs[name].filter((x) => x !== cb); };
       },
+      watchWhere(name, field, value, cb) { return this.watchList(name, (list) => cb(list.filter((x) => x[field] === value))); },
       async listDocs(name, filter) { return G(name).filter((x) => !filter || x[filter[0]] === filter[1]).slice(); },
       async addDoc(name, data) {
         freshDocs();
