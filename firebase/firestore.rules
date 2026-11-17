@@ -284,7 +284,7 @@ service cloud.firestore {
         && (resource.data.kind != 'journal' || madeIt() || isAdmin() || madeTripOf(resource.data));
     }
 
-    // 家庭相簿：全家都能看、能放照片和留言；只有放的人和管理員可以刪除，放上去之後不能改
+    // 家庭相簿：全家都能看、能放照片和留言；照片只有放的人和管理員可以刪除，放上去之後不能改
     match /photos/{id} {
       allow read: if isFamily();
       allow create: if isFamily()
@@ -306,10 +306,10 @@ service cloud.firestore {
         && request.resource.data.text is string
         && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 200;
       allow update: if false;
-      // 刪照片時要一併刪掉底下的留言，所以放照片的人也能刪
-      allow delete: if isFamily() && (madeIt() || isAdmin()
-        || (exists(/databases/$(database)/documents/photos/$(resource.data.photo_id))
-            && get(/databases/$(database)/documents/photos/$(resource.data.photo_id)).data.created_by == request.auth.uid));
+      // 留言只能刪自己的（管理員也一樣）。照片被刪掉之後（只有放照片的人和管理員能刪照片），
+      // 底下剩下的留言誰都可以清掉，這樣刪照片時才能一併刪除留言
+      allow delete: if isFamily() && (madeIt()
+        || !exists(/databases/$(database)/documents/photos/$(resource.data.photo_id)));
     }
 
     // 視訊通話：撥打的人建立；通話裡的人（撥打的人和被邀請的人）可以加入、離開、拒絕、結束。

@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 01:10';
+  const VERSION = '2026-11-18 01:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1818,7 +1818,7 @@
       <div class="album-comment">
         <b style="color:${esc(colorOf(c.author))}">${esc(nameOf(c.author))}</b>
         <span>${esc(c.text)}</span>
-        ${isAdmin() || c.author === state.userId ? `<button class="pack-del" data-act="del-comment" data-id="${esc(c.id)}" aria-label="刪除這則留言">×</button>` : ''}
+        ${c.author === state.userId ? `<button class="pack-del" data-act="del-comment" data-id="${esc(c.id)}" aria-label="刪除這則留言">×</button>` : ''}
       </div>`).join('') : '<p class="album-none">還沒有留言。</p>';
   };
   function refreshPhotoComments() {
@@ -1883,6 +1883,8 @@
   }
 
   async function onDeleteComment(btn) {
+    const c = state.photoComments.find((x) => x.id === btn.dataset.id);
+    if (!c || c.author !== state.userId) return;          // 留言只能刪自己的
     try {
       await Api.deleteDoc('photo_comments', btn.dataset.id);
       state.photoComments = state.photoComments.filter((c) => c.id !== btn.dataset.id);
