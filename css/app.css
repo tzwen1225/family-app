@@ -932,3 +932,29 @@ html[data-theme="night"] .btn.primary { color: #0E1412; }
 .switch, input, textarea { border-radius: 13px; }
 .sheet { border-radius: 22px 22px 0 0; }
 .sheet-head .link-btn { padding: 0 8px; font-size: 17px; }
+
+/* ---------- 零用錢：餘額卡與明細的排版 ---------- */
+.wallet.ledger { padding: 16px 16px 14px; }
+.wallet-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.wallet-total { text-align: right; font-size: 12px; color: var(--ink-2); padding-bottom: 6px; white-space: nowrap; }
+.wallet-total b { display: block; font: 700 17px/1.3 var(--num); color: var(--ink); }
+.wallet-total b.neg { color: var(--danger); }
+.wallet-bar { height: 8px; border-radius: 99px; background: var(--track); overflow: hidden; margin-top: 12px; }
+.wallet-bar i { display: block; height: 100%; border-radius: 99px; background: var(--who); }
+.wallet-bar.over i { background: var(--danger); }
+.wallet-pct { font-size: 12px; color: var(--ink-2); margin-top: 4px; }
+.wallet-bar.over + .wallet-pct { color: var(--danger); font-weight: 600; }
+.wallet-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.wallet-stats div { background: var(--paper); border-radius: 12px; padding: 9px 10px 8px; min-width: 0; }
+.wallet-stats span { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.wallet-stats span i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.wallet-stats b { display: block; font: 700 18px/1.3 var(--num); color: var(--ink); margin-top: 2px; overflow-wrap: anywhere; }
+
+.ledger-list .entry { grid-template-columns: 36px 1fr auto; gap: 12px; align-items: center; padding: 11px 0; }
+.entry-badge { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font: 700 18px/1 var(--num); }
+.entry-badge.income { background: var(--soft); color: var(--green); }
+.entry-badge.expense { background: var(--track); color: var(--ink); }
+.entry-badge.parent { background: color-mix(in srgb, var(--c-birthday) 14%, var(--sheet)); color: var(--c-birthday); font-size: 12px; }
+.ledger-list .entry-note { font-weight: 600; min-width: 0; }
+.ledger-list .entry-note small { display: block; font-size: 12px; font-weight: 400; color: var(--ink-2); margin-top: 1px; }
+.mini-day { height: 36px; }

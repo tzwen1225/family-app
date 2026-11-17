@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 13:10';
+  const VERSION = '2026-11-17 13:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2105,10 +2105,11 @@
 
     const entries = shown.length ? shown.map((e) => {
       const d = parse(e.date);
+      const kind = e.by_parent ? 'parent' : e.type;
       const inner = `
-          <span class="entry-date">${d.getMonth() + 1}/${d.getDate()}</span>
-          <span class="entry-note">${esc(e.note || (e.type === 'income' ? '零用錢' : '支出'))}${e.by_parent ? '<small class="payer">父母支出，不扣零用錢</small>' : ''}</span>
-          <span class="entry-amount ${e.by_parent ? 'parent' : e.type}">${e.by_parent ? '' : e.type === 'income' ? '+' : '−'}${money(e.amount)}</span>`;
+          <span class="entry-badge ${kind}" aria-hidden="true">${e.by_parent ? '父母' : e.type === 'income' ? '＋' : '−'}</span>
+          <span class="entry-note">${esc(e.note || (e.type === 'income' ? '零用錢' : '支出'))}<small>${d.getMonth() + 1}/${d.getDate()}（${WEEKDAYS[d.getDay()]}）${e.by_parent ? '　父母支出，不扣零用錢' : e.type === 'income' ? '　零用錢' : ''}</small></span>
+          <span class="entry-amount ${kind}">${e.by_parent ? '' : e.type === 'income' ? '+' : '−'}${money(e.amount)}</span>`;
       return canEditLedger(e)
         ? `<button class="entry" data-act="edit-ledger" data-id="${esc(e.id)}">${inner}</button>`
         : `<div class="entry">${inner}</div>`;
@@ -2124,19 +2125,26 @@
         </div>
       </header>
       ${picker}
-      <section class="wallet" style="--who:${esc(kid.color)}" aria-label="${esc(kid.display_name)}這個月的零用錢">
-        <div class="wallet-name">${esc(kid.display_name)}這個月還剩</div>
-        <div class="wallet-left ${left < 0 ? 'neg' : ''}">${left < 0 ? '−' : ''}${money(left)}</div>
-        <div class="wallet-row">
-          <span>零用錢 <b>${money(income)}</b></span>
-          <span>已花 <b>${money(spent)}</b></span>
-          <span>父母支出 <b>${money(parentPaid)}</b></span>
-          <span>累計結餘 <b>${total < 0 ? '−' : ''}${money(total)}</b></span>
+      <section class="wallet ledger" style="--who:${esc(kid.color)}" aria-label="${esc(kid.display_name)}這個月的零用錢">
+        <div class="wallet-top">
+          <div>
+            <div class="wallet-name">${esc(kid.display_name)}這個月還剩</div>
+            <div class="wallet-left ${left < 0 ? 'neg' : ''}">${left < 0 ? '−' : ''}${money(left)}</div>
+          </div>
+          <div class="wallet-total">累計結餘<b class="${total < 0 ? 'neg' : ''}">${total < 0 ? '−' : ''}${money(total)}</b></div>
+        </div>
+        ${income > 0 ? `
+        <div class="wallet-bar ${spent > income ? 'over' : ''}" role="img" aria-label="零用錢已經花了 ${Math.round(spent / income * 100)}%"><i style="width:${Math.min(100, Math.round(spent / income * 100))}%"></i></div>
+        <div class="wallet-pct">${spent > income ? '已經超支 ' + money(spent - income) : '已花 ' + Math.round(spent / income * 100) + '%'}</div>` : ''}
+        <div class="wallet-stats">
+          <div><span><i class="in"></i>零用錢</span><b>${money(income)}</b></div>
+          <div><span><i class="out"></i>已花</span><b>${money(spent)}</b></div>
+          <div><span><i class="par"></i>父母支出</span><b>${money(parentPaid)}</b></div>
         </div>
       </section>
       ${requestsHtml}
       ${miniCal}
-      <section class="entries">${listHead}${entries}</section>`;
+      <section class="entries ledger-list">${listHead}${entries}</section>`;
   }
 
   function viewNoteList() {
