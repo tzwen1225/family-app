@@ -1009,3 +1009,15 @@ form label { line-height: 1.5; }
 #transit-search-form .send svg { stroke: #fff; }
 
 .transit-error small { display: block; margin-top: 4px; font-size: 11px; color: var(--ink-2); overflow-wrap: anywhere; }
+
+/* ---------- 鍾家生活：功能清單 ---------- */
+.hub { margin-top: 10px; background: var(--sheet); border-radius: 18px; padding: 2px 14px; }
+.hub-row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 12px 0; min-height: 68px; }
+.hub-row + .hub-row { border-top: 1px solid var(--line); }
+.hub-icon { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; }
+.hub-icon svg { width: 26px; height: 26px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.hub-main { flex: 1; min-width: 0; }
+.hub-main b { display: block; font-size: 17px; font-weight: 600; }
+.hub-main small { display: block; font-size: 13px; color: var(--ink-2); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-main em { font-style: normal; font-weight: 600; color: var(--c-exam); }
+.hub-back { margin: -4px 0 2px; }

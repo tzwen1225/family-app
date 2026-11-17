@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-17 15:30';
+  const VERSION = '2026-11-17 16:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -83,7 +83,7 @@
     monthEvents: [],
     upcoming: [],
     notes: [],
-    notesView: 'ledger',     // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
+    notesView: 'hub',        // hub（鍾家生活的首頁，預設）| ledger（零用錢）| scores | notes（旅遊）| album | transit | shop | cards // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
     shopping: [], cards: [],
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -399,7 +399,7 @@
       Api.watchRequests((list) => {
         state.requests = list;
         refreshTodos();
-        if (state.tab === 'notes' && state.notesView === 'ledger' && !$sheet.innerHTML) render();
+        if (state.tab === 'notes' && (state.notesView === 'ledger' || state.notesView === 'hub') && !$sheet.innerHTML) render();
       }, amChild() ? state.userId : null)
     ];
     Api.refreshPush().catch((e) => console.warn('通知設定更新失敗', e));
@@ -481,6 +481,7 @@
       if (!state.tripId) return '新增旅程';
       return { plan: '新增行程', journal: '寫日誌', cost: '新增花費' }[state.tripTab] || '';   // 行李直接在上方輸入
     }
+    if (state.notesView === 'hub') return '';
     if (state.notesView === 'album') return '放照片';
     if (state.notesView === 'transit') return '';
     if (state.notesView === 'shop') return '';                       // 採買清單直接在上方輸入
@@ -1601,6 +1602,7 @@
 
   // 有人改了旅遊的資料：正在看旅遊頁就更新。行李輸入框正在打字時，render() 會把焦點和內容留住。
   function refreshTravel() {
+    if (state.tab === 'notes' && state.notesView === 'hub' && !$sheet.innerHTML) return render();
     if (state.tab !== 'notes' || state.notesView !== 'notes' || $sheet.innerHTML) return;
     const input = document.getElementById('pack-input');
     const draft = input ? input.value : '';
@@ -2158,6 +2160,7 @@
       <div id="shop-list">${shopListHtml()}</div>`;
   }
   function refreshShop() {
+    if (state.tab === 'notes' && state.notesView === 'hub' && !$sheet.innerHTML) return render();
     const el = document.getElementById('shop-list');
     if (!el) return;
     el.innerHTML = shopListHtml();
@@ -2262,11 +2265,50 @@
   }
 
   // ---------- 雜記 ----------
+  // 鍾家生活：先看到所有功能的清單，點進去才是各個功能；每個功能左上角可以回到清單
+  const HUB = [
+    ['ledger', '零用錢', '#34A853', '<path d="M4 8.500A2.500 2.500 0 0 1 6.500 6H17a2 2 0 0 1 2 2v1"/><rect x="4" y="9" width="16" height="10" rx="2.500"/><circle cx="15.500" cy="14" r="1.300" fill="#fff" stroke="none"/>'],
+    ['scores', '成績', '#F29D0B', '<path d="M5 19V11M10 19V5M15 19v-6M20 19V8"/>'],
+    ['notes', '旅遊', '#0E9AA7', '<path d="M3.500 12.500l17-7.500-6 15-3-6z"/><path d="M11.500 14l3-3"/>'],
+    ['album', '相簿', '#E5557A', '<rect x="3.500" y="5" width="17" height="14" rx="2.500"/><circle cx="9" cy="10" r="1.700"/><path d="M4.500 17l4.500-4 3.500 3 3-2.500 4 3.500"/>'],
+    ['transit', '交通', '#3B7BF6', '<rect x="5" y="4" width="14" height="13" rx="3"/><path d="M5 11h14M8 20l1-3M16 20l-1-3"/><circle cx="8.500" cy="14" r=".900" fill="#fff" stroke="none"/><circle cx="15.500" cy="14" r=".900" fill="#fff" stroke="none"/>'],
+    ['shop', '採買', '#8E5CF7', '<path d="M3.500 5h2.300l2.200 10h9.500l2-7.500H7"/><circle cx="9.500" cy="18.500" r="1.200"/><circle cx="16.500" cy="18.500" r="1.200"/>'],
+    ['cards', '資料卡', '#6B7A90', '<rect x="3.500" y="5.500" width="17" height="13" rx="2.500"/><circle cx="9" cy="11" r="2"/><path d="M6.500 16c.500-1.500 4.500-1.500 5 0M14.500 10h3.500M14.500 13.500h3.500"/>']
+  ];
+  function hubNote(id) {
+    if (id === 'ledger') {
+      const n = state.requests.filter((r) => r.status !== 'given').length;
+      return n ? `<em>${n} 筆費用${amChild() ? '等爸媽給' : '還沒給'}</em>` : amChild() ? '記支出、跟爸媽申請費用' : '小朋友的記帳本';
+    }
+    if (id === 'scores') return amChild() ? '只有你和爸媽看得到' : '考試成績紀錄';
+    if (id === 'notes') {
+      const next = state.trips.filter((t) => t.end_date >= today()).sort((x, y) => x.start_date.localeCompare(y.start_date))[0];
+      return next ? `${esc(next.title)}　<em>${tripStatus(next).text}</em>` : state.trips.length ? state.trips.length + ' 趟旅程' : '行程、日誌、行李、花費';
+    }
+    if (id === 'album') return '日常照片，按月份看';
+    if (id === 'transit') return '新竹公車、台鐵即時資訊';
+    if (id === 'shop') { const n = state.shopping.filter((x) => !x.done).length; return n ? `<em>還有 ${n} 樣要買</em>` : '清單是空的'; }
+    return state.cards.length ? state.cards.length + ' 張' : '健保卡號、學號、緊急聯絡人';
+  }
+  function viewHub() {
+    return `
+      <header class="plain-head"><h1>鍾家生活</h1></header>
+      <nav class="hub" aria-label="鍾家生活的功能">
+        ${HUB.map(([id, label, color, icon]) => `
+          <button class="hub-row" data-act="notes-view" data-view="${id}">
+            <span class="hub-icon" style="background:${color}" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span>
+            <span class="hub-main"><b>${label}</b><small>${hubNote(id)}</small></span>
+            <span class="chev" aria-hidden="true">›</span>
+          </button>`).join('')}
+      </nav>`;
+  }
   function viewNotes() {
-    const b = (v, label) => `<button class="${state.notesView === v ? 'on' : ''}" data-act="notes-view" data-view="${v}" ${state.notesView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
     const views = { ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, transit: viewTransit, shop: viewShop, cards: viewCards };
-    return `<div class="switcher five six seven" role="group" aria-label="鍾家生活的內容">${b('ledger', '零用錢')}${b('scores', '成績')}${b('notes', '旅遊')}${b('album', '相簿')}${b('transit', '交通')}${b('shop', '採買')}${b('cards', '資料卡')}</div>`
-      + (views[state.notesView] || viewLedger)();
+    const view = views[state.notesView];
+    if (!view) return viewHub();
+    // 旅程裡面、公車路線裡面已經有自己的「返回」，就不再多放一個
+    const inner = (state.notesView === 'notes' && state.tripId && tripOf(state.tripId)) || (state.notesView === 'transit' && state.transit.mode === 'bus' && state.transit.route);
+    return (inner ? '' : '<button class="link-btn back hub-back" data-act="notes-view" data-view="hub">‹ 鍾家生活</button>') + view();
   }
 
   // ---------- 零用錢記帳本 ----------
@@ -3201,6 +3243,7 @@
     if (!el) return;
     const act = el.dataset.act;
     if (act === 'tab') {
+      if (el.dataset.tab === 'notes' && state.tab === 'notes' && state.notesView !== 'hub') { state.notesView = 'hub'; state.tripId = null; state.transit.route = null; }
       state.tab = el.dataset.tab;
       state.menuMsg = null; state.pollEdit = null;
       if (state.tab === 'chat') markRead();
@@ -3352,7 +3395,7 @@
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state.transit, freshTransit());
         Object.assign(state, {
-          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'ledger', postsView: 'posts', trips: [], tripItems: [], tripId: null, shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
+          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'hub', postsView: 'posts', trips: [], tripItems: [], tripId: null, shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
         });
         renderLogin();
