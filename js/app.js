@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 10:55';
+  const VERSION = '2026-11-18 11:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -107,7 +107,7 @@
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
     showOldNotes: false,
     chatShown: 60,           // 聊天室目前畫出最新的幾則
-    photos: [], photoComments: [], albumMonth: today().slice(0, 7), albumLoaded: null, photoId: null,   // 家庭相簿：只放正在看的那個月
+    photos: [], photoComments: [], photoLikes: [], albumFilter: '', slideshow: 0, albumMonth: today().slice(0, 7), albumLoaded: null, photoId: null,   // 家庭相簿：只放正在看的那個月
     subjects: [],                   // 家長自訂的考試科目 { id, label }
     scores: [], scoreSubject: '',   // 成績紀錄
     scoreTerm: '',                  // 目前看哪個學期（空的代表全部）；會記在這支手機上；scoreSubject 是目前只看哪一科（空的代表全部）
@@ -1760,47 +1760,52 @@
   }
 
   // ---------- 家庭相簿 ----------
-  // 鍾家生活 →「相簿」。日常的照片，按月份看；每張可以留言。
-  // 資料：photos = { month, date, caption, thumb（小圖）, image_id（原圖放在 chat_images）, author, created_by, created_at }
+  // 鍾家生活 →「相簿」。日常的照片，按月份看；每張可以留言、按愛心、標註照片裡有誰。
+  // 資料：photos = { month, date, caption, people: [UID], thumb（小圖）, image_id（原圖放在 chat_images）, author, created_by, created_at }
   //       photo_comments = { photo_id, month, text, author, created_by, created_at }
-  // 只在打開相簿時讀那一個月的照片，不會拖慢 app 啟動。
+  //       photo_likes/{照片id_UID} = { photo_id, month, uid, created_at }
+  // 只在打開相簿時讀那一個月的資料，不會拖慢 app 啟動。
   const canDeletePhoto = (p) => isAdmin() || p.author === state.userId;
+  const canEditPhoto = canDeletePhoto;
   const commentsOf = (photoId) => state.photoComments.filter((c) => c.photo_id === photoId).sort((a, b) => a.created_at - b.created_at);
+  const likesOf = (photoId) => state.photoLikes.filter((l) => l.photo_id === photoId && member(l.uid));
+  const likedByMe = (photoId) => state.photoLikes.some((l) => l.photo_id === photoId && l.uid === state.userId);
+  const HEART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.500s-7.500-4.600-7.500-10.100A4.300 4.300 0 0 1 12 7.600a4.300 4.300 0 0 1 7.500 2.800c0 5.500-7.500 10.100-7.500 10.100z"/></svg>';
+  const BUBBLE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.500 6.500a2.500 2.500 0 0 1 2.500-2.500h10a2.500 2.500 0 0 1 2.500 2.500v7a2.500 2.500 0 0 1-2.500 2.500h-5.500L7 20v-4H7a2.500 2.500 0 0 1-2.500-2.500z"/></svg>';
+  const SHARE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 7.500L12 3.500l4 4M6 11v7.500A1.500 1.500 0 0 0 7.500 20h9a1.500 1.500 0 0 0 1.500-1.500V11"/></svg>';
+  const PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.500v13l10.500-6.500z"/></svg>';
 
   // 相簿改用即時監聽：手機上已經有的照片（離線快取）會馬上顯示，再只向伺服器要新的；
-  // 家人新放的照片和留言也會自動出現。看過的月份留在記憶體，切回來不用重讀。
+  // 家人新放的照片、留言和愛心也會自動出現。看過的月份留在記憶體，切回來不用重讀。
   const albumCache = {};
   let albumWatch = { month: '', stops: [] };
   function stopAlbum() { albumWatch.stops.forEach((f) => f && f()); albumWatch = { month: '', stops: [] }; }
   function drawAlbum() {
     if (state.tab !== 'notes' || state.notesView !== 'album') return;
     if (!$sheet.innerHTML) render();
-    else if (state.photoId) refreshPhotoComments();
+    else if (state.photoId) refreshPhotoPanel();
   }
   function loadAlbum() {
     const month = state.albumMonth;
     if (albumWatch.month === month) return;
     stopAlbum();
     const cached = albumCache[month];
-    if (cached) Object.assign(state, { photos: cached.photos, photoComments: cached.comments, albumLoaded: month });
-    const got = { photos: false, comments: false };
+    if (cached) Object.assign(state, { photos: cached.photos, photoComments: cached.comments, photoLikes: cached.likes, albumLoaded: month });
+    const got = { photos: false, comments: false, likes: false };
     const done = () => {
-      if (albumWatch.month !== month || !got.photos || !got.comments) return;
+      if (albumWatch.month !== month || !got.photos || !got.comments || !got.likes) return;
       state.albumLoaded = month;
-      albumCache[month] = { photos: state.photos, comments: state.photoComments };
+      albumCache[month] = { photos: state.photos, comments: state.photoComments, likes: state.photoLikes };
       drawAlbum();
     };
+    const watch = (name, key, apply) => Api.watchWhere(name, 'month', month, (list) => {
+      if (albumWatch.month !== month) return;
+      apply(list); got[key] = true; done();
+    });
     albumWatch = { month, stops: [
-      Api.watchWhere('photos', 'month', month, (list) => {
-        if (albumWatch.month !== month) return;
-        state.photos = list.sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at);
-        got.photos = true; done();
-      }),
-      Api.watchWhere('photo_comments', 'month', month, (list) => {
-        if (albumWatch.month !== month) return;
-        state.photoComments = list;
-        got.comments = true; done();
-      })
+      watch('photos', 'photos', (list) => { state.photos = list.sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at); }),
+      watch('photo_comments', 'comments', (list) => { state.photoComments = list; }),
+      watch('photo_likes', 'likes', (list) => { state.photoLikes = list; })
     ] };
     if (cached) drawAlbum();
   }
@@ -1818,13 +1823,28 @@
     return data;
   }
 
+  // 篩選：全部、我按愛心的、或照片裡有某個人
+  function albumList() {
+    const f = state.albumFilter;
+    if (!f) return state.photos;
+    if (f === 'liked') return state.photos.filter((p) => likedByMe(p.id));
+    return state.photos.filter((p) => (p.people || []).includes(f));
+  }
+
   function viewAlbum() {
     const [y, m] = state.albumMonth.split('-').map(Number);
     const loaded = state.albumLoaded === state.albumMonth;
-    const photos = loaded ? state.photos : [];
+    const all = loaded ? state.photos : [];
+    const photos = loaded ? albumList() : [];
     // 同一天的照片排在一起
     const days = [];
     photos.forEach((p) => { const last = days[days.length - 1]; if (last && last.date === p.date) last.items.push(p); else days.push({ date: p.date, items: [p] }); });
+    // 本月精選：愛心最多的那張（一樣多就選最新的）
+    const best = all.length ? all.slice().sort((a, b) => likesOf(b.id).length - likesOf(a.id).length || b.created_at - a.created_at)[0] : null;
+    const bestLikes = best ? likesOf(best.id).length : 0;
+    const chip = (v, label, color) => `<button class="album-chip ${state.albumFilter === v ? 'on' : ''}" ${color ? `style="--who:${esc(color)}"` : ''} data-act="album-filter" data-filter="${v}" ${state.albumFilter === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
+    const totalComments = state.photoComments.filter((c) => all.some((p) => p.id === c.photo_id)).length;
+    const totalLikes = state.photoLikes.filter((l) => all.some((p) => p.id === l.photo_id)).length;
     return `
       <header class="month-head">
         <h1>${y}年${m}月</h1>
@@ -1834,34 +1854,83 @@
           <button class="icon-btn" data-act="album-next" aria-label="下個月" ${state.albumMonth >= today().slice(0, 7) ? 'disabled' : ''}>›</button>
         </div>
       </header>
-      ${!loaded ? '<p class="hint album-wait">讀取照片中…</p>' : !photos.length ? `
+      ${!loaded ? '<p class="hint album-wait">讀取照片中…</p>' : !all.length ? `
         <div class="empty big">
-          <p>這個月還沒有照片。今天的晚餐、放學路上、週末出去玩，拍了就放上來，全家都能看、能留言。</p>
+          <p>這個月還沒有照片。今天的晚餐、放學路上、週末出去玩，拍了就放上來，全家都能看、能留言、按愛心。</p>
         </div>` : `
-        <p class="album-count">${photos.length} 張照片</p>
+        <button class="album-hero" data-act="open-photo" data-id="${esc(best.id)}" aria-label="本月精選：${esc(best.caption || nameOf(best.author) + '的照片')}">
+          <img src="${esc(fullImages.get(best.image_id) || best.thumb)}" alt="">
+          <span class="album-hero-text">
+            <small>${bestLikes ? '本月最多愛心' : '最新的照片'}</small>
+            <b>${esc(best.caption || shortDate(best.date))}</b>
+            <span>${esc(nameOf(best.author))}${bestLikes ? `　<i class="album-hearts">${HEART}${bestLikes}</i>` : ''}</span>
+          </span>
+        </button>
+        <div class="album-stats">
+          <span><b>${all.length}</b> 張照片</span><span><b>${totalComments}</b> 則留言</span><span><b>${totalLikes}</b> 個愛心</span>
+          <button class="album-play" data-act="album-play">${PLAY}播放</button>
+        </div>
+        <div class="album-chips" role="group" aria-label="篩選照片">
+          ${chip('', '全部')}${chip('liked', '♥ 我喜歡的')}${state.members.map((mm) => chip(mm.id, '有' + esc(mm.display_name), mm.color)).join('')}
+        </div>
+        ${!photos.length ? `<p class="hint album-wait">${state.albumFilter === 'liked' ? '這個月還沒有你按愛心的照片。' : '這個月沒有標註這個人的照片。'}</p>` : ''}
         ${days.map((d) => `
           <section class="album-day">
-            <h2>${shortDate(d.date)}</h2>
-            <div class="album-grid">
+            <h2>${shortDate(d.date)}<span>${d.items.length} 張</span></h2>
+            <div class="album-grid ${d.items.length >= 3 ? 'mosaic' : ''}">
               ${d.items.map((p) => {
-                const n = commentsOf(p.id).length;
+                const n = commentsOf(p.id).length, h = likesOf(p.id).length;
                 return `<button class="album-cell" data-act="open-photo" data-id="${esc(p.id)}" aria-label="${esc(nameOf(p.author))}的照片${p.caption ? '：' + esc(p.caption) : ''}">
                   <img src="${esc(p.thumb)}" alt="" loading="lazy" decoding="async">
-                  ${n ? `<span class="album-n">${n} 則留言</span>` : ''}
+                  ${n || h ? `<span class="album-badges">${h ? `<i class="${likedByMe(p.id) ? 'mine' : ''}">${HEART}${h}</i>` : ''}${n ? `<i>${BUBBLE}${n}</i>` : ''}</span>` : ''}
                 </button>`;
               }).join('')}
             </div>
           </section>`).join('')}`}`;
   }
 
+  // 選「照片裡有誰」的勾選列（上傳和編輯共用）
+  const peoplePicker = (picked) => `
+      <fieldset class="people">
+        <legend>照片裡有誰？<small>可不選，之後可以用「有○○」找照片</small></legend>
+        ${state.members.map((m) => `
+          <label style="--who:${esc(m.color)}">
+            <input type="checkbox" name="people" value="${esc(m.id)}" ${(picked || []).includes(m.id) ? 'checked' : ''}>
+            <span>${esc(m.display_name)}</span>
+          </label>`).join('')}
+      </fieldset>`;
+
   function openAlbumSheet() {
     showSheet('photo-form', {
       title: '放照片到相簿', submit: '上傳',
       body: `
       <label>照片（一次最多 10 張）<input type="file" name="photos" accept="image/*" multiple></label>
+      <div class="photo-previews" id="photo-previews" hidden></div>
       <label>說明（可不填）<input type="text" name="caption" maxlength="100" autocomplete="off" placeholder="例如：阿嬤家的年夜飯"></label>
+      ${peoplePicker([])}
       <label>哪一天拍的<input type="date" name="date" value="${today()}" max="${today()}"></label>
-      <p class="hint">一次選很多張時，同一句說明會放在每一張上。</p>`
+      <p class="hint">一次選很多張時，同一句說明和標註會放在每一張上，之後可以一張一張改。</p>`
+    });
+  }
+  // 選好照片後先顯示小預覽
+  function showPhotoPreviews(input) {
+    const box = document.getElementById('photo-previews');
+    if (!box) return;
+    const files = Array.from(input.files || []).slice(0, 10);
+    box.hidden = !files.length;
+    box.innerHTML = files.map((f) => `<img src="${URL.createObjectURL(f)}" alt="">`).join('')
+      + (input.files.length > 10 ? `<span class="hint">只會放前 10 張</span>` : '');
+  }
+
+  function openPhotoEditSheet(p) {
+    showSheet('photo-edit-form', {
+      title: '編輯照片資訊', focus: false,
+      body: `
+      <input type="hidden" name="item_id" value="${esc(p.id)}">
+      <img class="photo-edit-thumb" src="${esc(p.thumb)}" alt="">
+      <label>說明<input type="text" name="caption" value="${esc(p.caption || '')}" maxlength="100" autocomplete="off"></label>
+      ${peoplePicker(p.people)}
+      <label>哪一天拍的<input type="date" name="date" value="${esc(p.date)}" max="${today()}"></label>`
     });
   }
 
@@ -1872,35 +1941,59 @@
         <b style="color:${esc(colorOf(c.author))}">${esc(nameOf(c.author))}</b>
         <span>${esc(c.text)}</span>
         ${c.author === state.userId ? `<button class="pack-del" data-act="del-comment" data-id="${esc(c.id)}" aria-label="刪除這則留言">×</button>` : ''}
-      </div>`).join('') : '<p class="album-none">還沒有留言。</p>';
+      </div>`).join('') : '<p class="album-none">還沒有留言，第一個說點什麼吧。</p>';
   };
-  function refreshPhotoComments() {
+  function likeBarHtml(p) {
+    const likes = likesOf(p.id);
+    const mine = likedByMe(p.id);
+    return `
+      <button class="album-like ${mine ? 'on' : ''}" data-act="photo-like" data-id="${esc(p.id)}" aria-pressed="${mine}" aria-label="${mine ? '收回愛心' : '按愛心'}">${HEART}<b>${likes.length || ''}</b></button>
+      <span class="album-likers">${likes.length ? esc(likes.map((l) => nameOf(l.uid)).join('、')) + ' 覺得讚' : '雙擊照片也可以按愛心'}</span>
+      <button class="album-act" data-act="photo-share" data-id="${esc(p.id)}" aria-label="存到手機或分享">${SHARE}</button>`;
+  }
+  // 照片下方（愛心、留言）有變動時只更新這一塊，打到一半的留言不會不見
+  function refreshPhotoPanel() {
+    const p = findById(state.photos, state.photoId);
+    if (!p) return;
     const box = document.getElementById('album-comments');
     if (box) { box.innerHTML = commentsHtml(state.photoId); box.scrollTop = box.scrollHeight; }
+    const bar = document.getElementById('album-likebar');
+    if (bar) bar.innerHTML = likeBarHtml(p);
   }
+  const refreshPhotoComments = refreshPhotoPanel;
 
-  // 看一張照片：先顯示小圖，原圖讀到再換上；下面是說明和留言
+  // 看一張照片：先顯示小圖，原圖讀到再換上；上面是第幾張、誰放的，下面是愛心、說明、留言
   async function openPhoto(id) {
     const p = findById(state.photos, id);
     if (!p) return;
+    const list = albumList().includes(p) ? albumList() : state.photos;
     state.photoId = id;
-    const i = state.photos.indexOf(p);
-    const prev = state.photos[i - 1], next = state.photos[i + 1];
+    const i = list.indexOf(p);
+    const prev = list[i - 1], next = list[i + 1];
+    const who = member(p.author);
     document.body.classList.add('sheet-open');
     $sheet.innerHTML = `
-      <div class="album-view" role="dialog" aria-label="照片">
+      <div class="album-view ${state.slideshow ? 'playing' : ''}" role="dialog" aria-label="照片">
         <div class="album-top">
-          <span>${esc(nameOf(p.author))}　${shortDate(p.date)}</span>
+          <button class="album-x" data-act="close-photo" aria-label="關閉">×</button>
+          <span class="album-pos">${i + 1} / ${list.length}</span>
+          ${canEditPhoto(p) ? `<button class="link-btn" data-act="edit-photo" data-id="${esc(p.id)}">編輯</button>` : ''}
           ${canDeletePhoto(p) ? `<button class="link-btn" data-act="del-photo" data-id="${esc(p.id)}">刪除</button>` : ''}
-          <button class="link-btn" data-act="close-photo">關閉</button>
         </div>
-        <div class="album-stage">
+        <div class="album-stage" data-act="photo-stage" data-id="${esc(p.id)}">
           <img src="${esc(fullImages.get(p.image_id) || p.thumb)}" alt="${esc(p.caption || '照片')}" class="${fullImages.has(p.image_id) ? '' : 'loading'}">
+          <span class="album-pop" aria-hidden="true">${HEART}</span>
           ${prev ? `<button class="album-step prev" data-act="open-photo" data-id="${esc(prev.id)}" aria-label="上一張">‹</button>` : ''}
           ${next ? `<button class="album-step next" data-act="open-photo" data-id="${esc(next.id)}" aria-label="下一張">›</button>` : ''}
+          ${state.slideshow ? '<button class="album-stop" data-act="album-stop">停止播放</button>' : ''}
         </div>
         <div class="album-panel">
+          <div class="album-who">
+            ${who ? avatarHtml(who, 'sm') : ''}<b>${esc(nameOf(p.author))}</b><time>${shortDate(p.date)}</time>
+            ${(p.people || []).filter(member).map((u) => `<span class="who" style="--who:${esc(colorOf(u))}">${esc(nameOf(u))}</span>`).join('')}
+          </div>
           ${p.caption ? `<p class="album-caption">${esc(p.caption)}</p>` : ''}
+          <div class="album-likebar" id="album-likebar">${likeBarHtml(p)}</div>
           <div id="album-comments">${commentsHtml(id)}</div>
           <form class="shop-add" id="album-comment-form">
             <input name="text" type="text" placeholder="留言…" maxlength="200" autocomplete="off" enterkeyhint="send" aria-label="留言">
@@ -1914,12 +2007,77 @@
       if (state.photoId === id && el && data) { el.src = data; el.classList.remove('loading'); }
     } catch (e) { console.error(e); toast('原圖讀取失敗'); }
     [prev, next].forEach((x) => { if (x) fullImage(x).catch(() => {}); });
+    if (state.slideshow) {
+      clearTimeout(state.slideshow);
+      state.slideshow = setTimeout(() => {
+        if (!state.slideshow || state.photoId !== id) return;
+        if (next) openPhoto(next.id); else { stopSlideshow(); toast('播放完了'); }
+      }, 4000);
+    }
   }
   function closePhoto() {
+    stopSlideshow(true);
     state.photoId = null;
     $sheet.innerHTML = '';
     document.body.classList.remove('sheet-open');
     render();
+  }
+  // 幻燈片：從篩選後的第一張開始，每 4 秒換一張
+  function startSlideshow() {
+    const list = albumList();
+    if (!list.length) return;
+    state.slideshow = -1;
+    openPhoto(list[0].id);
+  }
+  function stopSlideshow(quiet) {
+    if (!state.slideshow) return;
+    clearTimeout(state.slideshow);
+    state.slideshow = 0;
+    if (!quiet && state.photoId) openPhoto(state.photoId);
+  }
+
+  async function toggleLike(id, onlyOn) {
+    const p = findById(state.photos, id);
+    if (!p) return;
+    const key = p.id + '_' + state.userId;
+    const mine = likedByMe(p.id);
+    if (mine && onlyOn) return;
+    // 先在畫面上變，伺服器慢一點也不會卡
+    if (mine) state.photoLikes = state.photoLikes.filter((l) => !(l.photo_id === p.id && l.uid === state.userId));
+    else state.photoLikes = state.photoLikes.concat({ id: key, photo_id: p.id, month: p.month, uid: state.userId, created_at: Date.now() });
+    refreshPhotoPanel();
+    try {
+      if (mine) await Api.deleteDoc('photo_likes', key);
+      else await Api.setDoc('photo_likes', key, { photo_id: p.id, month: p.month, uid: state.userId, created_at: Date.now() });
+    } catch (e) { console.error(e); toast('沒有成功，請再試一次'); }
+  }
+  // 雙擊照片＝按愛心（只會按上去，不會收回），中間跳出一顆大愛心
+  let lastStageTap = 0;
+  function onStageTap(el) {
+    if (state.slideshow) return stopSlideshow();
+    const now = Date.now();
+    if (now - lastStageTap < 320) {
+      lastStageTap = 0;
+      toggleLike(el.dataset.id, true);
+      const pop = $sheet.querySelector('.album-pop');
+      if (pop) { pop.classList.remove('show'); void pop.offsetWidth; pop.classList.add('show'); }
+    } else lastStageTap = now;
+  }
+
+  // 存到手機：用 iPhone 的分享選單（可以選「儲存影像」）；不支援時提示長按照片
+  async function sharePhoto(id) {
+    const p = findById(state.photos, id);
+    if (!p) return;
+    try {
+      const data = await fullImage(p) || p.thumb;
+      const blob = await (await fetch(data)).blob();
+      const file = new File([blob], '鍾家相簿-' + p.date + '.jpg', { type: blob.type || 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: p.caption || '鍾家相簿' });
+        return;
+      }
+    } catch (e) { if (e && e.name === 'AbortError') return; console.warn(e); }
+    toast('長按照片就可以儲存到手機');
   }
 
   async function onPhotoComment(form) {
@@ -1939,8 +2097,8 @@
     if (!c || c.author !== state.userId) return;          // 留言只能刪自己的
     try {
       await Api.deleteDoc('photo_comments', btn.dataset.id);
-      state.photoComments = state.photoComments.filter((c) => c.id !== btn.dataset.id);
-      refreshPhotoComments();
+      state.photoComments = state.photoComments.filter((x) => x.id !== btn.dataset.id);
+      refreshPhotoPanel();
     } catch (e) { console.error(e); toast('刪除失敗，請再試一次'); }
   }
 
@@ -1953,6 +2111,7 @@
       await Api.deleteDoc('photos', p.id);
       Api.deleteDoc('chat_images', p.image_id).catch(() => {});
       commentsOf(p.id).forEach((c) => Api.deleteDoc('photo_comments', c.id).catch(() => {}));
+      state.photoLikes.filter((l) => l.photo_id === p.id).forEach((l) => Api.deleteDoc('photo_likes', l.id).catch(() => {}));
       state.photos = state.photos.filter((x) => x.id !== p.id);
       state.photoComments = state.photoComments.filter((c) => c.photo_id !== p.id);
       closePhoto();
@@ -3281,7 +3440,7 @@
       after() { render(); }
     },
     'photo-form': {
-      read: (f) => ({ files: Array.from(f.photos.files || []), caption: f.caption.value.trim(), date: f.date.value }),
+      read: (f) => ({ files: Array.from(f.photos.files || []), caption: f.caption.value.trim(), date: f.date.value, people: Array.from(document.querySelectorAll('#photo-form input[name="people"]:checked')).map((i) => i.value) }),
       check(x) {
         if (!x.files.length) return '請選擇照片';
         if (x.files.length > 10) return '一次最多 10 張，請分幾次上傳';
@@ -3301,13 +3460,25 @@
           if (full.length > 900000) throw new Error('too-large');
           const image_id = await Api.addDoc('chat_images', { data: full, sender: state.userId, sent_at: Date.now() });
           await Api.addDoc('photos', {
-            month: x.date.slice(0, 7), date: x.date, caption: x.caption, thumb: shrink(img, 360, 0.6), image_id,
+            month: x.date.slice(0, 7), date: x.date, caption: x.caption, people: x.people, thumb: shrink(img, 360, 0.6), image_id,
             author: state.userId, created_by: state.userId, created_at: Date.now()
           });
         }
       },
       done: '已放進相簿',
       after(x) { if (x) state.albumMonth = x.date.slice(0, 7); render(); loadAlbum(); }
+    },
+    'photo-edit-form': {
+      read: (f) => ({ id: f.item_id.value, caption: f.caption.value.trim(), date: f.date.value, people: Array.from(document.querySelectorAll('#photo-edit-form input[name="people"]:checked')).map((i) => i.value) }),
+      check(x) {
+        const p = findById(state.photos, x.id);
+        if (!p || !canEditPhoto(p)) return '這張照片不能修改';
+        if (!x.date || x.date > today()) return '請選擇哪一天拍的（不能是未來）';
+        return null;
+      },
+      save: (x) => Api.updateDoc('photos', x.id, { caption: x.caption, people: x.people, date: x.date, month: x.date.slice(0, 7) }),
+      done: '已更新',
+      after(x) { if (x && x.date.slice(0, 7) !== state.albumMonth) toast('照片移到 ' + Number(x.date.slice(5, 7)) + ' 月了'); render(); }
     },
     'turn-form': {
       read: (f) => ({ key_id: f.key_id.value.trim(), api_token: f.api_token.value.trim() }),
@@ -3641,6 +3812,13 @@
     else if (act === 'close-photo') closePhoto();
     else if (act === 'del-photo') onDeletePhoto(el);
     else if (act === 'del-comment') onDeleteComment(el);
+    else if (act === 'album-filter') { state.albumFilter = el.dataset.filter; render(); }
+    else if (act === 'album-play') startSlideshow();
+    else if (act === 'album-stop') stopSlideshow();
+    else if (act === 'photo-like') toggleLike(el.dataset.id);
+    else if (act === 'photo-share') sharePhoto(el.dataset.id);
+    else if (act === 'photo-stage') onStageTap(el);
+    else if (act === 'edit-photo') { const p = findById(state.photos, el.dataset.id); if (p && canEditPhoto(p)) { stopSlideshow(true); state.photoId = null; openPhotoEditSheet(p); } }
     else if (act === 'album-prev' || act === 'album-next' || act === 'album-now') {
       const d = parse(state.albumMonth + '-01');
       d.setMonth(d.getMonth() + (act === 'album-prev' ? -1 : 1));
@@ -3716,7 +3894,7 @@
       // 登出時也把這支手機從通知名單移除，避免登出後還收到通知
       Api.disablePush().catch(() => {}).then(() => Api.beat(false)).catch(() => {}).then(() => Api.signOut()).then(() => {
         Object.assign(state.transit, freshTransit());
-        stopAlbum(); fullImages.clear(); Object.keys(albumCache).forEach((k) => delete albumCache[k]);
+        stopAlbum(); stopSlideshow(true); fullImages.clear(); Object.keys(albumCache).forEach((k) => delete albumCache[k]);
         if (call.id) leaveCall(); hideIncoming();
         Object.assign(state, {
           userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'hub', postsView: 'posts', trips: [], tripItems: [], tripId: null, shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
@@ -3764,6 +3942,7 @@
 
   document.addEventListener('input', (ev) => {
     const t = ev.target;
+    if (t.name === 'photos' && t.type === 'file') showPhotoPreviews(t);
     if (t.id === 'chat-input') state.draft = t.value;
     else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
     else if (t.id === 'transit-q') state.transit.q = t.value;

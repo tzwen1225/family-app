@@ -413,7 +413,7 @@
         { id: 'ti10', trip_id: 't2', kind: 'cost', title: '住宿', amount: 4200, paid_by: 'm1', date: day(-52), created_at: 10 },
         { id: 'ti11', trip_id: 't2', kind: 'cost', title: '晚餐', amount: 1350, paid_by: 'm2', date: day(-52), created_at: 11 }
       ],
-      photos: [], photo_comments: [],
+      photos: [], photo_comments: [], photo_likes: [],
       chat_images: []
     });
     const G = (name) => {

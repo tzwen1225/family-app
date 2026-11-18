@@ -284,7 +284,7 @@ service cloud.firestore {
         && (resource.data.kind != 'journal' || madeIt() || isAdmin() || madeTripOf(resource.data));
     }
 
-    // 家庭相簿：全家都能看、能放照片和留言；照片只有放的人和管理員可以刪除，放上去之後不能改
+    // 家庭相簿：全家都能看、能放照片、留言、按愛心；照片只有放的人和管理員可以修改資訊和刪除
     match /photos/{id} {
       allow read: if isFamily();
       allow create: if isFamily()
@@ -293,9 +293,26 @@ service cloud.firestore {
         && request.resource.data.month is string && request.resource.data.date is string
         && request.resource.data.image_id is string
         && request.resource.data.caption is string && request.resource.data.caption.size() <= 100
-        && request.resource.data.thumb is string && request.resource.data.thumb.size() <= 200000;
-      allow update: if false;
+        && request.resource.data.thumb is string && request.resource.data.thumb.size() <= 200000
+        && request.resource.data.get('people', []) is list && request.resource.data.get('people', []).size() <= 4;
+      // 放照片的人和管理員可以改說明、日期、照片裡有誰；照片本身不能換
+      allow update: if isFamily() && (madeIt() || isAdmin())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['caption', 'people', 'date', 'month'])
+        && request.resource.data.caption is string && request.resource.data.caption.size() <= 100
+        && request.resource.data.get('people', []) is list && request.resource.data.get('people', []).size() <= 4
+        && request.resource.data.date is string && request.resource.data.month is string;
       allow delete: if isFamily() && (madeIt() || isAdmin());
+    }
+    // 照片的愛心：每個人每張一顆（文件 id 是「照片id_自己的UID」），只能按或收回自己的
+    match /photo_likes/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.photo_id is string && request.resource.data.month is string
+        && id == request.resource.data.photo_id + '_' + request.auth.uid;
+      allow update: if false;
+      allow delete: if isFamily() && (resource.data.uid == request.auth.uid
+        || !exists(/databases/$(database)/documents/photos/$(resource.data.photo_id)));
     }
     match /photo_comments/{id} {
       allow read: if isFamily();
