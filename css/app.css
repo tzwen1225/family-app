@@ -1683,3 +1683,44 @@ html[data-style="comic"] .bt-q { background: #FFD400; color: #111; border: 2px s
 .opt-by { display: block; font-size: 11px; font-weight: 400; color: var(--ink-2); }
 .opts .none { font-size: 14px; color: var(--ink-2); padding: 4px 0; }
 html[data-theme="night"] .opt-add-btn { color: #0E1412; }
+
+/* ---------- 生日 ---------- */
+.bday { margin: 0 0 14px; }
+.bday-hero { position: relative; overflow: hidden; border-radius: 22px; padding: 26px 20px 22px; text-align: center; color: #5A1730; background: #FFE3EC; }
+.bday-hero h2 { font-size: 26px; font-weight: 900; line-height: 1.3; position: relative; }
+.bday-hero p { font-size: 15px; margin-top: 6px; position: relative; }
+.bday-float { position: absolute; inset: 0; pointer-events: none; }
+.bday-float span { position: absolute; font-size: 26px; animation: bday-bob 3.2s ease-in-out infinite alternate; }
+.bday-float span:nth-child(1) { left: 6%; top: 10%; }
+.bday-float span:nth-child(2) { right: 8%; top: 8%; animation-delay: -.8s; }
+.bday-float span:nth-child(3) { left: 12%; bottom: 8%; animation-delay: -1.6s; font-size: 22px; }
+.bday-float span:nth-child(4) { right: 12%; bottom: 10%; animation-delay: -2.2s; font-size: 22px; }
+.bday-float span:nth-child(5) { left: 44%; top: 2%; animation-delay: -1.1s; font-size: 18px; }
+.bday-float span:nth-child(6) { right: 30%; bottom: 2%; animation-delay: -2.7s; font-size: 18px; }
+@keyframes bday-bob { from { transform: translateY(4px) rotate(-6deg); } to { transform: translateY(-6px) rotate(6deg); } }
+@media (prefers-reduced-motion: reduce) { .bday-float span { animation: none; } }
+.bday-sub { font-size: 13px; font-weight: 500; color: var(--ink-2); margin: 14px 4px 8px; }
+.bday-none { font-size: 14px; color: var(--ink-2); padding: 10px 4px 0; }
+.bcards { display: grid; gap: 10px; }
+.bcard { position: relative; background: var(--sheet); border-radius: 18px; padding: 16px 16px 12px 62px; border: 2px solid color-mix(in srgb, var(--who) 45%, var(--sheet)); }
+.bcard.l { transform: rotate(-.6deg); } .bcard.r { transform: rotate(.6deg); }
+.bcard-sticker { position: absolute; left: 14px; top: 12px; font-size: 34px; line-height: 1; }
+.bcard p { font-size: 16px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.bcard footer { margin-top: 8px; text-align: right; font-size: 13px; font-weight: 700; color: var(--who); }
+.bday-other { display: flex; align-items: center; gap: 12px; background: var(--sheet); border-radius: 18px; padding: 14px; border-left: 5px solid var(--who); }
+.bday-other > div { flex: 1; min-width: 0; }
+.bday-other h2 { font-size: 17px; font-weight: 800; }
+.bday-other p { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.bday-cake { font-size: 32px; }
+.bday-other .btn { flex: none; width: auto; }
+.bday-other + .bday-other, .bday-hero + .bday-other, .bcards + .bday-other { margin-top: 10px; }
+.seg.emoji span.big { font-size: 24px; padding: 6px 12px; }
+/* 生日：圖示放在四周，不蓋到字；寫卡片按鈕要看得出是按鈕 */
+.bday-hero { padding: 40px 56px 30px; }
+.bday-float span:nth-child(1) { left: 5%; top: 12%; }
+.bday-float span:nth-child(2) { right: 5%; top: 10%; }
+.bday-float span:nth-child(3) { left: 5%; top: auto; bottom: 12%; }
+.bday-float span:nth-child(4) { right: 5%; top: auto; bottom: 12%; }
+.bday-float span:nth-child(5) { left: 47%; top: 4%; }
+.bday-float span:nth-child(6) { right: auto; left: 47%; bottom: 3%; }
+.bday-other .btn { min-height: 40px; padding: 0 16px; border-radius: 99px; color: #fff; background: #D94B76; border: 0; font-weight: 700; }

@@ -8,7 +8,8 @@
 //   polls    新增 → 通知發起人以外的所有成員
 //   shopping 新增 → 日常待辦交給某個人時，通知那個人
 //   calls    新增 → 視訊來電，通知被打的人
-//   每 5 分鐘     → 行事曆的行程開始前一小時，提醒被標註的人（沒標註就是全家）
+//   birthday_cards 新增 → 有人寫生日卡片，通知壽星
+//   每 5 分鐘     → 生日當天早上 8 點祝壽星生日快樂、提醒其他人寫卡片；行事曆的行程開始前一小時，提醒被標註的人（沒標註就是全家）
 //
 // 部署：在專案資料夾執行 firebase deploy --only functions
 
@@ -178,8 +179,47 @@ async function remindEvents(now) {
   await Promise.all(old.docs.map((d) => d.ref.delete()));
   return sent;
 }
+// 生日當天早上 8 點以後的第一次檢查：祝壽星生日快樂，並提醒其他人寫卡片（每人每年一次）
+let profileCache = { list: null, day: '' };
+async function greetBirthdays(now) {
+  const t = new Date(now + TAIPEI), day = ymdOf(now);
+  if (t.getUTCHours() < 8 || t.getUTCHours() >= 21) return 0;
+  if (profileCache.day !== day) {
+    const snap = await db.collection('profiles').get();
+    profileCache = { list: snap.docs.map((d) => ({ id: d.id, birthday: String(d.data().birthday || '') })), day };
+  }
+  const year = Number(day.slice(0, 4)), leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const stars = profileCache.list.filter((p) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.birthday);
+    return m && year + '-' + m[2] + '-' + (m[2] === '02' && m[3] === '29' && !leap ? '28' : m[3]) === day;
+  });
+  let sent = 0;
+  for (const p of stars) {
+    try { await db.doc('event_reminders/bday_' + p.id + '_' + day).create({ at: now }); } catch (e) { continue; }
+    const names = await memberNames();
+    if (!names[p.id]) continue;
+    const age = year - Number(p.birthday.slice(0, 4));
+    await notify([p.id], '生日快樂，' + names[p.id] + '！', (age > 0 ? '今天你 ' + age + ' 歲了。' : '') + '打開 App 看看家人寫給你的卡片。', 'bday-' + p.id);
+    await notify(Object.keys(names).filter((uid) => uid !== p.id), '今天是' + names[p.id] + '的生日', '打開 App，寫一張生日卡片給' + names[p.id] + '。', 'bday-' + p.id);
+    sent++;
+  }
+  return sent;
+}
+exports._greetBirthdays = greetBirthdays;   // 給測試用
+
+// 有人寫了生日卡片：通知壽星
+exports.onBirthdayCard = onDocumentCreated('birthday_cards/{id}', async (event) => {
+  const c = event.data.data();
+  const names = await memberNames();
+  if (!names[c.to] || c.to === c.from) return;
+  await notify([c.to], (names[c.from] || '家人') + '寫了生日卡片給你', clip(c.text), 'bday-' + c.to);
+});
+
 exports.remindEvents = onSchedule({ schedule: 'every 5 minutes', timeZone: 'Asia/Taipei', region: 'asia-east1', maxInstances: 1, timeoutSeconds: 60 },
-  async () => { const n = await remindEvents(Date.now()); if (n) logger.info('行程提醒：' + n + ' 則'); });
+  async () => {
+    const n = await remindEvents(Date.now()); if (n) logger.info('行程提醒：' + n + ' 則');
+    await greetBirthdays(Date.now()).catch((e) => logger.error('生日提醒失敗', e));
+  });
 exports._remindEvents = remindEvents;   // 給測試用
 
 // 日常待辦（資料在 shopping）：有人把一件事交給你時通知你；交給全家的不通知，免得太吵

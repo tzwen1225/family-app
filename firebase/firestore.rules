@@ -275,6 +275,20 @@ service cloud.firestore {
         && request.resource.data.get('created_by', null) == resource.data.get('created_by', null);
       allow delete: if isFamily() && (madeIt() || isAdmin());
     }
+    // 生日卡片：每人每年給每位壽星一張（文件 id 是「壽星UID_年份_自己的UID」），只能寫、改、刪自己的；不能寫給自己
+    match /birthday_cards/{id} {
+      // 內容只有寫的人和壽星看得到
+      allow read: if isFamily() && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid);
+      allow create, update: if isFamily()
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.to is string && request.resource.data.to != request.auth.uid
+        && request.resource.data.year is int
+        && request.resource.data.text is string && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 300
+        && request.resource.data.sticker is string && request.resource.data.sticker.size() <= 8
+        && id == request.resource.data.to + '_' + string(request.resource.data.year) + '_' + request.auth.uid;
+      allow delete: if isFamily() && (resource.data.from == request.auth.uid || isAdmin());
+    }
+
     // 旅遊日誌的表情回應：每個人每則一個（文件 id 是「日誌id_自己的UID」），只能加、換、收回自己的
     match /journal_reacts/{id} {
       allow read: if isFamily();

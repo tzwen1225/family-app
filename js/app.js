@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 22:40';
+  const VERSION = '2026-11-18 23:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -129,6 +129,7 @@
     draft: '',
     chatSearch: false,
     chatQuery: '',
+    bdayCards: [],           // 生日卡片
     optDrafts: {},           // 投票裡正在打的新選項（依投票 id）
     menuMsg: null,           // 正在顯示「回覆／收回」按鈕的訊息
     replyTo: null,           // 正在引用回覆哪一則訊息
@@ -307,7 +308,7 @@
   }
 
   async function loadProfiles() {
-    try { state.profiles = await Api.listProfiles(); }
+    try { state.profiles = await Api.listProfiles(); drawBday(); }
     catch (e) { console.error(e); }
   }
 
@@ -413,6 +414,8 @@
       Api.watchList('trips', (list) => { state.trips = list; loadEvents(); refreshTravel(); }),
       Api.watchList('calls', onCalls),
       Api.watchList('trip_items', (list) => { state.tripItems = list; refreshTravel(); }),
+      Api.watchWhere('birthday_cards', 'to', state.userId, (list) => { bdayTo = list; state.bdayCards = bdayTo.concat(bdayFrom); drawBday(); }),
+      Api.watchWhere('birthday_cards', 'from', state.userId, (list) => { bdayFrom = list; state.bdayCards = bdayTo.concat(bdayFrom); drawBday(); }),
       Api.watchList('journal_reacts', (list) => { state.journalReacts = list; refreshTravel(); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       // 資料卡：家長看全部；小朋友只讀得到自己新增的（安全規則也是這樣擋）
@@ -716,6 +719,91 @@
   }
   const eventsOn = (list, date) => list.filter((e) => e.event_date <= date && e.end_date >= date);
 
+  // ---------- 生日 ----------
+  // 生日當天：壽星的首頁最上面是「生日快樂」和大家寫的卡片；其他人看到的是「今天是誰的生日」和寫卡片的按鈕。
+  //   卡片 birthday_cards/{壽星UID_年份_寫的人UID} = { to, from, year, text, sticker, created_at }，每人每年一張，可以改
+  //   壽星在生日後一週內都還看得到卡片。
+  let bdayTo = [], bdayFrom = [];
+  const BDAY_STICKERS = ['🎂', '🎁', '🎈', '🎉', '🌟', '💖', '🧸', '🍰'];
+  function birthdayOf(id, year) {
+    const b = (state.profiles[id] || {}).birthday;
+    if (!b) return null;
+    const [by, bm, bd] = b.split('-').map(Number);
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    return { date: year + '-' + pad(bm) + '-' + pad(bm === 2 && bd === 29 && !leap ? 28 : bd), age: year - by };
+  }
+  const bdayCardId = (to, year, from) => to + '_' + year + '_' + from;
+  const cardsFor = (to, year) => state.bdayCards.filter((c) => c.to === to && c.year === year && member(c.from)).sort((a, b) => a.created_at - b.created_at);
+  function bdayCardsHtml(list) {
+    return `<div class="bcards">${list.map((c, i) => `
+      <article class="bcard ${i % 2 ? 'r' : 'l'}" style="--who:${esc(colorOf(c.from))}">
+        <span class="bcard-sticker" aria-hidden="true">${esc(c.sticker || '🎂')}</span>
+        <p>${esc(c.text)}</p>
+        <footer>${esc(nameOf(c.from))}</footer>
+      </article>`).join('')}</div>`;
+  }
+  function bdayHtml() {
+    if (!state.userId || !me()) return '';
+    const t = today(), year = Number(t.slice(0, 4));
+    let html = '';
+    state.members.forEach((m) => {
+      const b = birthdayOf(m.id, year);
+      if (!b || b.date !== t) return;
+      const cards = cardsFor(m.id, year);
+      if (m.id === state.userId) {
+        html += `
+        <div class="bday-hero">
+          <div class="bday-float" aria-hidden="true"><span>🎈</span><span>🎉</span><span>🎂</span><span>🎁</span><span>🎈</span><span>✨</span></div>
+          <h2>生日快樂，${esc(m.display_name)}！</h2>
+          <p>${b.age > 0 ? '今天你 ' + b.age + ' 歲了。' : ''}全家都祝你生日快樂。</p>
+        </div>
+        ${cards.length ? `<h3 class="bday-sub">家人寫給你的卡片</h3>${bdayCardsHtml(cards)}` : '<p class="bday-none">家人寫的卡片會出現在這裡。</p>'}`;
+      } else {
+        const mine = cards.find((c) => c.from === state.userId);
+        html += `
+        <div class="bday-other" style="--who:${esc(colorOf(m.id))}">
+          <span class="bday-cake" aria-hidden="true">🎂</span>
+          <div>
+            <h2>今天是${esc(m.display_name)}的生日</h2>
+            <p>${mine ? '你的卡片已經送出，' + esc(m.display_name) + '會在首頁看到。' : '寫一張卡片給' + esc(m.display_name) + '吧。'}</p>
+          </div>
+          <button class="btn small" data-act="bday-card" data-to="${esc(m.id)}">${mine ? '改我的卡片' : '寫卡片'}</button>
+        </div>`;
+      }
+    });
+    // 自己的生日剛過一週內：卡片還留在首頁
+    const mineB = [birthdayOf(state.userId, year), birthdayOf(state.userId, year - 1)].filter((b) => b && b.date < t && b.date >= addDays(t, -7))[0];
+    if (mineB) {
+      const cards = cardsFor(state.userId, Number(mineB.date.slice(0, 4)));
+      if (cards.length) html += `<h3 class="bday-sub">你的生日卡片（${shortDate(mineB.date)}）</h3>${bdayCardsHtml(cards)}`;
+    }
+    return html;
+  }
+  function drawBday() {
+    const el = document.getElementById('bday');
+    if (!el) return;
+    const html = bdayHtml();
+    if (el.innerHTML !== html) el.innerHTML = html;
+    el.hidden = !html;
+  }
+  function openBdaySheet(to) {
+    const m = member(to), year = Number(today().slice(0, 4));
+    if (!m || m.id === state.userId) return;
+    const c = state.bdayCards.find((x) => x.id === bdayCardId(to, year, state.userId)) || {};
+    showSheet('bday-form', {
+      title: '給' + m.display_name + '的生日卡片', submit: c.id ? '儲存' : '送出卡片', focus: !c.id, footer: c.id ? DELETE_BTN : '',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(c.id || '')}">
+      <input type="hidden" name="to" value="${esc(to)}">
+      <fieldset class="seg emoji">
+        <legend>貼圖</legend>
+        ${BDAY_STICKERS.map((e, i) => `<label style="--cat:var(--c-birthday, #E5557A)"><input type="radio" name="sticker" value="${e}" ${(c.sticker || BDAY_STICKERS[0]) === e || (!c.sticker && i === 0) ? 'checked' : ''}><span class="big">${e}</span></label>`).join('')}
+      </fieldset>
+      <label>想說的話<textarea class="title-input" name="text" rows="5" maxlength="300" placeholder="生日快樂！…">${esc(c.text || '')}</textarea></label>
+      <p class="hint">${esc(m.display_name)}會收到通知，卡片會出現在他首頁的最上面。只有你和${esc(m.display_name)}看得到內容。</p>`
+    });
+  }
+
   function calSwitch() {
     const b = (v, label) => `<button class="${state.calView === v ? 'on' : ''}" data-act="cal-view" data-view="${v}" ${state.calView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
     return `<div class="switcher" role="group" aria-label="檢視方式">${b('month', '月曆')}${b('list', '近期')}</div>`;
@@ -725,6 +813,7 @@
     const hour = new Date().getHours(), now = parse(today());
     const hello = hour < 5 ? '夜深了' : hour < 11 ? '早安' : hour < 18 ? '午安' : '晚安';
     return `<header class="hello"><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></header>`
+      + `<section class="bday" id="bday" aria-label="生日" ${bdayHtml() ? '' : 'hidden'}>${bdayHtml()}</section>`
       + `<section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>`
       + `<section class="today-card mine-card" id="mine" aria-label="我的今天">${mineHtml()}</section>`
       + `<section class="home-polls" id="home-polls" aria-label="投票" ${homePollsHtml() ? '' : 'hidden'}>${homePollsHtml()}</section>`
@@ -4055,6 +4144,17 @@
       remove: (id) => Api.deleteDoc('trip_items', id),
       after() { render(); }
     },
+    'bday-form': {
+      done: '卡片送出了',
+      read: (f) => ({ to: f.to.value, text: f.text.value.trim(), sticker: f.sticker.value }),
+      check: (x) => (!x.text ? '寫幾句話給壽星吧' : null),
+      save(x) {
+        const year = Number(today().slice(0, 4));
+        return Api.setDoc('birthday_cards', bdayCardId(x.to, year, state.userId), { to: x.to, from: state.userId, year, text: x.text, sticker: x.sticker, created_at: Date.now() });
+      },
+      remove: (id) => Api.deleteDoc('birthday_cards', id),
+      after() { drawBday(); }
+    },
     'day-form': {
       read: (f) => ({ date: f.date.value, theme: f.theme.value.trim() }),
       check: () => null,
@@ -4376,7 +4476,7 @@
       await spec.remove(form.elements.item_id.value);
       closeSheet();
       toast('已刪除');
-      await spec.after(null);
+      if (spec.after) await spec.after(null);
     } catch (e) {
       console.error(e);
       btn.disabled = false;
@@ -4515,6 +4615,7 @@
     else if (act === 'gemini-key') openGeminiSheet();
     else if (act === 'ai-event') aiFillEvent();
     else if (act === 'ai-trip') openAiTripSheet();
+    else if (act === 'bday-card') openBdaySheet(el.dataset.to);
     else if (act === 'butler-ask') askButler(el.dataset.q);
     else if (act === 'butler-clear') { state.butler = { msgs: [], busy: false }; render(); }
     else if (act === 'butler-go') butlerGo(el.dataset.src);
