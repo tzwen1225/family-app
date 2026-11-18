@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 03:00';
+  const VERSION = '2026-11-19 09:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -891,11 +891,45 @@
   }
 
   // ---------- 今天天氣（首頁名字旁邊） ----------
-  // 資料來自 Open-Meteo（免費、不用金鑰），地點固定在新竹。半小時更新一次，結果存在手機上，沒網路時顯示上次的。
-  const WX_PLACE = { name: '新竹', lat: 24.8, lon: 120.97 };
-  const WX_KEY = 'family-weather';
+  // 每個人看自己所在位置的天氣：點一下天氣 → 手機問「要不要允許取得位置」→ 之後每次開 App 自動用目前位置。
+  // 位置只留在這支手機上（不會存到資料庫，家人看不到），查天氣時把大約的座標（四捨五入到約 1 公里）送給
+  // Open-Meteo 查天氣、BigDataCloud 查地名，兩個都免費、不用金鑰。沒允許或抓不到位置時顯示新竹。
+  // 半小時更新一次，結果存在手機上，沒網路時顯示上次的。
+  const WX_HOME = { name: '新竹', lat: 24.8, lon: 120.97 };
+  const WX_KEY = 'family-weather', WX_GEO_KEY = 'family-weather-geo';
   let wx = null, wxLoading = false;
   try { wx = JSON.parse(localStorage.getItem(WX_KEY)); } catch (e) { /* 沒有存過 */ }
+  const wxUsesGeo = () => { try { return localStorage.getItem(WX_GEO_KEY) === 'on'; } catch (e) { return false; } };
+  // 目前位置（抓不到就回 null）。座標四捨五入到小數兩位，查天氣夠用，也不會送出精確位置
+  const wxLocate = () => new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: Math.round(pos.coords.latitude * 100) / 100, lon: Math.round(pos.coords.longitude * 100) / 100 }),
+      (err) => resolve(err && err.code === 1 ? 'denied' : null),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 10 * 60000 });
+  });
+  async function wxPlaceName(lat, lon) {
+    try {
+      const res = await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=' + lat + '&longitude=' + lon + '&localityLanguage=zh');
+      if (!res.ok) return '';
+      const d = await res.json();
+      const name = String(d.locality || d.city || d.principalSubdivision || '').replace(/^(.{1,8}).*$/, '$1');
+      return name;
+    } catch (e) { return ''; }
+  }
+  // 點天氣：第一次打開「用我的位置」，之後點是重新整理
+  async function onWeatherTap() {
+    if (!wxUsesGeo()) {
+      if (!navigator.geolocation) return toast('這支手機沒辦法取得位置，天氣會顯示新竹');
+      const pos = await wxLocate();
+      if (pos === 'denied') return toast('沒有允許取得位置。到 iPhone「設定 → 隱私權與安全性 → 定位服務」打開後再點一次');
+      if (!pos) return toast('現在抓不到位置，請到空曠一點的地方再試');
+      try { localStorage.setItem(WX_GEO_KEY, 'on'); } catch (e) { /* 存不了沒關係 */ }
+      toast('之後會顯示你所在位置的天氣');
+    }
+    wx = null;
+    loadWeather();
+  }
   function wxKind(code) {
     if (code === 0) return ['☀️', '晴'];
     if (code <= 2) return ['🌤️', '晴時多雲'];
@@ -909,26 +943,37 @@
     return ['⛈️', '雷雨'];
   }
   function weatherHtml() {
-    if (!wx || wx.day !== today()) return '';
+    if (!wx || wx.day !== today()) return wxUsesGeo() ? '' : '<span class="wx-text"><small>📍 點一下看這裡的天氣</small></span>';
     const [icon, label] = wxKind(wx.code);
-    return `<span class="wx-icon" aria-hidden="true">${icon}</span><span class="wx-text"><b>${esc(label)} ${Math.round(wx.temp)}°</b><small>${esc(WX_PLACE.name)} ${Math.round(wx.min)}–${Math.round(wx.max)}°${wx.rain >= 30 ? '・降雨 ' + Math.round(wx.rain) + '%' : ''}</small></span>`;
+    return `<span class="wx-icon" aria-hidden="true">${icon}</span><span class="wx-text"><b>${esc(label)} ${Math.round(wx.temp)}°</b><small>${wx.here ? '📍' : ''}${esc(wx.place || WX_HOME.name)} ${Math.round(wx.min)}–${Math.round(wx.max)}°${wx.rain >= 30 ? '・降雨 ' + Math.round(wx.rain) + '%' : ''}</small>${wxUsesGeo() ? '' : '<small class="wx-tip">點一下改看我的位置</small>'}</span>`;
   }
   async function loadWeather() {
     if (wxLoading || (wx && wx.day === today() && Date.now() - wx.at < 30 * 60000)) return;
     wxLoading = true;
     try {
-      const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + WX_PLACE.lat + '&longitude=' + WX_PLACE.lon
-        + '&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FTaipei&forecast_days=1');
+      let spot = WX_HOME, here = false;
+      if (wxUsesGeo()) {
+        const pos = await wxLocate();
+        if (pos && pos !== 'denied') { spot = { ...pos, name: '' }; here = true; }
+        else if (wx && wx.here && wx.lat != null) { spot = { lat: wx.lat, lon: wx.lon, name: wx.place }; here = true; }   // 這次抓不到：用上次的位置
+      }
+      const [res, name] = await Promise.all([
+        fetch('https://api.open-meteo.com/v1/forecast?latitude=' + spot.lat + '&longitude=' + spot.lon
+          + '&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1'),
+        spot.name ? spot.name : wxPlaceName(spot.lat, spot.lon)
+      ]);
       if (!res.ok) throw new Error('weather ' + res.status);
       const d = await res.json();
-      wx = { at: Date.now(), day: today(), code: Number(d.current.weather_code), temp: Number(d.current.temperature_2m),
-        max: Number(d.daily.temperature_2m_max[0]), min: Number(d.daily.temperature_2m_min[0]), rain: Number(d.daily.precipitation_probability_max[0]) || 0 };
-      if (![wx.code, wx.temp, wx.max, wx.min].every(Number.isFinite)) throw new Error('weather format');
+      const next = { at: Date.now(), day: today(), code: Number(d.current.weather_code), temp: Number(d.current.temperature_2m),
+        max: Number(d.daily.temperature_2m_max[0]), min: Number(d.daily.temperature_2m_min[0]), rain: Number(d.daily.precipitation_probability_max[0]) || 0,
+        here, lat: spot.lat, lon: spot.lon, place: name || (here ? '目前位置' : WX_HOME.name) };
+      if (![next.code, next.temp, next.max, next.min].every(Number.isFinite)) throw new Error('weather format');
+      wx = next;
       try { localStorage.setItem(WX_KEY, JSON.stringify(wx)); } catch (e) { /* 存不了沒關係 */ }
-      const el = document.getElementById('wx');
-      if (el) el.innerHTML = weatherHtml();
     } catch (e) { console.warn('天氣讀不到', e); }
     wxLoading = false;
+    const el = document.getElementById('wx');
+    if (el) el.innerHTML = weatherHtml();
   }
 
   function calSwitch() {
@@ -942,7 +987,7 @@
     loadWeather();
     // 問候、天氣和家人狀態固定在最上面，往下滑也看得到
     return `<div class="home-top">
-        <header class="hello"><div><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></div><div class="wx" id="wx">${weatherHtml()}</div></header>
+        <header class="hello"><div><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></div><button class="wx" id="wx" data-act="wx-tap" aria-label="今天天氣，點一下更新或改用我的位置">${weatherHtml()}</button></header>
         <section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>
       </div>`
       + `<section class="bday" id="bday" aria-label="生日" ${bdayHtml() ? '' : 'hidden'}>${bdayHtml()}</section>`
@@ -4773,6 +4818,7 @@
     else if (act === 'msg-menu') { state.menuMsg = state.menuMsg === el.dataset.id ? null : el.dataset.id; refreshChat(false); }
     else if (act === 'recall') onRecall(el.dataset.id);
     else if (act === 'reply-msg') startReply(el.dataset.id);
+    else if (act === 'wx-tap') onWeatherTap();
     else if (act === 'msg-react') toggleMsgReact(el.dataset.id, el.dataset.emoji);
     else if (act === 'reply-cancel') { state.replyTo = null; drawAssist(); }
     else if (act === 'pick-mention') pickMention(el.dataset.name);

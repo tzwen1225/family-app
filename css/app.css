@@ -1824,3 +1824,5 @@ html[data-style="comic"] :is(.bt-ask, .bt-a, .ai-box) { border: 2.5px solid #111
 .lock-list { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 0; font-size: 16px; }
 .lock-list dt { color: var(--ink-2); font-size: 14px; }
 .lock-list dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+button.wx { text-align: right; min-height: 44px; }
+.wx-tip { color: var(--green) !important; font-weight: 600; }
