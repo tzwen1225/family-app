@@ -476,7 +476,7 @@
           }
           return { days, tips: ['示範提醒：交通票券先買好', '示範提醒：下雨改去室內景點'] };
         }
-        if (op === 'butler') { const c = JSON.parse(args.context); return { answer: '（示範）你問的是「' + args.question + '」。\n這次送出的紀錄有：行程 ' + c.calendar_未來14天行程.length + ' 筆、待辦 ' + c.todos_還沒做的待辦.length + ' 筆、成績 ' + Object.keys(c.scores_成績).join('、') + '。\n接上 Gemini 之後，這裡會是真正的回答。', sources: /考|成績/.test(args.question) ? ['scores'] : /零用錢/.test(args.question) ? ['ledger'] : ['calendar', 'todos'] }; }
+        if (op === 'butler') { const c = JSON.parse(args.context); return { answer: '（示範）你問的是「' + args.question + '」。\n' + (c.calendar_未來14天行程 ? '這次送出的紀錄有：行程 ' + c.calendar_未來14天行程.length + ' 筆、待辦 ' + c.todos_還沒做的待辦.length + ' 筆、成績 ' + Object.keys(c.scores_成績).join('、') + '。' : '這一題沒有附上家庭紀錄。') + '\n接上 Gemini 之後，這裡會是真正的回答。', sources: /考|成績/.test(args.question) ? ['scores'] : /零用錢/.test(args.question) ? ['ledger'] : c.calendar_未來14天行程 ? ['calendar', 'todos'] : [], queries: /天氣/.test(args.question) ? ['新竹 天氣'] : [], links: /天氣/.test(args.question) ? [{ url: 'https://www.cwa.gov.tw/', title: 'cwa.gov.tw' }] : [] }; }
         if (op === 'journal') return { text: '（示範）今天' + (args.place ? '在' + args.place : '') + '玩得很開心！' + args.text.replace(/\n/g, '、') + '，每一件事都想記下來。\n\n接上 Gemini 之後，這裡會是一段完整的日記。' };
         if (op === 'analyze') return { text: '（示範）' + args.name + '的' + (args.kind === 'scores' ? '成績' : '零用錢') + '說明會出現在這裡。\n\n接上 Gemini 之後，這裡會是根據實際紀錄寫出的幾段文字。' };
         throw new Error('op');

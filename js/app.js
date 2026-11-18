@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 20:20';
+  const VERSION = '2026-11-18 21:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -3639,7 +3639,7 @@
         ${butlerAsks().map(([title, list]) => `
           <section><h2>${esc(title)}</h2>${list.map((q) => `<button class="bt-ask" data-act="butler-ask" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</section>`).join('')}
         <p class="hint">問題和家裡的紀錄會送到 Google Gemini。對話不會存下來，離開 App 就清掉。${amChild() ? '成績和零用錢只會用到你自己的。' : ''}</p>
-        <p class="hint">小管家不能上網，不知道今天的新聞、天氣和最新的價格；回答也可能有錯，重要的事請再查一次。</p>
+        <p class="hint">${amChild() ? '小管家不能上網，不知道今天的新聞、天氣和最新的價格；' : '需要最新資訊時，小管家會自己上 Google 查，並附上來源；'}回答也可能有錯，重要的事請再查一次。</p>
       </div>`;
     return head + `<div class="bt-list" id="butler-list" aria-live="polite">${butlerListHtml()}</div>`;
   }
@@ -3648,8 +3648,9 @@
     return b.msgs.map((m) => (m.role === 'user' ? `<p class="bt-q">${esc(m.text)}</p>` : `
       <article class="bt-a ${m.error ? 'err' : ''}">
         ${esc(m.text).split(/\n+/).map((p) => `<p>${p}</p>`).join('')}
+        ${(m.links || []).length || (m.queries || []).length ? `<div class="bt-src"><small>上網查到的資料</small><div>${(m.links || []).map((l) => `<a class="plan-link web" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join('')}${(m.queries || []).map((x) => `<a class="plan-link map" href="${esc(webUrl(x))}" target="_blank" rel="noopener">搜尋：${esc(x)}</a>`).join('')}</div></div>` : ''}
         ${(m.sources || []).length ? `<div class="bt-src"><small>小管家看了這些紀錄，數字請以紀錄為準</small><div>${m.sources.map((k) => `<button class="plan-link map" data-act="butler-go" data-src="${k}">${BUTLER_SRC[k][0]}</button>`).join('')}</div></div>` : ''}
-      </article>`)).join('') + (b.busy ? '<p class="ai-wait bt-wait" role="status">小管家正在看紀錄…</p>' : '');
+      </article>`)).join('') + (b.busy ? '<p class="ai-wait bt-wait" role="status">小管家正在想…</p>' : '');
   }
   function drawButler() {
     if (state.tab !== 'notes' || state.notesView !== 'butler') return;
@@ -3658,6 +3659,19 @@
     const go = () => { const sc = scroller(); if (sc && state.notesView === 'butler') sc.scrollTop = sc.scrollHeight; };
     go(); setTimeout(go, 120);
   }
+  function sendButler(form) {
+    const i = form.elements.text, q = i.value;
+    if (!q.trim() || state.butler.busy) return;
+    i.value = ''; i.focus();
+    askButler(q);
+  }
+  // 和家裡的事有關才附上完整的紀錄；一般問題只附基本資料，送得少、回得快
+  const BUTLER_HOME = /行程|行事曆|待辦|要做|沒做|成績|考|分數|零用錢|花了|花在|費用|旅|行李|預約|今天|明天|後天|這週|下週|這個月|週末|幾號|什麼時候|有空|誰|我們家|家裡|全家|爸|媽|姊|弟|哥|妹|小孩|小朋友/;
+  function butlerNeedsRecords(q) {
+    if (BUTLER_HOME.test(q) || state.members.some((m) => q.includes(m.display_name))) return true;
+    const last = state.butler.msgs.filter((m) => m.role === 'ai' && !m.error).slice(-1)[0];
+    return !!(last && (last.sources || []).length && q.length < 30);   // 接著上一題追問
+  }
   async function askButler(q) {
     const b = state.butler, text = String(q || '').trim();
     if (!text || b.busy) return;
@@ -3665,8 +3679,10 @@
     b.msgs.push({ role: 'user', text }); b.busy = true;
     drawButler();
     try {
-      const r = await askAi('butler', { question: text, history, context: JSON.stringify(butlerContext()), child: amChild() });
-      b.msgs.push({ role: 'ai', text: r.answer, sources: (r.sources || []).filter((k) => BUTLER_SRC[k]) });
+      const full = butlerNeedsRecords(text);
+      const ctx = full ? butlerContext() : { 今天: today() + '（星期' + WEEKDAYS[parse(today()).getDay()] + '）', 發問的人: me().display_name, 家人: state.members.map((m) => m.display_name + (m.child ? '（小朋友）' : '')), 說明: '這一題沒有附上家庭紀錄。如果需要紀錄才能回答，請對方把問題說得具體一點（例如提到行程、待辦、成績、零用錢、旅遊）。' };
+      const r = await askAi('butler', { question: text, history, context: JSON.stringify(ctx), child: amChild() });
+      b.msgs.push({ role: 'ai', text: r.answer, sources: (r.sources || []).filter((k) => BUTLER_SRC[k]), queries: r.queries || [], links: (r.links || []).filter((l) => /^https:\/\//.test(l.url)) });
     } catch (e) { b.msgs.push({ role: 'ai', text: e.friendly || '沒有成功，請再試一次。', error: true }); }
     b.busy = false;
     drawButler();
@@ -4598,7 +4614,7 @@
     const id = form.getAttribute('id');
     if (id === 'login-form') onLogin(form);
     else if (id === 'chat-form') onSend(form);
-    else if (id === 'butler-form') { const i = form.elements.text, q = i.value; if (q.trim() && !state.butler.busy) { i.value = ''; askButler(q); } }
+    else if (id === 'butler-form') sendButler(form);
     else if (id === 'shop-form') onShopAdd(form);
     else if (id === 'pack-form') onPackAdd(form);
     else if (id === 'call-form') onCallForm(form);
@@ -4617,6 +4633,7 @@
     if (ev.cancelable) ev.preventDefault();
     const form = btn.closest('form');
     if (form.getAttribute('id') === 'chat-form') onSend(form);
+    else if (form.getAttribute('id') === 'butler-form') sendButler(form);
     else if (form.getAttribute('id') === 'shop-form') onShopAdd(form);
     else if (form.getAttribute('id') === 'pack-form') onPackAdd(form);
     else if (form.getAttribute('id') === 'transit-search-form') onTransitSearch(form);
