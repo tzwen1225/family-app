@@ -66,7 +66,15 @@ exports.onChatMessage = onDocumentCreated('messages/{id}', async (event) => {
   const m = event.data.data();
   const names = await memberNames();
   const others = Object.keys(names).filter((uid) => uid !== m.sender);
-  await notify(others, names[m.sender] || '家人', m.image_id ? '傳了一張照片' : clip(m.text), 'chat');
+  const who = names[m.sender] || '家人', body = m.image_id ? '傳了一張照片' : clip(m.text);
+  // 被 @ 的人、被引用回覆的人，通知標題不一樣
+  const at = (Array.isArray(m.mentions) ? m.mentions : []).filter((uid) => others.includes(uid));
+  const replied = m.reply_to && others.includes(m.reply_to.sender) && !at.includes(m.reply_to.sender) ? [m.reply_to.sender] : [];
+  await Promise.all([
+    notify(at, who + '提到了你', body, 'chat'),
+    notify(replied, who + '回覆了你', body, 'chat'),
+    notify(others.filter((uid) => !at.includes(uid) && !replied.includes(uid)), who, body, 'chat')
+  ]);
 });
 
 exports.onPost = onDocumentCreated('posts/{id}', async (event) => {

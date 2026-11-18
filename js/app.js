@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 15:40';
+  const VERSION = '2026-11-18 16:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -127,7 +127,9 @@
     draft: '',
     chatSearch: false,
     chatQuery: '',
-    menuMsg: null,           // 正在顯示「收回」按鈕的訊息
+    menuMsg: null,           // 正在顯示「回覆／收回」按鈕的訊息
+    replyTo: null,           // 正在引用回覆哪一則訊息
+    mentionQ: null,          // 正在打 @ 後面的字（null 代表沒有在選人）
     posts: [],
     replies: [],
     postDrafts: {},
@@ -576,6 +578,16 @@
             </button>
             <button class="todo-done reply" data-act="tab" data-tab="posts">回覆</button>
           </div>`));
+    state.messages.filter((m) => !m.recalled && m.sender !== state.userId && m.sent_at > state.lastRead
+      && ((m.mentions || []).includes(state.userId) || (m.reply_to && m.reply_to.sender === state.userId)))
+      .slice(-3).forEach((m) => items.push(`
+          <div class="todo">
+            <button class="todo-main" data-act="tab" data-tab="chat">
+              <span class="todo-title">${esc(nameOf(m.sender))}在聊天室${(m.mentions || []).includes(state.userId) ? '提到你' : '回覆你'}</span>
+              <span class="todo-sub">${esc(m.text.length > 40 ? m.text.slice(0, 40) + '…' : m.text)}</span>
+            </button>
+            <button class="todo-done reply" data-act="tab" data-tab="chat">去看</button>
+          </div>`));
     return items;
   }
   function mineHtml() {
@@ -652,6 +664,7 @@
     $app.innerHTML = `
       <div class="scroller" id="scroller"><div class="screen">${views[state.tab]()}</div></div>
       ${state.tab === 'chat' && !state.chatSearch ? `
+        <div class="chat-assist" id="chat-assist">${chatAssistHtml()}</div>
         <form class="chat-bar" id="chat-form">
           <label class="attach" aria-label="傳照片">
             <input type="file" id="chat-file" accept="image/*" multiple hidden>
@@ -853,6 +866,85 @@
 
   const canRecall = (m) => m.sender === state.userId && !m.recalled && Date.now() - m.sent_at < RECALL_MS;
 
+  // ---------- 聊天：@某人、引用回覆 ----------
+  const AT_ALL = '所有人';
+  // 訊息文字：跳脫後把 @名字 標出來（搜尋時改成標出關鍵字）
+  function richText(text, q) {
+    if (q) return markText(text, q);
+    let out = esc(text);
+    if (out.indexOf('@') < 0) return out;
+    state.members.map((m) => m.display_name).concat(AT_ALL).sort((a, b) => b.length - a.length).forEach((n) => {
+      out = out.split('@' + esc(n)).join('<b class="at">@' + esc(n) + '</b>');
+    });
+    return out;
+  }
+  // 這段文字 @ 了誰（不含自己）
+  function mentionsIn(text) {
+    const others = state.members.filter((m) => m.id !== state.userId);
+    if (text.includes('@' + AT_ALL)) return others.map((m) => m.id);
+    return others.filter((m) => text.includes('@' + m.display_name)).map((m) => m.id);
+  }
+  const quoteText = (m) => (m.recalled ? '訊息已收回' : m.image_id ? '照片' : (m.text || '').length > 60 ? m.text.slice(0, 60) + '…' : m.text || '');
+  function quoteHtml(r) {
+    const live = findById(state.messages, r.id);
+    const text = live ? quoteText(live) : r.photo ? '照片' : r.text || '';
+    return `<span class="quote" data-act="goto-msg" data-id="${esc(r.id)}" role="button" tabindex="0"><b>${esc(nameOf(r.sender))}</b><span>${esc(text)}</span></span>`;
+  }
+  // 輸入列上方：正在引用哪一則、@ 可以選誰
+  function chatAssistHtml() {
+    let html = '';
+    if (state.mentionQ !== null) {
+      const q = state.mentionQ;
+      const names = state.members.filter((m) => m.id !== state.userId).map((m) => ({ name: m.display_name, color: m.color }))
+        .concat({ name: AT_ALL, color: 'var(--ink-2)' }).filter((x) => x.name.toLowerCase().startsWith(q.toLowerCase()));
+      if (names.length) html += `<div class="at-pick" role="group" aria-label="要提到誰">${names.map((x) =>
+        `<button type="button" data-act="pick-mention" data-name="${esc(x.name)}" style="--who:${esc(x.color)}">@${esc(x.name)}</button>`).join('')}</div>`;
+    }
+    const m = state.replyTo && findById(state.messages, state.replyTo);
+    if (m && !m.recalled) html += `
+      <div class="reply-strip" style="--who:${esc(colorOf(m.sender))}">
+        <span><b>回覆 ${esc(m.sender === state.userId ? '自己' : nameOf(m.sender))}</b><small>${esc(quoteText(m))}</small></span>
+        <button type="button" class="icon-btn" data-act="reply-cancel" aria-label="取消回覆">✕</button>
+      </div>`;
+    return html;
+  }
+  function drawAssist() {
+    const el = document.getElementById('chat-assist');
+    if (!el) return;
+    const html = chatAssistHtml();
+    if (el.innerHTML !== html) el.innerHTML = html;
+  }
+  // 游標前面如果是「@某幾個字」，就打開選人的列
+  function watchMention(input) {
+    const m = /(?:^|\s)@([^\s@]{0,12})$/.exec(input.value.slice(0, input.selectionStart == null ? input.value.length : input.selectionStart));
+    const q = m ? m[1] : null;
+    if (q !== state.mentionQ) { state.mentionQ = q; drawAssist(); }
+  }
+  function pickMention(name) {
+    const input = document.getElementById('chat-input');
+    if (!input) return;
+    const at = input.selectionStart == null ? input.value.length : input.selectionStart;
+    const head = input.value.slice(0, at).replace(/@[^\s@]*$/, '@' + name + ' ');
+    input.value = head + input.value.slice(at);
+    state.draft = input.value; state.mentionQ = null;
+    input.focus();
+    try { input.setSelectionRange(head.length, head.length); } catch (e) { /* 忽略 */ }
+    drawAssist();
+  }
+  function startReply(id) {
+    state.replyTo = id; state.menuMsg = null;
+    if ($sheet.querySelector('.viewer')) closeSheet();
+    refreshChat(false); drawAssist();
+    const input = document.getElementById('chat-input');
+    if (input) input.focus();
+  }
+  function gotoMessage(id) {
+    const el = document.getElementById('m-' + id);
+    if (!el) return toast('原本的訊息比較早，請按「看更早的訊息」');
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  }
+
   function chatListHtml() {
     const q = state.chatSearch ? state.chatQuery.trim() : '';
     if (state.chatSearch && !q) return '<div class="empty big"><p>輸入關鍵字，搜尋最近 300 則訊息。</p></div>';
@@ -881,13 +973,14 @@
       const thumb = m.thumb && String(m.thumb).startsWith('data:image/') ? m.thumb : '';
       if (!m.recalled && thumb) bubble = `<button class="bubble photo" data-act="view-image" data-id="${esc(m.id)}" aria-label="照片，點一下放大"><img src="${esc(thumb)}" alt="照片"></button>`;
       else if (m.recalled) bubble = `<div class="bubble recalled">${mine ? '你' : esc(nameOf(m.sender))}收回了訊息</div>`;
-      else if (!q && canRecall(m)) bubble = `<button class="bubble" data-act="msg-menu" data-id="${esc(m.id)}" aria-label="${esc(m.text)}，點一下可以收回">${esc(m.text)}</button>`;
+      else if (!q) bubble = `<div class="bubble" role="button" tabindex="0" data-act="msg-menu" data-id="${esc(m.id)}">${m.reply_to && m.reply_to.id ? quoteHtml(m.reply_to) : ''}${richText(m.text)}</div>`;
       else bubble = `<div class="bubble">${markText(m.text, q)}</div>`;
+      const atMe = !mine && !m.recalled && ((m.mentions || []).includes(state.userId) || (m.reply_to && m.reply_to.sender === state.userId));
       html += `
-        <div class="msg ${mine ? 'mine' : ''}" style="--who:${esc(colorOf(m.sender))}">
+        <div class="msg ${mine ? 'mine' : ''} ${atMe ? 'at-me' : ''}" id="m-${esc(m.id)}" style="--who:${esc(colorOf(m.sender))}">
           ${showName ? `<div class="msg-name">${esc(nameOf(m.sender))}</div>` : ''}
           <div class="msg-row">${bubble}<span class="msg-meta"><time>${clock(m.sent_at)}</time>${m.recalled ? '' : readersHtml(m, pos)}</span></div>
-          ${state.menuMsg === m.id && canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回這則訊息</button>` : ''}
+          ${state.menuMsg === m.id && !m.recalled && !q ? `<div class="msg-acts"><button class="reply-btn" data-act="reply-msg" data-id="${esc(m.id)}">回覆</button>${canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回</button>` : ''}</div>` : ''}
         </div>`;
       lastSender = m.sender;
     });
@@ -972,10 +1065,18 @@
     input.value = ''; state.draft = '';
     input.focus();
     scrollChat();
-    try { await Api.sendMessage(text); scrollChat(); }
+    const extra = {};
+    const mentions = mentionsIn(text);
+    if (mentions.length) extra.mentions = mentions;
+    const quoted = state.replyTo && findById(state.messages, state.replyTo);
+    if (quoted && !quoted.recalled) extra.reply_to = { id: quoted.id, sender: quoted.sender, text: quoted.image_id ? '' : quoteText(quoted), photo: !!quoted.image_id };
+    const hadReply = state.replyTo;
+    state.replyTo = null; state.mentionQ = null; drawAssist();
+    try { await Api.sendMessage(text, extra); scrollChat(); }
     catch (e) {
       console.error(e);
       state.draft = text; input.value = text;
+      state.replyTo = hadReply; drawAssist();
       toast('訊息沒有送出，請再試一次');
     }
   }
@@ -1088,6 +1189,7 @@
         <img src="${esc(m.thumb)}" alt="照片" class="loading">
         <div class="viewer-bar">
           <span>${esc(nameOf(m.sender))}　${stamp(m.sent_at)}</span>
+          <button class="reply-btn" data-act="reply-msg" data-id="${esc(m.id)}">回覆</button>
           ${canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回</button>` : ''}
           <button class="link-btn" data-act="close">關閉</button>
         </div>
@@ -4029,6 +4131,10 @@
     }
     else if (act === 'msg-menu') { state.menuMsg = state.menuMsg === el.dataset.id ? null : el.dataset.id; refreshChat(false); }
     else if (act === 'recall') onRecall(el.dataset.id);
+    else if (act === 'reply-msg') startReply(el.dataset.id);
+    else if (act === 'reply-cancel') { state.replyTo = null; drawAssist(); }
+    else if (act === 'pick-mention') pickMention(el.dataset.name);
+    else if (act === 'goto-msg') gotoMessage(el.dataset.id);
     else if (act === 'del-post') onDeletePost(el);
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
@@ -4199,12 +4305,12 @@
   // touchstart 要設 passive: false，preventDefault 才有效（iPhone 靠它才不會收鍵盤）
   document.addEventListener('touchstart', sendFromButton, { passive: false });
   document.addEventListener('pointerdown', sendFromButton);
-  document.addEventListener('mousedown', (ev) => { if (ev.target.closest('.send')) ev.preventDefault(); });
+  document.addEventListener('mousedown', (ev) => { if (ev.target.closest('.send, .at-pick button')) ev.preventDefault(); });
 
   document.addEventListener('input', (ev) => {
     const t = ev.target;
     if (t.name === 'photos' && t.type === 'file') showPhotoPreviews(t);
-    if (t.id === 'chat-input') state.draft = t.value;
+    if (t.id === 'chat-input') { state.draft = t.value; watchMention(t); }
     else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
     else if (t.id === 'transit-q') state.transit.q = t.value;
     else if (t.id === 'todo-date') {

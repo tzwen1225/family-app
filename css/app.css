@@ -1558,3 +1558,38 @@ html[data-style="comic"] .tab.on svg.color { animation: comic-pop .35s steps(3);
 .ai-wait { padding: 28px 0; text-align: center; color: var(--ink-2); animation: ai-pulse 1.2s ease-in-out infinite alternate; }
 @keyframes ai-pulse { from { opacity: .45; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ai-wait { animation: none; } }
+
+/* ---------- 聊天：@某人、引用回覆、收回 ---------- */
+.bubble.recalled, .msg.mine .bubble.recalled { font-size: 12px; padding: 4px 10px; border-radius: 99px; }
+.bubble[role="button"] { cursor: pointer; }
+.bubble .at { font-weight: 700; color: var(--green); }
+.msg.mine .bubble .at { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.msg.at-me .bubble { box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-exam) 55%, transparent); }
+.quote {
+  display: block; margin: 0 0 6px; padding: 2px 0 2px 8px; border-left: 3px solid var(--who); font-size: 13px; line-height: 1.4;
+  color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; cursor: pointer;
+}
+.quote b { display: block; font-size: 12px; color: var(--ink); }
+.quote span { display: block; overflow: hidden; text-overflow: ellipsis; }
+.msg.mine .quote { border-left-color: rgba(255,255,255,.7); color: rgba(255,255,255,.85); }
+.msg.mine .quote b { color: #fff; }
+.msg-acts { display: flex; gap: 8px; margin: 4px 0 6px; }
+.msg.mine .msg-acts { justify-content: flex-end; }
+.msg-acts .recall { margin: 0; }
+.reply-btn { padding: 6px 14px; border-radius: 99px; font-size: 13px; font-weight: 600; min-height: 36px; color: var(--green); background: var(--soft); border: 1px solid color-mix(in srgb, var(--green) 28%, var(--sheet)); }
+.msg.flash .bubble { animation: msg-flash 1.2s ease-out; }
+@keyframes msg-flash { 0%, 40% { box-shadow: 0 0 0 3px var(--c-exam); } 100% { box-shadow: 0 0 0 3px transparent; } }
+.chat-assist { flex: none; background: var(--bar-2); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.chat-assist:empty { display: none; }
+.chat-assist:not(:empty) { border-top: 1px solid var(--line); }
+.chat-assist:not(:empty) + .chat-bar { border-top: 0; }
+.at-pick { display: flex; gap: 8px; padding: 8px 12px 2px; overflow-x: auto; }
+.at-pick button { flex: none; min-height: 38px; padding: 0 14px; border-radius: 99px; font-size: 15px; font-weight: 600; background: var(--sheet); border: 1px solid var(--line); border-left: 4px solid var(--who); color: var(--ink); }
+.reply-strip { display: flex; align-items: center; gap: 8px; padding: 8px 6px 2px 14px; }
+.reply-strip > span { flex: 1; min-width: 0; border-left: 3px solid var(--who); padding-left: 8px; }
+.reply-strip b { display: block; font-size: 13px; }
+.reply-strip small { display: block; font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply-strip .icon-btn { flex: none; width: 36px; height: 36px; font-size: 15px; color: var(--ink-2); }
+html[data-style="tech"] .msg.mine .quote, html[data-style="comic"] .msg.mine .quote { color: inherit; border-left-color: currentColor; }
+html[data-style="tech"] .msg.mine .quote b, html[data-style="comic"] .msg.mine .quote b { color: inherit; }
+html[data-theme="night"] .msg.mine .quote, html[data-theme="night"] .msg.mine .quote b { color: inherit; border-left-color: currentColor; }

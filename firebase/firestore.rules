@@ -107,7 +107,10 @@ service cloud.firestore {
             || (d.get('image_id', '') is string && d.get('image_id', '').size() >= 1
                 && d.get('thumb', '') is string && d.get('thumb', '').size() <= 60000))
         && d.sender == request.auth.uid
-        && d.sent_at is number;
+        && d.sent_at is number
+        // @某人、引用回覆（都可以沒有）
+        && d.get('mentions', []) is list && d.get('mentions', []).size() <= 10
+        && d.get('reply_to', {}) is map;
     }
 
     function validPost() {
