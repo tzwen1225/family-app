@@ -274,14 +274,20 @@ function tdxAccessToken() {
       const id = doc.exists ? String(doc.data().client_id || '').trim() : '';
       const secret = doc.exists ? String(doc.data().client_secret || '').trim() : '';
       if (!id || !secret) throw new HttpsError('failed-precondition', 'no-key');
-      const res = await fetch(TDX_TOKEN_URL, {
+      const ask = () => fetch(TDX_TOKEN_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ grant_type: 'client_credentials', client_id: id, client_secret: secret })
       });
+      let res = await ask();
+      if (!res.ok && res.status !== 401) { await new Promise((r) => setTimeout(r, 800)); res = await ask(); }   // 可能只是 TDX 一時出錯：再試一次
       if (!res.ok) {
-        logger.warn('TDX 金鑰驗證失敗', res.status);
-        throw new HttpsError('failed-precondition', 'bad-key');
+        // TDX 會說明原因（例如 invalid_client：金鑰不對；unauthorized_client：這組金鑰被停用）
+        let why = '';
+        try { const body = await res.json(); why = [body.error, body.error_description].filter(Boolean).join('：').slice(0, 120); } catch (e) { /* 不是 JSON */ }
+        logger.warn('TDX 金鑰驗證失敗', res.status, why);
+        const keyProblem = res.status === 401 || /invalid_client|unauthorized_client|invalid client/i.test(why);
+        throw new HttpsError(keyProblem ? 'failed-precondition' : 'unavailable', (keyProblem ? 'bad-key' : 'tdx-token') + ' [' + res.status + (why ? ' ' + why : '') + ']');
       }
       const json = await res.json();
       tdxToken.value = json.access_token;
