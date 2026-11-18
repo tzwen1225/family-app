@@ -1413,3 +1413,18 @@ html[data-style="comic"] .tab.on svg.color { animation: comic-pop .35s steps(3);
 .style-demo[data-demo="comic"] i { border: 2px solid #111; border-radius: 4px; box-shadow: 3px 3px 0 #111; }
 .style-demo[data-demo="comic"] b { background: #111; opacity: 1; }
 .style-demo[data-demo="comic"] em { background: #FFD400; border: 2px solid #111; border-radius: 5px; box-shadow: 2px 2px 0 #111; }
+
+/* 首頁上的投票：縮小一號，不要佔太多版面（投票頁裡的維持原本大小） */
+.home-polls .post.poll { padding: 10px 12px 12px; }
+.home-polls .poll header .avatar { width: 24px; height: 24px; font-size: 12px; }
+.home-polls .poll header b { font-size: 14px; }
+.home-polls .poll .post-text { margin-top: 4px; font-size: 15px; font-weight: 600; }
+.home-polls .poll .opts { gap: 5px; margin-top: 8px; }
+.home-polls .poll .opt { min-height: 34px; padding: 5px 10px; border-radius: 10px; }
+.home-polls .poll .opt-text { font-size: 14px; }
+.home-polls .poll .opt-count { font-size: 12px; }
+.home-polls .poll .opt-who { font-size: 11px; }
+.home-polls .poll .opt-who .who { padding: 0 6px; }
+.home-polls .poll .poll-foot { font-size: 12px; margin-top: 6px; }
+.home-polls .poll .vote-btn { margin-top: 8px; min-height: 34px; font-size: 14px; }
+.home-polls .poll .pick-hint { font-size: 12px; margin-top: 4px; }
