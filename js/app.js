@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 18:00';
+  const VERSION = '2026-11-18 18:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1674,34 +1674,73 @@
     if (x.place || x.title) html += link('web', webUrl(near(x.place || x.title)), '查網頁');
     return html ? `<div class="plan-links">${html}</div>` : '';
   }
-  function planRowHtml(x, prev, t) {
+  // 行程的種類（cat）、停留時間（minutes）、預估花費（cost）、預約（booking：need 要預約｜done 已預約）、去過了（visited）
+  const PLAN_CATS = [['sight', '🏯', '景點'], ['food', '🍜', '美食'], ['play', '🎡', '體驗'], ['shop', '🛍️', '購物'], ['move', '🚆', '交通'], ['stay', '🏨', '住宿']];
+  const planCat = (id) => PLAN_CATS.find((c) => c[0] === id);
+  const stayText = (min) => (min >= 60 ? (min % 60 ? Math.floor(min / 60) + ' 小時 ' + (min % 60) + ' 分' : min / 60 + ' 小時') : min + ' 分鐘');
+  function planRowHtml(x, prev, t, mark) {
+    const cat = planCat(x.cat);
+    const meta = [
+      x.minutes ? '停留 ' + stayText(x.minutes) : '',
+      x.cost ? '約 ' + Number(x.cost).toLocaleString('en-US') + ' 元' : '',
+      x.booking === 'need' ? '<em class="need">要預約</em>' : x.booking === 'done' ? '<em class="ok">已預約 ✓</em>' : ''
+    ].filter(Boolean).join('<i>・</i>');
+    const canVisit = x.date <= today();
     return `
-            <div class="plan-item">
+            <div class="plan-item ${x.visited ? 'visited' : ''} ${mark || ''}">
             <button class="plan" data-act="edit-plan" data-id="${esc(x.id)}">
-              <span class="plan-time">${esc(x.time || '')}</span>
+              <span class="plan-time">${esc(x.time || '')}${cat ? `<span class="plan-cat" aria-label="${cat[2]}">${cat[1]}</span>` : ''}</span>
               <span class="plan-main">
-                <span class="plan-title">${esc(x.title)}</span>
+                ${mark ? `<span class="plan-now">${mark === 'now' ? '現在' : '下一站'}</span>` : ''}
+                <span class="plan-title">${esc(x.title)}${x.visited ? '<span class="plan-done" aria-label="去過了">✓</span>' : ''}</span>
                 ${x.place ? `<span class="plan-place">${esc(x.place)}</span>` : ''}
+                ${meta ? `<span class="plan-meta">${meta}</span>` : ''}
                 ${x.transport ? `<span class="plan-move">${esc(x.transport)}</span>` : ''}
                 ${x.note ? `<span class="plan-note">${esc(x.note)}</span>` : ''}
               </span>
             </button>
-            ${planLinksHtml(x, prev, t)}
+            ${planLinksHtml(x, prev, t).replace(/<\/div>$/, '') || '<div class="plan-links">'}
+              ${canVisit ? `<button class="plan-link visit ${x.visited ? 'on' : ''}" data-act="plan-visit" data-id="${esc(x.id)}" aria-pressed="${!!x.visited}">${x.visited ? '去過了 ✓' : '打卡：去過了'}</button>` : ''}
+            </div>
             </div>`;
   }
 
   function tripPlanHtml(t) {
     const items = itemsOf(t.id, 'plan');
+    const themes = t.day_themes || {};
+    const nowTime = clock(Date.now());
     let html = '';
     for (let d = t.start_date, i = 1; d <= t.end_date; d = addDays(d, 1), i++) {
       const rows = items.filter((x) => x.date === d).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+      // 旅行當天：標出現在在哪一項、下一站是哪一項
+      let nowAt = -1;
+      if (d === today()) rows.forEach((x, n) => { if (x.time && x.time <= nowTime) nowAt = n; });
+      const nextAt = d === today() ? rows.findIndex((x, n) => n > nowAt && x.time) : -1;
+      const timed = rows.filter((x) => x.time);
+      const cost = rows.reduce((n, x) => n + (Number(x.cost) || 0), 0);
+      const visited = rows.filter((x) => x.visited).length;
+      const places = rows.filter((x) => x.place).map((x) => (t.place && !x.place.includes(t.place) ? x.place + ' ' + t.place : x.place));
+      const dayMap = places.length >= 2 ? 'https://www.google.com/maps/dir/' + places.slice(0, 10).map(encodeURIComponent).join('/') : '';
+      const sum = [
+        rows.length ? rows.length + ' 項' : '',
+        timed.length > 1 ? timed[0].time + '–' + timed[timed.length - 1].time : '',
+        cost ? '預估 ' + cost.toLocaleString('en-US') + ' 元' : '',
+        visited ? '去過 ' + visited + '／' + rows.length : ''
+      ].filter(Boolean).join('・');
       html += `
         <section class="plan-day ${d === today() ? 'today' : ''}">
           <h2><b>第 ${i} 天</b>${shortDate(d)}<button class="link-btn" data-act="new-plan" data-date="${d}">＋ 加行程</button></h2>
-          ${rows.length ? rows.map((x, n) => planRowHtml(x, rows[n - 1], t)).join('') : '<p class="none">這天還沒有安排。</p>'}
+          <div class="plan-dayinfo">
+            <button class="plan-theme ${themes[d] ? '' : 'empty'}" data-act="day-theme" data-date="${d}">${themes[d] ? esc(themes[d]) : '＋ 這天的主題'}</button>
+            ${sum ? `<span>${sum}</span>` : ''}
+            ${dayMap ? `<a class="plan-link map" href="${esc(dayMap)}" target="_blank" rel="noopener">整天路線圖</a>` : ''}
+          </div>
+          ${rows.length ? rows.map((x, n) => planRowHtml(x, rows[n - 1], t, n === nowAt ? 'now' : n === nextAt ? 'next' : '')).join('') : '<p class="none">這天還沒有安排。</p>'}
         </section>`;
     }
-    html = `<button class="ai-btn" data-act="ai-trip">請 AI 排行程草稿</button>` + html;
+    const total = items.reduce((n, x) => n + (Number(x.cost) || 0), 0);
+    const need = items.filter((x) => x.booking === 'need').length;
+    html = `<div class="plan-top"><button class="ai-btn" data-act="ai-trip">請 AI 排行程草稿</button>${items.length ? `<span>共 ${items.length} 項${total ? '・預估 ' + total.toLocaleString('en-US') + ' 元' : ''}${need ? `・<em class="need">${need} 項要預約</em>` : ''}</span>` : ''}</div>` + html;
     const stray = items.filter((x) => x.date < t.start_date || x.date > t.end_date);
     if (stray.length) html += `
         <section class="plan-day">
@@ -1709,6 +1748,17 @@
           ${stray.map((x) => `<button class="plan" data-act="edit-plan" data-id="${esc(x.id)}"><span class="plan-time">${shortDate(x.date).replace(/（.*/, '')}</span><span class="plan-main"><span class="plan-title">${esc(x.title)}</span></span></button>`).join('')}
         </section>`;
     return html;
+  }
+  function openDayThemeSheet(date) {
+    const t = tripOf(state.tripId);
+    if (!t) return;
+    showSheet('day-form', {
+      title: shortDate(date) + '的主題', focus: true,
+      body: `
+      <input type="hidden" name="date" value="${esc(date)}">
+      <input class="title-input" name="theme" placeholder="例如：犬山城下町散步" value="${esc((t.day_themes || {})[date] || '')}" maxlength="30" autocomplete="off">
+      <p class="hint">一句話說這天的重點，會顯示在這一天的最上面。清空再儲存就是不要主題。</p>`
+    });
   }
 
   // 日誌：照日期排，每則有作者、文字、可以附一張照片
@@ -1869,7 +1919,20 @@
         <label>哪一天<input type="date" name="date" value="${esc(x.date)}" min="${t.start_date}" max="${t.end_date}"></label>
         <label>時間（可不填）<input type="time" name="time" value="${esc(x.time || '')}"></label>
       </div>
+      <fieldset class="seg emoji">
+        <legend>種類</legend>
+        ${PLAN_CATS.map(([id, icon, label]) => `<label style="--cat:var(--c-trip)"><input type="radio" name="cat" value="${id}" ${x.cat === id ? 'checked' : ''}><span>${icon} ${label}</span></label>`).join('')}
+        <label style="--cat:var(--ink-2)"><input type="radio" name="cat" value="" ${planCat(x.cat) ? '' : 'checked'}><span>不選</span></label>
+      </fieldset>
       <label>地點<input type="text" name="place" value="${esc(x.place || '')}" maxlength="60" autocomplete="off" placeholder="寫正式名稱，行程上會有地圖連結"></label>
+      <div class="row two">
+        <label>停留幾分鐘<input type="number" name="minutes" inputmode="numeric" min="0" max="1440" step="5" value="${esc(x.minutes || '')}" placeholder="可不填"></label>
+        <label>預估花費（元）<input type="number" name="cost" inputmode="numeric" min="0" step="1" value="${esc(x.cost || '')}" placeholder="可不填"></label>
+      </div>
+      <fieldset class="seg">
+        <legend>預約</legend>
+        ${[['', '不用'], ['need', '要預約'], ['done', '已預約']].map(([v, label]) => `<label style="--cat:${v === 'need' ? 'var(--c-exam)' : 'var(--green)'}"><input type="radio" name="booking" value="${v}" ${(x.booking || '') === v ? 'checked' : ''}><span>${label}</span></label>`).join('')}
+      </fieldset>
       <label>怎麼過去（可不填）<input type="text" name="transport" value="${esc(x.transport || '')}" maxlength="200" autocomplete="off" placeholder="搭什麼車、哪一站到哪一站、大約多久"></label>
       <label>推薦店家（可不填，用「、」分開）<input type="text" name="shops" value="${esc(shopList(x).join('、'))}" maxlength="130" autocomplete="off" placeholder="每一家都會有地圖連結"></label>
       <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="門票、訂位、要注意的事…">${esc(x.note || '')}</textarea></label>`
@@ -3445,7 +3508,7 @@
           ${d.items.map((x, i) => `
           <label class="call-pick-row ai-pick">
             <span class="plan-time">${esc(x.time)}</span>
-            <span class="plan-main"><span class="plan-title">${esc(x.title)}</span>${x.place ? `<span class="plan-place">${esc(x.place)}</span>` : ''}${x.transport ? `<span class="plan-move">${esc(x.transport)}</span>` : ''}${x.note ? `<span class="plan-note">${esc(x.note)}</span>` : ''}${shopList(x).length ? `<span class="plan-shops">推薦：${esc(shopList(x).join('、'))}</span>` : ''}</span>
+            <span class="plan-main"><span class="plan-title">${planCat(x.cat) ? planCat(x.cat)[1] + ' ' : ''}${esc(x.title)}</span>${x.place ? `<span class="plan-place">${esc(x.place)}</span>` : ''}${x.minutes || x.booking ? `<span class="plan-meta">${[x.minutes ? '停留 ' + stayText(x.minutes) : '', x.booking ? '<em class="need">要預約</em>' : ''].filter(Boolean).join('<i>・</i>')}</span>` : ''}${x.transport ? `<span class="plan-move">${esc(x.transport)}</span>` : ''}${x.note ? `<span class="plan-note">${esc(x.note)}</span>` : ''}${shopList(x).length ? `<span class="plan-shops">推薦：${esc(shopList(x).join('、'))}</span>` : ''}</span>
             <input type="checkbox" name="pick" value="${di}-${i}" checked><span class="check" aria-hidden="true"></span>
           </label>`).join('')}
         </div>`).join('')}
@@ -3819,11 +3882,18 @@
     'plan-form': {
       read: (f) => ({
         id: f.item_id.value || null, title: f.title.value.trim(), date: f.date.value, time: f.time.value, place: f.place.value.trim(), note: f.note.value.trim(),
-        transport: f.transport.value.trim(), shops: f.shops.value.split(/[、,，]/).map((n) => n.trim()).filter(Boolean).slice(0, 3)
+        transport: f.transport.value.trim(), shops: f.shops.value.split(/[、,，]/).map((n) => n.trim()).filter(Boolean).slice(0, 3),
+        cat: f.cat.value, minutes: Math.max(0, Math.round(Number(f.minutes.value) || 0)), cost: Math.max(0, Math.round(Number(f.cost.value) || 0)), booking: f.booking.value
       }),
       check: (x) => (!x.title ? '請輸入要做什麼' : !x.date ? '請選擇哪一天' : null),
-      save: (x) => saveTripItem('plan', x.id, { title: x.title, date: x.date, time: x.time, place: x.place, note: x.note, transport: x.transport, shops: x.shops }),
+      save: (x) => saveTripItem('plan', x.id, { title: x.title, date: x.date, time: x.time, place: x.place, note: x.note, transport: x.transport, shops: x.shops, cat: x.cat, minutes: x.minutes, cost: x.cost, booking: x.booking }),
       remove: (id) => Api.deleteDoc('trip_items', id),
+      after() { render(); }
+    },
+    'day-form': {
+      read: (f) => ({ date: f.date.value, theme: f.theme.value.trim() }),
+      check: () => null,
+      save: (x) => Api.updateDoc('trips', state.tripId, { ['day_themes.' + x.date]: x.theme }),
       after() { render(); }
     },
     'journal-form': {
@@ -3945,8 +4015,11 @@
       async save(x) {
         for (const [di, i] of x.picks) {
           const d = aiPlan.days[di], it = d.items[i];
-          await saveTripItem('plan', null, { title: it.title, date: d.date, time: it.time, place: it.place, note: it.note, transport: it.transport || '', shops: shopList(it) });
+          await saveTripItem('plan', null, { title: it.title, date: d.date, time: it.time, place: it.place, note: it.note, transport: it.transport || '', shops: shopList(it), cat: it.cat || '', minutes: it.minutes || 0, cost: 0, booking: it.booking ? 'need' : '' });
         }
+        const t = tripOf(state.tripId), themes = {};
+        aiPlan.days.forEach((d) => { if (d.theme && !(t.day_themes || {})[d.date]) themes['day_themes.' + d.date] = d.theme; });
+        if (Object.keys(themes).length) await Api.updateDoc('trips', t.id, themes).catch((e) => console.warn(e));
         const keep = document.querySelector('#ai-plan-form input[name="keep_tips"]');
         if (keep && keep.checked && aiPlan.tips.length) {
           await saveTripItem('plan', null, { title: '這趟旅程的小提醒', date: aiPlan.days[0].date, time: '', place: '', note: aiPlan.tips.map((t) => '・' + t).join('\n').slice(0, 500) });
@@ -4277,6 +4350,8 @@
     else if (act === 'gemini-key') openGeminiSheet();
     else if (act === 'ai-event') aiFillEvent();
     else if (act === 'ai-trip') openAiTripSheet();
+    else if (act === 'day-theme') openDayThemeSheet(el.dataset.date);
+    else if (act === 'plan-visit') { const x = findById(state.tripItems, el.dataset.id); if (x) Api.updateDoc('trip_items', x.id, { visited: !x.visited }).catch(() => toast('沒有成功，請再試一次')); }
     else if (act === 'ai-journal') aiWriteJournal(el);
     else if (act === 'jr-react') toggleJournalReact(el.dataset.id, el.dataset.emoji);
     else if (act === 'jr-place') { const f = document.getElementById('journal-form'); if (f) f.elements.place.value = el.dataset.text; }

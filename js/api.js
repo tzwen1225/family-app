@@ -470,8 +470,8 @@
           const days = [];
           for (let d = new Date(args.start_date + 'T00:00'); day(d) <= args.end_date; d.setDate(d.getDate() + 1)) {
             days.push({ date: day(d), theme: '示範主題', items: [
-              { time: '09:30', title: '示範景點', place: (args.place || '') + '老街', note: '出發前請確認' },
-              { time: '12:00', title: '午餐', place: '在地小吃', note: '', transport: '步行約 10 分鐘', shops: ['示範麵店', '示範冰店'] },
+              { time: '09:30', title: '示範景點', place: (args.place || '') + '老街', note: '出發前請確認', cat: 'sight', minutes: 90, booking: true },
+              { time: '12:00', title: '午餐', place: '在地小吃', note: '', transport: '步行約 10 分鐘', shops: ['示範麵店', '示範冰店'], cat: 'food', minutes: 60 },
               { time: '14:30', title: '示範步道', place: '', note: '' }] });
           }
           return { days, tips: ['示範提醒：交通票券先買好', '示範提醒：下雨改去室內景點'] };

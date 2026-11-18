@@ -1634,3 +1634,24 @@ html[data-theme="night"] .msg.mine .quote, html[data-theme="night"] .msg.mine .q
 .jr-chips button { min-height: 32px; padding: 0 12px; border-radius: 99px; font-size: 13px; background: var(--track); color: var(--ink); }
 .jr-ai { margin: 0 0 4px; }
 .jr-ai + .hint { margin-bottom: 14px; }
+
+/* ---------- 行程：種類、停留、花費、預約、打卡、每日主題 ---------- */
+.plan-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 6px; }
+.plan-top span { font-size: 13px; color: var(--ink-2); }
+em.need { font-style: normal; font-weight: 700; color: var(--c-exam); }
+em.ok { font-style: normal; font-weight: 700; color: var(--green); }
+.plan-dayinfo { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 2px 10px 8px 0; font-size: 13px; color: var(--ink-2); }
+.plan-theme { font-size: 15px; font-weight: 700; color: var(--ink); text-align: left; min-height: 30px; }
+.plan-theme.empty { font-size: 13px; font-weight: 500; color: var(--ink-2); }
+.plan-dayinfo .plan-link { margin-left: auto; min-height: 28px; }
+.plan-time { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.plan-cat { font-size: 20px; line-height: 1.2; }
+.plan-meta { display: block; font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.plan-meta i { font-style: normal; margin: 0 2px; }
+.plan-now { display: inline-block; font-size: 11px; font-weight: 800; color: #fff; background: var(--c-trip); border-radius: 99px; padding: 1px 8px; margin-bottom: 3px; }
+.plan-item.next .plan-now { background: var(--c-exam); }
+.plan-item.now { background: color-mix(in srgb, var(--c-trip) 7%, transparent); border-radius: 12px; margin-left: -10px; padding-left: 10px; }
+.plan-item.visited .plan-title { color: var(--ink-2); }
+.plan-done { margin-left: 6px; color: var(--green); font-weight: 800; }
+.plan-link.visit { border: 0; color: var(--ink-2); background: var(--track); }
+.plan-link.visit.on { color: #fff; background: var(--green); }
