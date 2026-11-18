@@ -1597,3 +1597,18 @@ html[data-theme="night"] .msg.mine .quote, html[data-theme="night"] .msg.mine .q
 .ai-pick .plan-note { white-space: normal; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
 .ai-tips { margin: 0 0 12px; padding: 10px 14px 10px 30px; background: var(--sheet); border-radius: 16px; font-size: 14px; line-height: 1.6; }
 .plan-note { white-space: pre-line; }
+
+/* ---------- 行程：交通、店家、快速連結 ---------- */
+.plan-item + .plan-item { border-top: 1px solid var(--line); }
+.plan-item .plan + .plan { border-top: 0; }
+.plan-move { display: block; font-size: 13px; color: var(--ink); margin-top: 3px; padding-left: 20px; position: relative; overflow-wrap: anywhere; }
+.plan-move::before { content: "➜"; position: absolute; left: 2px; top: 0; color: var(--c-trip); font-size: 12px; }
+.plan-shops { display: block; font-size: 13px; color: var(--c-exam); font-weight: 600; margin-top: 3px; overflow-wrap: anywhere; }
+.plan-links { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 12px 58px; }
+.plan-link {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: 99px; font-size: 13px; font-weight: 600;
+  text-decoration: none; color: var(--c-trip); background: color-mix(in srgb, var(--c-trip) 11%, var(--sheet)); max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plan-link.shop { color: var(--c-exam); background: var(--amber-soft); }
+.plan-link.web { color: var(--ink-2); background: var(--track); }

@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 16:50';
+  const VERSION = '2026-11-18 17:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1657,6 +1657,37 @@
   }
 
   // 行程：依旅程的每一天分組
+  // 行程的快速連結：地圖、路線、店家、網頁。都是用地點名稱去 Google 搜尋，不是 AI 給的網址。
+  const mapUrl = (q) => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+  const dirUrl = (from, to) => 'https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(from) + '&destination=' + encodeURIComponent(to) + '&travelmode=transit';
+  const webUrl = (q) => 'https://www.google.com/search?q=' + encodeURIComponent(q);
+  const shopList = (x) => (Array.isArray(x.shops) ? x.shops : []).filter(Boolean);
+  function planLinksHtml(x, prev, t) {
+    const near = (name) => (t.place && !name.includes(t.place) ? name + ' ' + t.place : name);
+    const link = (cls, href, label) => `<a class="plan-link ${cls}" href="${esc(href)}" target="_blank" rel="noopener">${esc(label)}</a>`;
+    let html = '';
+    if (x.place) html += link('map', mapUrl(near(x.place)), '地圖');
+    if (x.place && prev && prev.place) html += link('dir', dirUrl(near(prev.place), near(x.place)), '路線');
+    shopList(x).forEach((n) => { html += link('shop', mapUrl(near(n)), n); });
+    if (x.place || x.title) html += link('web', webUrl(near(x.place || x.title)), '查網頁');
+    return html ? `<div class="plan-links">${html}</div>` : '';
+  }
+  function planRowHtml(x, prev, t) {
+    return `
+            <div class="plan-item">
+            <button class="plan" data-act="edit-plan" data-id="${esc(x.id)}">
+              <span class="plan-time">${esc(x.time || '')}</span>
+              <span class="plan-main">
+                <span class="plan-title">${esc(x.title)}</span>
+                ${x.place ? `<span class="plan-place">${esc(x.place)}</span>` : ''}
+                ${x.transport ? `<span class="plan-move">${esc(x.transport)}</span>` : ''}
+                ${x.note ? `<span class="plan-note">${esc(x.note)}</span>` : ''}
+              </span>
+            </button>
+            ${planLinksHtml(x, prev, t)}
+            </div>`;
+  }
+
   function tripPlanHtml(t) {
     const items = itemsOf(t.id, 'plan');
     let html = '';
@@ -1665,15 +1696,7 @@
       html += `
         <section class="plan-day ${d === today() ? 'today' : ''}">
           <h2><b>第 ${i} 天</b>${shortDate(d)}<button class="link-btn" data-act="new-plan" data-date="${d}">＋ 加行程</button></h2>
-          ${rows.length ? rows.map((x) => `
-            <button class="plan" data-act="edit-plan" data-id="${esc(x.id)}">
-              <span class="plan-time">${esc(x.time || '')}</span>
-              <span class="plan-main">
-                <span class="plan-title">${esc(x.title)}</span>
-                ${x.place ? `<span class="plan-place">${esc(x.place)}</span>` : ''}
-                ${x.note ? `<span class="plan-note">${esc(x.note)}</span>` : ''}
-              </span>
-            </button>`).join('') : '<p class="none">這天還沒有安排。</p>'}
+          ${rows.length ? rows.map((x, n) => planRowHtml(x, rows[n - 1], t)).join('') : '<p class="none">這天還沒有安排。</p>'}
         </section>`;
     }
     html = `<button class="ai-btn" data-act="ai-trip">請 AI 排行程草稿</button>` + html;
@@ -1802,8 +1825,10 @@
         <label>哪一天<input type="date" name="date" value="${esc(x.date)}" min="${t.start_date}" max="${t.end_date}"></label>
         <label>時間（可不填）<input type="time" name="time" value="${esc(x.time || '')}"></label>
       </div>
-      <label>地點<input type="text" name="place" value="${esc(x.place || '')}" maxlength="60" autocomplete="off"></label>
-      <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="門票、訂位、交通方式…">${esc(x.note || '')}</textarea></label>`
+      <label>地點<input type="text" name="place" value="${esc(x.place || '')}" maxlength="60" autocomplete="off" placeholder="寫正式名稱，行程上會有地圖連結"></label>
+      <label>怎麼過去（可不填）<input type="text" name="transport" value="${esc(x.transport || '')}" maxlength="200" autocomplete="off" placeholder="搭什麼車、哪一站到哪一站、大約多久"></label>
+      <label>推薦店家（可不填，用「、」分開）<input type="text" name="shops" value="${esc(shopList(x).join('、'))}" maxlength="130" autocomplete="off" placeholder="每一家都會有地圖連結"></label>
+      <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="門票、訂位、要注意的事…">${esc(x.note || '')}</textarea></label>`
     });
   }
 
@@ -3325,14 +3350,14 @@
     showSheet('ai-plan-form', {
       title: 'AI 排的草稿', submit: '加入行程',
       body: `
-      <p class="hint">勾選的項目會加進行程，之後都可以再改或刪掉。</p>
+      <p class="hint">勾選的項目會加進行程，之後都可以再改或刪掉。加入後每一項會有地圖、路線和店家的連結。</p>
       ${aiPlan.days.map((d, di) => `
         <h3 class="ai-day">${shortDate(d.date)}${d.theme ? `<span>${esc(d.theme)}</span>` : ''}</h3>
         <div class="call-pick">
           ${d.items.map((x, i) => `
           <label class="call-pick-row ai-pick">
             <span class="plan-time">${esc(x.time)}</span>
-            <span class="plan-main"><span class="plan-title">${esc(x.title)}</span>${x.place ? `<span class="plan-place">${esc(x.place)}</span>` : ''}${x.note ? `<span class="plan-note">${esc(x.note)}</span>` : ''}</span>
+            <span class="plan-main"><span class="plan-title">${esc(x.title)}</span>${x.place ? `<span class="plan-place">${esc(x.place)}</span>` : ''}${x.transport ? `<span class="plan-move">${esc(x.transport)}</span>` : ''}${x.note ? `<span class="plan-note">${esc(x.note)}</span>` : ''}${shopList(x).length ? `<span class="plan-shops">推薦：${esc(shopList(x).join('、'))}</span>` : ''}</span>
             <input type="checkbox" name="pick" value="${di}-${i}" checked><span class="check" aria-hidden="true"></span>
           </label>`).join('')}
         </div>`).join('')}
@@ -3704,9 +3729,12 @@
       after() { render(); }
     },
     'plan-form': {
-      read: (f) => ({ id: f.item_id.value || null, title: f.title.value.trim(), date: f.date.value, time: f.time.value, place: f.place.value.trim(), note: f.note.value.trim() }),
+      read: (f) => ({
+        id: f.item_id.value || null, title: f.title.value.trim(), date: f.date.value, time: f.time.value, place: f.place.value.trim(), note: f.note.value.trim(),
+        transport: f.transport.value.trim(), shops: f.shops.value.split(/[、,，]/).map((n) => n.trim()).filter(Boolean).slice(0, 3)
+      }),
       check: (x) => (!x.title ? '請輸入要做什麼' : !x.date ? '請選擇哪一天' : null),
-      save: (x) => saveTripItem('plan', x.id, { title: x.title, date: x.date, time: x.time, place: x.place, note: x.note }),
+      save: (x) => saveTripItem('plan', x.id, { title: x.title, date: x.date, time: x.time, place: x.place, note: x.note, transport: x.transport, shops: x.shops }),
       remove: (id) => Api.deleteDoc('trip_items', id),
       after() { render(); }
     },
@@ -3828,7 +3856,7 @@
       async save(x) {
         for (const [di, i] of x.picks) {
           const d = aiPlan.days[di], it = d.items[i];
-          await saveTripItem('plan', null, { title: it.title, date: d.date, time: it.time, place: it.place, note: it.note });
+          await saveTripItem('plan', null, { title: it.title, date: d.date, time: it.time, place: it.place, note: it.note, transport: it.transport || '', shops: shopList(it) });
         }
         const keep = document.querySelector('#ai-plan-form input[name="keep_tips"]');
         if (keep && keep.checked && aiPlan.tips.length) {
