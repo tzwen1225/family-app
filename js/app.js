@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 17:20';
+  const VERSION = '2026-11-18 18:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -103,6 +103,7 @@
     notesView: 'hub',        // hub（鍾家生活的首頁，預設）| ledger（零用錢）| scores | notes（旅遊）| album | transit | shop | cards // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
     shopping: [], cards: [],
     todoFilter: 'all', todoShowDone: false, todoNewWho: '', todoNewDue: '', todoNewRepeat: '',   // 日常待辦（資料沿用 shopping）
+    journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
     showOldNotes: false,
@@ -410,6 +411,7 @@
       Api.watchList('trips', (list) => { state.trips = list; loadEvents(); refreshTravel(); }),
       Api.watchList('calls', onCalls),
       Api.watchList('trip_items', (list) => { state.tripItems = list; refreshTravel(); }),
+      Api.watchList('journal_reacts', (list) => { state.journalReacts = list; refreshTravel(); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       // 資料卡：家長看全部；小朋友只讀得到自己新增的（安全規則也是這樣擋）
       (amChild() ? (cb) => Api.watchWhere('cards', 'created_by', state.userId, cb) : (cb) => Api.watchList('cards', cb))(
@@ -1710,24 +1712,66 @@
   }
 
   // 日誌：照日期排，每則有作者、文字、可以附一張照片
+  // 日誌：照日期一天一段。每則有作者、心情、天氣、地點、文字、一張照片；家人可以按表情回應。
+  //   表情回應 journal_reacts/{日誌id_UID} = { item_id, trip_id, uid, emoji, at }，每人每則一個
+  const MOODS = [['😆', '開心'], ['😋', '好吃'], ['😍', '好美'], ['🤣', '好笑'], ['😮', '驚訝'], ['😴', '好累'], ['🥲', '可惜']];
+  const WEATHERS = [['☀️', '晴天'], ['⛅', '多雲'], ['☁️', '陰天'], ['🌧️', '下雨'], ['❄️', '下雪'], ['💨', '風大']];
+  const REACTS = ['❤️', '😂', '👍', '😮'];
+  const JR_PROMPTS = ['今天最好吃的是', '最好笑的一件事', '最漂亮的地方', '沒想到會', '明天最期待'];
+  const labelOf = (list, e) => (list.find((x) => x[0] === e) || [])[1] || '';
   function tripJournalHtml(t) {
     const items = itemsOf(t.id, 'journal').sort((a, b) => a.date.localeCompare(b.date) || a.created_at - b.created_at);
     if (!items.length) return `
       <div class="empty big"><p>還沒有日誌。今天去了哪、吃了什麼、最好笑的事，寫下來，再放一張照片。</p>
 </div>`;
-    return items.map((j) => {
+    // 上方的小統計：幾則、幾張照片、誰寫最多
+    const count = {};
+    items.forEach((j) => { count[j.author] = (count[j.author] || 0) + 1; });
+    const top = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
+    const photos = items.filter((j) => j.thumb).length;
+    const days = new Set(items.map((j) => j.date)).size;
+    let html = `<p class="jr-stats">${days} 天・${items.length} 則日誌${photos ? '・' + photos + ' 張照片' : ''}${Object.keys(count).length > 1 ? '・寫最多的是' + esc(nameOf(top)) : ''}</p>`;
+    let lastDay = '';
+    items.forEach((j) => {
+      if (j.date !== lastDay) {
+        lastDay = j.date;
+        const inTrip = j.date >= t.start_date && j.date <= t.end_date;
+        const sky = Array.from(new Set(items.filter((x) => x.date === j.date && x.weather).map((x) => x.weather)));
+        html += `<h2 class="jr-day">${inTrip ? `<b>第 ${daysBetween(t.start_date, j.date) + 1} 天</b>` : ''}${shortDate(j.date)}${sky.length ? `<span aria-label="天氣：${esc(sky.map((w) => labelOf(WEATHERS, w)).join('、'))}">${sky.map(esc).join(' ')}</span>` : ''}</h2>`;
+      }
       const who = member(j.author);
       const mine = j.author === state.userId;
       const inner = `
-          <header>${who ? avatarHtml(who, 'sm') : ''}<b>${esc(nameOf(j.author))}</b><time>${shortDate(j.date)}</time></header>
+          <header>${who ? avatarHtml(who, 'sm') : ''}<b>${esc(nameOf(j.author))}</b>${j.mood ? `<span class="jr-mood">${esc(j.mood)} ${esc(labelOf(MOODS, j.mood))}</span>` : ''}</header>
           ${j.text ? `<p class="post-text">${esc(j.text)}</p>` : ''}`;
-      return `
+      const reacts = state.journalReacts.filter((r) => r.item_id === j.id);
+      const my = reacts.find((r) => r.uid === state.userId);
+      html += `
         <article class="post journal" style="--who:${esc(colorOf(j.author))}">
           ${mine ? `<button class="journal-main" data-act="edit-journal" data-id="${esc(j.id)}">${inner}</button>` : `<div class="journal-main">${inner}</div>`}
           ${j.thumb ? `<button class="journal-photo" data-act="trip-photo" data-id="${esc(j.id)}" aria-label="照片，點一下放大"><img src="${esc(j.thumb)}" alt="照片"></button>` : ''}
+          ${j.place ? `<div class="jr-place"><a class="plan-link map" href="${esc(mapUrl(t.place && !j.place.includes(t.place) ? j.place + ' ' + t.place : j.place))}" target="_blank" rel="noopener">📍 ${esc(j.place)}</a></div>` : ''}
+          <div class="jr-reacts" role="group" aria-label="表情回應">
+            ${REACTS.map((e) => {
+              const who2 = reacts.filter((r) => r.emoji === e);
+              return `<button class="${my && my.emoji === e ? 'on' : ''}" data-act="jr-react" data-id="${esc(j.id)}" data-emoji="${e}" aria-pressed="${!!(my && my.emoji === e)}" aria-label="${e}${who2.length ? '：' + esc(who2.map((r) => nameOf(r.uid)).join('、')) : ''}">${e}${who2.length ? `<b>${who2.length}</b>` : ''}</button>`;
+            }).join('')}
+            ${reacts.length ? `<small>${esc(reacts.map((r) => nameOf(r.uid)).join('、'))}</small>` : ''}
+          </div>
           ${!mine && canDeleteJournal(j) ? `<button class="link-btn danger journal-del" data-act="del-journal" data-id="${esc(j.id)}">刪除這則日誌</button>` : ''}
         </article>`;
-    }).join('');
+    });
+    return html;
+  }
+  async function toggleJournalReact(id, emoji) {
+    const j = findById(state.tripItems, id);
+    if (!j) return;
+    const key = id + '_' + state.userId;
+    const my = state.journalReacts.find((r) => r.item_id === id && r.uid === state.userId);
+    try {
+      if (my && my.emoji === emoji) await Api.deleteDoc('journal_reacts', my.id || key);
+      else await Api.setDoc('journal_reacts', key, { item_id: id, trip_id: j.trip_id, uid: state.userId, emoji, at: Date.now() });
+    } catch (e) { console.error(e); toast('沒有成功，請確認已經執行過最新的 deploy.bat'); }
   }
 
   // 行李：像採買清單一樣，打勾表示帶了
@@ -1836,15 +1880,59 @@
     const t = tripOf(state.tripId);
     const now = today();
     const x = item || { date: now >= t.start_date && now <= t.end_date ? now : t.end_date < now ? t.end_date : t.start_date, text: '' };
+    const seg = (name, list, cur) => `
+      <fieldset class="seg emoji">
+        <legend>${name === 'mood' ? '心情' : '天氣'}（可不選）</legend>
+        ${list.map(([e, label]) => `<label style="--cat:var(--c-trip)"><input type="radio" name="${name}" value="${e}" ${cur === e ? 'checked' : ''}><span>${e} ${label}</span></label>`).join('')}
+        <label style="--cat:var(--ink-2)"><input type="radio" name="${name}" value="" ${cur ? '' : 'checked'}><span>不選</span></label>
+      </fieldset>`;
     showSheet('journal-form', {
       title: item ? '編輯日誌' : '寫日誌', focus: !item, footer: item ? DELETE_BTN : '',
       body: `
       <input type="hidden" name="item_id" value="${esc(x.id || '')}">
       <label>哪一天<input type="date" name="date" value="${esc(x.date)}"></label>
+      ${seg('mood', MOODS, x.mood || '')}
+      ${seg('weather', WEATHERS, x.weather || '')}
+      <label>在哪裡（可不填）<input type="text" name="place" value="${esc(x.place || '')}" maxlength="60" autocomplete="off" placeholder="寫了會有地圖連結"></label>
+      <div class="jr-chips" id="jr-places"></div>
       <label>內容<textarea class="title-input" name="text" rows="6" maxlength="3000" placeholder="今天去了哪裡？最難忘的是什麼？">${esc(x.text || '')}</textarea></label>
+      <div class="jr-chips">${JR_PROMPTS.map((q) => `<button type="button" data-act="jr-prompt" data-text="${esc(q)}">${esc(q)}…</button>`).join('')}</div>
+      <button type="button" class="ai-btn jr-ai" data-act="ai-journal">AI 幫我寫成日記</button>
+      <p class="hint" id="jr-ai-hint" role="status">先寫幾個關鍵字（例如：犬山城、爬很高、抹茶冰、弟弟迷路），AI 會整理成一段日記，你再改。</p>
       <label>照片（一張，可不放）<input type="file" name="photo" accept="image/*"></label>
       ${item && item.thumb ? '<p class="hint">這則已經有一張照片；選新的會換掉它。</p>' : ''}`
     });
+    drawJournalPlaces();
+  }
+  // 「在哪裡」下面：列出那一天行程裡的地點，點一下就填進去
+  function drawJournalPlaces() {
+    const form = document.getElementById('journal-form'), box = document.getElementById('jr-places');
+    if (!form || !box) return;
+    const places = Array.from(new Set(itemsOf(state.tripId, 'plan').filter((p) => p.date === form.elements.date.value && p.place).map((p) => p.place))).slice(0, 8);
+    box.innerHTML = places.map((n) => `<button type="button" data-act="jr-place" data-text="${esc(n)}">${esc(n)}</button>`).join('');
+  }
+  let journalBefore = null;   // AI 改寫前的原文，可以還原
+  async function aiWriteJournal(btn) {
+    const form = document.getElementById('journal-form');
+    if (!form || btn.disabled) return;
+    const f = form.elements, hint = document.getElementById('jr-ai-hint');
+    if (btn.dataset.undo) { f.text.value = journalBefore || ''; delete btn.dataset.undo; btn.textContent = 'AI 幫我寫成日記'; hint.textContent = '已經換回你原本寫的。'; return; }
+    const text = f.text.value.trim();
+    if (!text) { hint.textContent = '先在「內容」寫幾個關鍵字，AI 才知道今天發生什麼事。'; f.text.focus(); return; }
+    const t = tripOf(state.tripId);
+    btn.disabled = true; btn.textContent = '寫作中…'; hint.textContent = '正在請 AI 寫…';
+    try {
+      const r = await askAi('journal', {
+        text, date: f.date.value, place: f.place.value.trim(), mood: labelOf(MOODS, f.mood.value), weather: labelOf(WEATHERS, f.weather.value),
+        name: me().display_name, child: amChild(), trip: t.title + (t.place ? '（' + t.place + '）' : ''),
+        plans: itemsOf(t.id, 'plan').filter((p) => p.date === f.date.value).map((p) => p.title + (p.place ? '＠' + p.place : '')).slice(0, 12)
+      });
+      if (!document.getElementById('journal-form')) return;
+      journalBefore = text; f.text.value = r.text;
+      btn.dataset.undo = '1'; btn.textContent = '換回我原本寫的';
+      hint.textContent = 'AI 寫好了，可以直接改。不喜歡就按「換回我原本寫的」。';
+    } catch (e) { btn.textContent = 'AI 幫我寫成日記'; hint.textContent = e.friendly || '沒有成功，請再試一次。'; }
+    btn.disabled = false;
   }
 
   function openCostSheet(item) {
@@ -3739,7 +3827,7 @@
       after() { render(); }
     },
     'journal-form': {
-      read: (f) => ({ id: f.item_id.value || null, date: f.date.value, text: f.text.value.trim(), file: f.photo.files && f.photo.files[0] }),
+      read: (f) => ({ id: f.item_id.value || null, date: f.date.value, text: f.text.value.trim(), file: f.photo.files && f.photo.files[0], mood: f.mood.value, weather: f.weather.value, place: f.place.value.trim() }),
       check(x) {
         const old = x.id && findById(state.tripItems, x.id);
         if (!x.date) return '請選擇哪一天';
@@ -3747,7 +3835,7 @@
         return null;
       },
       async save(x) {
-        const data = { date: x.date, text: x.text };
+        const data = { date: x.date, text: x.text, mood: x.mood, weather: x.weather, place: x.place };
         if (x.file) {
           const img = await loadImage(x.file);
           let full = shrink(img, 1280, 0.72);
@@ -3765,6 +3853,7 @@
         if (!old || !canDeleteJournal(old)) throw new Error('not-allowed');
         await Api.deleteDoc('trip_items', id);
         if (old && old.image_id) Api.deleteDoc('chat_images', old.image_id).catch(() => {});
+        state.journalReacts.filter((r) => r.item_id === id && r.uid === state.userId).forEach((r) => Api.deleteDoc('journal_reacts', r.id).catch(() => {}));
       },
       after() { render(); }
     },
@@ -4188,6 +4277,13 @@
     else if (act === 'gemini-key') openGeminiSheet();
     else if (act === 'ai-event') aiFillEvent();
     else if (act === 'ai-trip') openAiTripSheet();
+    else if (act === 'ai-journal') aiWriteJournal(el);
+    else if (act === 'jr-react') toggleJournalReact(el.dataset.id, el.dataset.emoji);
+    else if (act === 'jr-place') { const f = document.getElementById('journal-form'); if (f) f.elements.place.value = el.dataset.text; }
+    else if (act === 'jr-prompt') {
+      const f = document.getElementById('journal-form');
+      if (f) { const ta = f.elements.text; ta.value = (ta.value && !ta.value.endsWith('\n') ? ta.value + '\n' : ta.value) + el.dataset.text + '：'; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    }
     else if (act === 'ai-scores') openAiAnalyze('scores');
     else if (act === 'ai-ledger') openAiAnalyze('ledger');
     else if (act === 'ai-run') runAiAnalyze();
@@ -4364,6 +4460,7 @@
   });
 
   // 費用申請表單：打開「已經給了」才出現「實際給的金額」
+  document.addEventListener('change', (ev) => { if (ev.target.name === 'date' && ev.target.closest('#journal-form')) drawJournalPlaces(); });
   document.addEventListener('change', (ev) => {
     const form = ev.target.form;
     if (!form || form.getAttribute('id') !== 'request-form' || ev.target.name !== 'given') return;

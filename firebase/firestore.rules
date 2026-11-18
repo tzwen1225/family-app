@@ -275,6 +275,16 @@ service cloud.firestore {
         && request.resource.data.get('created_by', null) == resource.data.get('created_by', null);
       allow delete: if isFamily() && (madeIt() || isAdmin());
     }
+    // 旅遊日誌的表情回應：每個人每則一個（文件 id 是「日誌id_自己的UID」），只能加、換、收回自己的
+    match /journal_reacts/{id} {
+      allow read: if isFamily();
+      allow create, update: if isFamily()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.item_id is string && request.resource.data.trip_id is string
+        && request.resource.data.emoji is string && request.resource.data.emoji.size() <= 8
+        && id == request.resource.data.item_id + '_' + request.auth.uid;
+      allow delete: if isFamily() && (resource.data.uid == request.auth.uid || isAdmin());
+    }
     match /trip_items/{id} {
       allow read: if isFamily();
       allow create: if isFamily() && validTripItem()

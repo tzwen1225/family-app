@@ -1612,3 +1612,25 @@ html[data-theme="night"] .msg.mine .quote, html[data-theme="night"] .msg.mine .q
 }
 .plan-link.shop { color: var(--c-exam); background: var(--amber-soft); }
 .plan-link.web { color: var(--ink-2); background: var(--track); }
+
+/* ---------- 旅遊日誌：一天一段、心情、天氣、地點、表情回應 ---------- */
+.jr-stats { font-size: 13px; color: var(--ink-2); padding: 6px 4px 0; }
+.jr-day { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--ink-2); margin: 18px 4px 8px; }
+.jr-day b { color: var(--c-trip); font-weight: 800; font-size: 15px; }
+.jr-day span { margin-left: auto; font-size: 18px; }
+.jr-day + .post.journal { margin-top: 0; }
+.jr-mood { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--ink-2); background: var(--track); border-radius: 99px; padding: 3px 10px; }
+.journal-main header { display: flex; align-items: center; gap: 8px; }
+.jr-place { margin-top: 10px; }
+.jr-reacts { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.jr-reacts button { min-width: 44px; min-height: 36px; padding: 0 10px; border-radius: 99px; font-size: 17px; background: var(--track); border: 1px solid transparent; display: inline-flex; align-items: center; gap: 4px; }
+.jr-reacts button b { font: 700 13px var(--num); color: var(--ink-2); }
+.jr-reacts button.on { background: color-mix(in srgb, var(--c-trip) 14%, var(--sheet)); border-color: var(--c-trip); }
+.jr-reacts button.on b { color: var(--c-trip); }
+.jr-reacts small { font-size: 12px; color: var(--ink-2); margin-left: 4px; }
+.seg.emoji span { padding: 7px 12px; font-size: 14px; }
+.jr-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 12px; }
+.jr-chips:empty { display: none; }
+.jr-chips button { min-height: 32px; padding: 0 12px; border-radius: 99px; font-size: 13px; background: var(--track); color: var(--ink); }
+.jr-ai { margin: 0 0 4px; }
+.jr-ai + .hint { margin-bottom: 14px; }

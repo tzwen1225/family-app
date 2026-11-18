@@ -476,6 +476,7 @@
           }
           return { days, tips: ['示範提醒：交通票券先買好', '示範提醒：下雨改去室內景點'] };
         }
+        if (op === 'journal') return { text: '（示範）今天' + (args.place ? '在' + args.place : '') + '玩得很開心！' + args.text.replace(/\n/g, '、') + '，每一件事都想記下來。\n\n接上 Gemini 之後，這裡會是一段完整的日記。' };
         if (op === 'analyze') return { text: '（示範）' + args.name + '的' + (args.kind === 'scores' ? '成績' : '零用錢') + '說明會出現在這裡。\n\n接上 Gemini 之後，這裡會是根據實際紀錄寫出的幾段文字。' };
         throw new Error('op');
       },
