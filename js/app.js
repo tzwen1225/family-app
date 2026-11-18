@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 19:30';
+  const VERSION = '2026-11-18 20:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -678,7 +678,7 @@
         </form>` : ''}
       ${state.tab === 'notes' && state.notesView === 'butler' ? `
         <form class="chat-bar" id="butler-form">
-          <input id="butler-input" name="text" type="text" placeholder="${state.butler.msgs.length ? '繼續問' : '問問看家裡的事'}" maxlength="300" autocomplete="off" enterkeyhint="send" aria-label="問小管家">
+          <input id="butler-input" name="text" type="text" placeholder="${state.butler.msgs.length ? '繼續問' : '想問什麼都可以'}" maxlength="1000" autocomplete="off" enterkeyhint="send" aria-label="問小管家">
           <button type="submit" class="send" aria-label="送出">${ICON.send}</button>
         </form>` : ''}
       ${fabLabel() ? `<div class="addbar"><button class="fab" data-act="new" aria-label="${fabLabel()}"><span class="fab-plus" aria-hidden="true">${ICON.plus}</span>${fabLabel()}</button></div>` : ''}
@@ -3007,7 +3007,7 @@
       const n = state.requests.filter((r) => r.status !== 'given').length;
       return n ? `<em>${n} 筆費用${amChild() ? '等爸媽給' : '還沒給'}</em>` : amChild() ? '記支出、跟爸媽申請費用' : '小朋友的記帳本';
     }
-    if (id === 'butler') return '用問的：行程、待辦、成績、零用錢、旅遊';
+    if (id === 'butler') return '什麼都可以問，也查得到家裡的紀錄';
     if (id === 'scores') return amChild() ? '只有你和爸媽看得到' : '考試成績紀錄';
     if (id === 'notes') {
       const next = state.trips.filter((t) => t.end_date >= today()).sort((x, y) => x.start_date.localeCompare(y.start_date))[0];
@@ -3588,7 +3588,8 @@
       ['這週', child ? ['我這週有什麼行程？', '我還有哪些事沒做？'] : ['這週全家各有什麼行程？', '這幾天有哪些事還沒處理？']],
       [child ? '我的紀錄' : '小朋友', child ? ['我這學期各科考得怎麼樣？', '我這個月零用錢花在哪裡？']
         : k.length ? [k[0].display_name + '這學期各科考得怎麼樣？', (k[1] || k[0]).display_name + '這個月零用錢花在哪裡？'] : []],
-      ['旅遊', next ? [next.title + '還有什麼沒準備？'] : []]
+      ['旅遊', next ? [next.title + '還有什麼沒準備？'] : []],
+      ['什麼都可以問', child ? ['用簡單的話解釋光合作用', '幫我出五題英文單字小考'] : ['週末全家可以去哪裡走走？', '晚餐想不到煮什麼，給我三個點子']]
     ].filter((g) => g[1].length);
   }
   function butlerContext() {
@@ -3632,13 +3633,13 @@
   function viewButler() {
     const b = state.butler;
     const head = `
-      <header class="plain-head with-action"><h1>家庭小管家</h1>${b.msgs.length ? '<button class="chip-btn bt-clear" data-act="butler-clear">清除對話</button>' : `<p>${amChild() ? '問你自己的行程和紀錄' : '用問的查家裡的事'}</p>`}</header>`;
+      <header class="plain-head with-action"><h1>家庭小管家</h1>${b.msgs.length ? '<button class="chip-btn bt-clear" data-act="butler-clear">清除對話</button>' : '<p>什麼都可以問</p>'}</header>`;
     if (!b.msgs.length) return head + `
       <div class="bt-start">
         ${butlerAsks().map(([title, list]) => `
           <section><h2>${esc(title)}</h2>${list.map((q) => `<button class="bt-ask" data-act="butler-ask" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</section>`).join('')}
-        <p class="hint">按了才會把相關的紀錄送到 Google Gemini。對話不會存下來，離開 App 就清掉。${amChild() ? '成績和零用錢只會用到你自己的。' : ''}</p>
-        <p class="hint">小管家只知道 App 裡記的事，回答可能有錯，數字請以紀錄為準。</p>
+        <p class="hint">問題和家裡的紀錄會送到 Google Gemini。對話不會存下來，離開 App 就清掉。${amChild() ? '成績和零用錢只會用到你自己的。' : ''}</p>
+        <p class="hint">小管家不能上網，不知道今天的新聞、天氣和最新的價格；回答也可能有錯，重要的事請再查一次。</p>
       </div>`;
     return head + `<div class="bt-list" id="butler-list" aria-live="polite">${butlerListHtml()}</div>`;
   }
@@ -3660,7 +3661,7 @@
   async function askButler(q) {
     const b = state.butler, text = String(q || '').trim();
     if (!text || b.busy) return;
-    const history = b.msgs.filter((m) => !m.error).slice(-6).map((m) => ({ role: m.role, text: m.text.slice(0, 600) }));
+    const history = b.msgs.filter((m) => !m.error).slice(-6).map((m) => ({ role: m.role, text: m.text.slice(0, 1200) }));
     b.msgs.push({ role: 'user', text }); b.busy = true;
     drawButler();
     try {
