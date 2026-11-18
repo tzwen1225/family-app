@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 21:30';
+  const VERSION = '2026-11-18 22:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -129,6 +129,7 @@
     draft: '',
     chatSearch: false,
     chatQuery: '',
+    optDrafts: {},           // 投票裡正在打的新選項（依投票 id）
     menuMsg: null,           // 正在顯示「回覆／收回」按鈕的訊息
     replyTo: null,           // 正在引用回覆哪一則訊息
     mentionQ: null,          // 正在打 @ 後面的字（null 代表沒有在選人）
@@ -1306,14 +1307,21 @@
               return `
               <button class="opt ${mine && mine.choice === i ? 'mine' : ''} ${over && !p.voided && top > 0 && who.length === top ? 'win' : ''}" data-act="vote" data-id="${esc(p.id)}" data-choice="${i}" ${editing ? '' : 'disabled'} ${mine && mine.choice === i ? 'aria-pressed="true"' : ''}>
                 <span class="opt-bar" style="width:${pct}%"></span>
-                <span class="opt-text">${esc(opt)}</span>
+                <span class="opt-text">${esc(opt)}${(p.option_by || {})[i] && (p.option_by || {})[i] !== p.author ? `<small class="opt-by">${esc(nameOf(p.option_by[i]))}加的</small>` : ''}</span>
                 <span class="opt-count">${who.length} 票</span>
                 <span class="opt-who">${who.map((v) => `<span class="who" style="--who:${esc(colorOf(v.uid))}">${esc(nameOf(v.uid))}</span>`).join('')}</span>
               </button>`;
             }).join('')}
+            ${p.options.length ? '' : `<p class="none">還沒有選項。${over ? '' : '大家可以在下面加。'}</p>`}
           </div>
+          ${!over && !home && p.open_options && p.options.length < POLL_MAX ? `
+          <form class="opt-add" data-poll="${esc(p.id)}">
+            <input name="text" type="text" placeholder="我想加一個選項" value="${esc(state.optDrafts[p.id] || '')}" maxlength="30" autocomplete="off" enterkeyhint="done" aria-label="新增選項">
+            <button type="submit" class="opt-add-btn">加入</button>
+          </form>` : ''}
+          ${!over && home && p.open_options ? '<p class="pick-hint">可以到「投票」加自己的選項</p>' : ''}
           <p class="poll-foot">${due ? `<b>${due}</b>　` : ''}${votes.length} / ${state.members.length} 人已投${waiting.length && !over ? '　還沒投：' + esc(waiting.map((m) => m.display_name).join('、')) : ''}</p>
-          ${over ? '' : `<button class="btn ghost small vote-btn" data-act="poll-edit" data-id="${esc(p.id)}">${editing ? '取消' : mine ? '修改我的票' : '我要投票'}</button>`}
+          ${over || !p.options.length ? '' : `<button class="btn ghost small vote-btn" data-act="poll-edit" data-id="${esc(p.id)}">${editing ? '取消' : mine ? '修改我的票' : '我要投票'}</button>`}
           ${!home && p.author === state.userId ? `
             <div class="poll-actions">
               ${over ? '' : `<button class="link-btn del" data-act="close-poll" data-id="${esc(p.id)}">結束投票</button>`}
@@ -1392,7 +1400,32 @@
     return `<h2>投票${pager}<button class="link-btn" data-act="open-polls">看全部</button></h2>${pollCardHtml(current, true)}`;
   }
 
+  const POLL_MAX = 12;   // 一個投票最多幾個選項
+  // 投票進行中，大家都可以加選項（發起時打開「大家可以加選項」才行）。只能加在最後面，原本的選項和票都不會動。
+  async function onAddOption(form) {
+    const p = findById(state.polls, form.dataset.poll), input = form.elements.text;
+    const text = input.value.trim();
+    if (!p || !text) return;
+    if (p.options.some((o) => o === text)) return toast('已經有這個選項了');
+    if (p.options.length >= POLL_MAX) return toast('選項最多 ' + POLL_MAX + ' 個');
+    input.value = ''; delete state.optDrafts[p.id];
+    try {
+      await Api.updateDoc('polls', p.id, { options: p.options.concat(text), option_by: { ...(p.option_by || {}), [p.options.length]: state.userId } });
+      toast('已加入選項');
+    } catch (e) {
+      console.error(e); state.optDrafts[p.id] = text; input.value = text;
+      toast(pollOver(p) ? '投票已經結束，不能再加選項' : '沒有加進去，請再試一次');
+    }
+    if (document.activeElement) document.activeElement.blur();
+    refreshPolls();
+  }
+  let pollsDirty = false;
+  document.addEventListener('focusout', (ev) => { if (pollsDirty && ev.target.closest && ev.target.closest('.opt-add')) setTimeout(refreshPolls, 0); });
   function refreshPolls() {
+    // 正在打新選項時先不重畫（會打斷中文輸入法），離開輸入框再畫
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.opt-add');
+    if (typing) { pollsDirty = true; return; }
+    pollsDirty = false;
     refreshTodos();
     const home = document.getElementById('home-polls');
     if (home) { home.innerHTML = homePollsHtml(); home.hidden = !home.innerHTML; }
@@ -1435,7 +1468,12 @@
       title: '發起投票', submit: '送出', focus: true,
       body: `
       <input class="title-input" name="question" placeholder="想問什麼？" maxlength="80" autocomplete="off">
-      <label>選項（一行一個，2 到 6 個）<textarea name="options" rows="5" maxlength="300" placeholder="選項一&#10;選項二"></textarea></label>
+      <label>選項（一行一個，最多 ${POLL_MAX} 個）<textarea name="options" rows="5" maxlength="400" placeholder="選項一&#10;選項二"></textarea></label>
+      <label class="switch">
+        <span>大家可以加選項</span>
+        <input type="checkbox" name="open_options" checked>
+      </label>
+      <p class="hint">打開的話，選項可以先不寫或只寫幾個，投票結束前每個人都能再加自己的選項。</p>
       <label>截止日期<input type="date" name="deadline" value="${today()}" min="${today()}"></label>
       <p class="hint">到截止日當天結束前都可以投票，過了就自動結束。清空日期的話，要由你手動結束。</p>
       <p class="hint">常用的可以直接套用：</p>
@@ -4215,12 +4253,12 @@
       read: (f) => ({
         question: f.question.value.trim(),
         options: f.options.value.split('\n').map((x) => x.trim()).filter(Boolean),
-        deadline: f.deadline.value
+        deadline: f.deadline.value, open_options: f.open_options.checked
       }),
       check(p) {
         if (!p.question) return '請寫下想問什麼';
-        if (p.options.length < 2) return '至少要有兩個選項，一行一個';
-        if (p.options.length > 6) return '選項最多 6 個';
+        if (p.options.length < 2 && !p.open_options) return '至少要有兩個選項，一行一個；或打開「大家可以加選項」';
+        if (p.options.length > POLL_MAX) return '選項最多 ' + POLL_MAX + ' 個';
         if (p.options.some((o) => o.length > 30)) return '每個選項最多 30 個字';
         if (new Set(p.options).size !== p.options.length) return '選項有重複';
         if (p.deadline && p.deadline < today()) return '截止日期不能是過去';
@@ -4231,7 +4269,7 @@
         const end = p.deadline ? parse(p.deadline) : null;
         if (end) end.setHours(23, 59, 59, 999);
         return Api.addDoc('polls', {
-          question: p.question, options: p.options, author: state.userId, created_at: Date.now(), closed: false,
+          question: p.question, options: p.options, open_options: p.open_options, author: state.userId, created_at: Date.now(), closed: false,
           deadline: p.deadline || '', deadline_at: end ? end.getTime() : 0
         });
       },
@@ -4622,6 +4660,7 @@
     else if (id === 'transit-search-form') onTransitSearch(form);
     else if (id === 'album-comment-form') onPhotoComment(form);
     else if (form.classList.contains('reply-form')) onReply(form);
+    else if (form.classList.contains('opt-add')) onAddOption(form);
     else if (FORMS[id]) onSave(form);
   });
 
@@ -4664,6 +4703,7 @@
       if (!ev.isComposing) refreshFoundStations();     // 注音還在選字時先不動，選好字（compositionend）再更新
     }
     else if (t.form && t.form.classList.contains('reply-form')) state.postDrafts[t.form.dataset.post] = t.value;
+    else if (t.form && t.form.classList.contains('opt-add')) state.optDrafts[t.form.dataset.poll] = t.value;
   });
 
   // 費用申請表單：打開「已經給了」才出現「實際給的金額」

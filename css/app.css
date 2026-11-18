@@ -1675,3 +1675,11 @@ em.ok { font-style: normal; font-weight: 700; color: var(--green); }
 html[data-theme="night"] .bt-q { color: #0E1412; }
 html[data-style="tech"] .bt-q { color: #04131A; }
 html[data-style="comic"] .bt-q { background: #FFD400; color: #111; border: 2px solid #111; }
+
+/* ---------- 投票：大家可以加選項 ---------- */
+.opt-add { display: flex; gap: 8px; margin-top: 10px; }
+.opt-add input { flex: 1; min-width: 0; margin: 0; border-style: dashed; }
+.opt-add-btn { flex: none; min-height: 44px; padding: 0 16px; border-radius: 12px; font-size: 15px; font-weight: 700; color: #fff; background: var(--green); }
+.opt-by { display: block; font-size: 11px; font-weight: 400; color: var(--ink-2); }
+.opts .none { font-size: 14px; color: var(--ink-2); padding: 4px 0; }
+html[data-theme="night"] .opt-add-btn { color: #0E1412; }

@@ -424,7 +424,8 @@ service cloud.firestore {
         && request.resource.data.question is string
         && request.resource.data.question.size() >= 1 && request.resource.data.question.size() <= 80
         && request.resource.data.options is list
-        && request.resource.data.options.size() >= 2 && request.resource.data.options.size() <= 6
+        && request.resource.data.options.size() <= 12
+        && (request.resource.data.options.size() >= 2 || request.resource.data.get('open_options', false) == true)
         && request.resource.data.closed == false;
       // 發起人可以結束或作廢；其他人投票時會順手記下「已經有別人投過票」
       allow update: if isFamily() && (
@@ -433,6 +434,19 @@ service cloud.firestore {
           && request.resource.data.closed is bool)
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['others_voted'])
           && request.resource.data.others_voted == true)
+        // 開放加選項的投票：進行中任何家人都可以在最後面加一個選項，原本的選項不能動
+        || (resource.data.get('open_options', false) == true
+          && resource.data.closed == false && resource.data.get('voided', false) == false
+          && (resource.data.get('deadline_at', 0) == 0 || request.time.toMillis() <= resource.data.get('deadline_at', 0))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['options', 'option_by'])
+          && request.resource.data.options is list
+          && request.resource.data.options.size() == resource.data.options.size() + 1
+          && request.resource.data.options.size() <= 12
+          && request.resource.data.options[0:resource.data.options.size()] == resource.data.options
+          && request.resource.data.options[resource.data.options.size()] is string
+          && request.resource.data.options[resource.data.options.size()].size() >= 1
+          && request.resource.data.options[resource.data.options.size()].size() <= 30
+          && request.resource.data.get('option_by', {}) is map)
       );
       // 只有還沒有其他人投票的投票可以刪除；有人投過就只能作廢
       allow delete: if isFamily() && resource.data.author == request.auth.uid
@@ -446,7 +460,7 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && voteId == request.resource.data.poll_id + '_' + request.auth.uid
         && request.resource.data.choice is int
-        && request.resource.data.choice >= 0 && request.resource.data.choice < 6
+        && request.resource.data.choice >= 0 && request.resource.data.choice < 12
         && pollOpen(request.resource.data.poll_id);
       allow delete: if false;
     }
