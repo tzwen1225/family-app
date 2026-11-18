@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 09:20';
+  const VERSION = '2026-11-18 10:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -34,13 +34,17 @@
     ['', '原始風格', '清爽的日曆感'],
     ['cute', '可愛風格', '圓圓的、點點底、軟軟的字'],
     ['simple', '簡約風格', '平面、細線、少裝飾'],
-    ['big', '大字清楚', '字和按鈕都放大，好讀好按']
+    ['big', '大字清楚', '字和按鈕都放大，好讀好按'],
+    ['tech', '科技風', '深色螢幕、霓虹光、格線（自帶配色）'],
+    ['nature', '自然風', '米色紙張、葉子形狀、溫暖大地色（自帶配色）'],
+    ['comic', '漫畫風', '粗黑框、網點底、對話框（自帶配色）']
   ];
   const STYLE_KEY = 'family-style';
   const currentStyle = () => document.documentElement.dataset.style || '';
   function applyStyle(id) {
     if (id) document.documentElement.dataset.style = id; else delete document.documentElement.dataset.style;
     try { if (id) localStorage.setItem(STYLE_KEY, id); else localStorage.removeItem(STYLE_KEY); } catch (e) { /* 忽略 */ }
+    syncThemeColor();
   }
   // 讓手機最上方狀態列的底色跟著面板走
   function syncThemeColor() {
