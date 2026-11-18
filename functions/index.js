@@ -8,10 +8,12 @@
 //   polls    新增 → 通知發起人以外的所有成員
 //   shopping 新增 → 日常待辦交給某個人時，通知那個人
 //   calls    新增 → 視訊來電，通知被打的人
+//   每 5 分鐘     → 行事曆的行程開始前一小時，提醒被標註的人（沒標註就是全家）
 //
 // 部署：在專案資料夾執行 firebase deploy --only functions
 
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const logger = require('firebase-functions/logger');
 const { initializeApp } = require('firebase-admin/app');
@@ -124,6 +126,61 @@ exports.onPollOption = onDocumentUpdated('polls/{id}', async (event) => {
   const others = Object.keys(names).filter((uid) => uid !== by);
   await notify(others, (names[by] || '家人') + '在投票加了選項', clip(after.question) + '：' + clip(now[now.length - 1]), 'poll-' + event.params.id);
 });
+
+// ---------- 行程提醒 ----------
+// 每 5 分鐘看一次行事曆：一小時內要開始、還沒提醒過的行程，通知被標註的人；沒有標註任何人的行程通知全家。
+// 只提醒有填開始時間的行程（全天的沒有「前一小時」）。跨日行程只在第一天提醒；每週重複的每一場都會提醒。
+// 提醒過的記在 event_reminders/{行程id_日期_時間}，同一場不會提醒第二次；改了時間會重新提醒。
+const HOUR = 3600000, TAIPEI = 8 * HOUR;
+let eventCache = { list: null, until: 0 };
+const ymdOf = (ms) => new Date(ms + TAIPEI).toISOString().slice(0, 10);
+
+// 這個行程在 date 這一天有沒有一場（回傳開始的時間點，沒有就是 null）
+function occurrenceStart(ev, date) {
+  if (!/^\d{2}:\d{2}$/.test(String(ev.start_time || ''))) return null;
+  if (ev.repeat === 'weekly') {
+    if (date < ev.event_date || date > (ev.end_date || ev.event_date)) return null;
+    const weekday = new Date(date + 'T00:00:00Z').getUTCDay();
+    if (!(ev.repeat_days || []).includes(weekday) || (ev.skip_dates || []).includes(date)) return null;
+  } else if (ev.event_date !== date) return null;
+  return Date.parse(date + 'T' + ev.start_time + ':00Z') - TAIPEI;
+}
+
+async function remindEvents(now) {
+  if (!eventCache.list || now > eventCache.until) {
+    const snap = await db.collection('events').get();
+    eventCache = { list: snap.docs.map((d) => ({ id: d.id, ...d.data() })), until: now + 10 * 60000 };
+  }
+  const due = [];
+  eventCache.list.forEach((ev) => {
+    [ymdOf(now), ymdOf(now + 24 * HOUR)].forEach((date) => {
+      const start = occurrenceStart(ev, date);
+      if (start !== null && start > now && start - now <= HOUR) due.push({ ev, date, start });
+    });
+  });
+  if (!due.length) return 0;
+  const names = await memberNames();
+  let sent = 0;
+  for (const { ev, date, start } of due) {
+    // create 只有在文件不存在時才會成功，所以同一場只會提醒一次（就算兩次排程重疊）
+    try { await db.doc('event_reminders/' + ev.id + '_' + date + '_' + ev.start_time.replace(':', '')).create({ event_id: ev.id, at: now }); }
+    catch (e) { continue; }
+    const tagged = (Array.isArray(ev.member_ids) ? ev.member_ids : []).filter((uid) => names[uid]);
+    const who = tagged.length ? tagged : Object.keys(names);
+    const mins = Math.round((start - now) / 60000);
+    const body = ev.start_time + (ev.end_time ? '–' + ev.end_time : '') + '　' + (tagged.length ? tagged.map((uid) => names[uid]).join('、') : '全家')
+      + (ev.note ? '\n' + clip(ev.note) : '');
+    await notify(who, (mins >= 55 ? '1 小時後' : mins + ' 分鐘後') + '：' + clip(ev.title), body, 'event-' + ev.id);
+    sent++;
+  }
+  // 順手清掉兩天前的提醒紀錄
+  const old = await db.collection('event_reminders').where('at', '<', now - 48 * HOUR).limit(50).get();
+  await Promise.all(old.docs.map((d) => d.ref.delete()));
+  return sent;
+}
+exports.remindEvents = onSchedule({ schedule: 'every 5 minutes', timeZone: 'Asia/Taipei', region: 'asia-east1', maxInstances: 1, timeoutSeconds: 60 },
+  async () => { const n = await remindEvents(Date.now()); if (n) logger.info('行程提醒：' + n + ' 則'); });
+exports._remindEvents = remindEvents;   // 給測試用
 
 // 日常待辦（資料在 shopping）：有人把一件事交給你時通知你；交給全家的不通知，免得太吵
 exports.onTodo = onDocumentCreated('shopping/{id}', async (event) => {
