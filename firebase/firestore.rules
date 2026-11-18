@@ -82,6 +82,11 @@ service cloud.firestore {
       return d.kid == request.auth.uid && d.type == 'expense' && d.get('by_parent', false) == false;
     }
 
+    function ledgerOpen() {
+      return resource.data.get('created_at', null) is timestamp
+        && request.time < resource.data.created_at + duration.value(24, 'h');
+    }
+
     function ownsEvent() {
       return resource.data.get('created_by', request.auth.uid) == request.auth.uid;
     }
@@ -164,9 +169,11 @@ service cloud.firestore {
       allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
       allow create: if isFamily() && validLedger()
         && (!isChild() || ownExpense(request.resource.data));
-      allow update: if isFamily() && validLedger()
+      // 新增後 24 小時內才能修改或刪除（家長也一樣）；沒有新增時間的舊紀錄一律不能動
+      allow update: if isFamily() && validLedger() && ledgerOpen()
+        && request.resource.data.get('created_at', null) == resource.data.get('created_at', null)
         && (!isChild() || (ownExpense(resource.data) && ownExpense(request.resource.data)));
-      allow delete: if isFamily()
+      allow delete: if isFamily() && ledgerOpen()
         && (!isChild() || ownExpense(resource.data));
     }
 

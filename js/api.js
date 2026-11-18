@@ -556,7 +556,7 @@
       async listLedger(onlyKid) {
         return load().ledger.filter((e) => !onlyKid || e.kid === onlyKid).sort(ledgerOrder);
       },
-      async saveLedger(e) { return upsert('ledger', e.id, cleanLedger(e), 'l'); },
+      async saveLedger(e) { const old = e.id && load().ledger.find((x) => x.id === e.id); return upsert('ledger', e.id, { ...cleanLedger(e), created_at: old ? old.created_at : Date.now() }, 'l'); },
       async deleteLedger(id) { drop('ledger', id); },
 
       async addCategory(c) { upsert('categories', null, { label: c.label, color: c.color, created_at: Date.now() }, 'k'); emit('categories'); },

@@ -1815,3 +1815,12 @@ html[data-style="comic"] :is(.bt-ask, .bt-a, .ai-box) { border: 2.5px solid #111
 .react-chips button b { font-size: 11px; font-weight: 600; color: var(--ink-2); }
 .react-chips button.on { border-color: var(--green); background: color-mix(in srgb, var(--green) 10%, var(--sheet)); }
 .viewer .react-pick { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--safe-b, 0px) + 76px); z-index: 2; }
+
+/* ---------- 零用錢：24 小時後鎖住 ---------- */
+.del-row { display: flex; align-items: center; gap: 12px; }
+.del-row .btn { flex: none; width: auto; padding: 0 22px; }
+.del-left { flex: 1; font-size: 13px; line-height: 1.4; color: var(--c-exam); font-weight: 600; }
+.lock-note { font-size: 15px; line-height: 1.6; padding: 12px 14px; border-radius: 14px; background: var(--track); margin-bottom: 14px; }
+.lock-list { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 0; font-size: 16px; }
+.lock-list dt { color: var(--ink-2); font-size: 14px; }
+.lock-list dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
