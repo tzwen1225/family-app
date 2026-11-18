@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 23:40';
+  const VERSION = '2026-11-19 00:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -734,13 +734,33 @@
   }
   const bdayCardId = (to, year, from) => to + '_' + year + '_' + from;
   const cardsFor = (to, year) => state.bdayCards.filter((c) => c.to === to && c.year === year && member(c.from)).sort((a, b) => a.created_at - b.created_at);
-  function bdayCardsHtml(list) {
-    return `<div class="bcards">${list.map((c, i) => `
-      <article class="bcard ${i % 2 ? 'r' : 'l'}" style="--who:${esc(colorOf(c.from))}">
+  // 卡片紙色（paper）：寫卡片時挑，沒挑的用粉紅
+  const BDAY_PAPERS = [['pink', '粉紅'], ['butter', '奶油黃'], ['sky', '天空藍'], ['mint', '薄荷綠'], ['lilac', '淡紫']];
+  const BDAY_PHRASES = ['生日快樂！', '天天開開心心', '願望都會實現', '永遠愛你', '謝謝你一直都在', '今天你最大！'];
+  // 生日蛋糕插圖（三根蠟燭的火會輕輕晃）
+  const CAKE_ART = `<svg class="bday-art" viewBox="0 0 120 112" aria-hidden="true">
+    <g class="flames"><path d="M42 18c-4 6 0 10 0 10s4-4 0-10z" fill="#FFB020"/><path d="M60 12c-4 6 0 10 0 10s4-4 0-10z" fill="#FFB020"/><path d="M78 18c-4 6 0 10 0 10s4-4 0-10z" fill="#FFB020"/></g>
+    <rect x="40" y="28" width="4" height="16" rx="2" fill="#7FB7F2"/><rect x="58" y="22" width="4" height="22" rx="2" fill="#F48FB1"/><rect x="76" y="28" width="4" height="16" rx="2" fill="#9AD9A8"/>
+    <rect x="24" y="44" width="72" height="26" rx="10" fill="#FFF6EE"/>
+    <path d="M24 56c8 6 12-4 18 0s10 6 18 0 12-6 18 0 10 4 18 0V54c0-6-4-10-10-10H34c-6 0-10 4-10 10z" fill="#F48FB1"/>
+    <rect x="14" y="70" width="92" height="30" rx="12" fill="#FFE1A8"/>
+    <path d="M14 82c10 6 14-4 23 0s13 6 23 0 14-6 23 0 13 4 23 0v-2c0-6-5-10-11-10H25c-6 0-11 4-11 10z" fill="#FFFFFF" opacity=".85"/>
+    <circle cx="32" cy="90" r="3" fill="#F48FB1"/><circle cx="52" cy="93" r="3" fill="#7FB7F2"/><circle cx="72" cy="90" r="3" fill="#9AD9A8"/><circle cx="90" cy="93" r="3" fill="#FFB020"/>
+    <rect x="6" y="100" width="108" height="6" rx="3" fill="#E9B7C7"/>
+  </svg>`;
+  const BALLOON = (c) => `<svg class="bday-balloon" viewBox="0 0 40 80" aria-hidden="true"><path d="M20 4C10 4 4 12 4 21c0 11 9 20 16 22 7-2 16-11 16-22C36 12 30 4 20 4z" fill="${c}"/><path d="M17 43h6l-3 4z" fill="${c}"/><path d="M20 47c-4 8 4 14 0 22s3 8 0 10" stroke="#B9A3AD" stroke-width="1.4" fill="none"/><ellipse cx="13" cy="16" rx="3" ry="5" fill="#fff" opacity=".5"/></svg>`;
+  const CONFETTI = Array.from({ length: 16 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 5) * 0.18}s;--c:${['#F48FB1', '#FFB020', '#7FB7F2', '#9AD9A8', '#C9A7F5'][i % 5]};--r:${(i * 47) % 180}deg"></i>`).join('');
+  function bdayCardHtml(c, i) {
+    const who = member(c.from);
+    return `
+      <article class="bcard paper-${esc(c.paper || 'pink')} ${i % 2 ? 'r' : 'l'}">
         <span class="bcard-sticker" aria-hidden="true">${esc(c.sticker || '🎂')}</span>
         <p>${esc(c.text)}</p>
-        <footer>${esc(nameOf(c.from))}</footer>
-      </article>`).join('')}</div>`;
+        <footer>${who ? avatarHtml(who, 'xs') : ''}<span>${esc(nameOf(c.from))}</span></footer>
+      </article>`;
+  }
+  function bdayCardsHtml(list) {
+    return `<div class="bcards">${list.map(bdayCardHtml).join('')}</div>`;
   }
   function bdayHtml() {
     if (!state.userId || !me()) return '';
@@ -753,18 +773,22 @@
       if (m.id === state.userId) {
         html += `
         <div class="bday-hero">
-          <div class="bday-float" aria-hidden="true"><span>🎈</span><span>🎉</span><span>🎂</span><span>🎁</span><span>🎈</span><span>✨</span></div>
-          <h2>生日快樂，${esc(m.display_name)}！</h2>
-          <p>${b.age > 0 ? '今天你 ' + b.age + ' 歲了。' : ''}全家都祝你生日快樂。</p>
+          <div class="bday-confetti" aria-hidden="true">${CONFETTI}</div>
+          ${BALLOON('#F48FB1').replace('bday-balloon', 'bday-balloon left')}${BALLOON('#7FB7F2').replace('bday-balloon', 'bday-balloon right')}
+          ${CAKE_ART}
+          <h2>生日快樂</h2>
+          <p class="bday-name">${esc(m.display_name)}${b.age > 0 ? `<span class="bday-age">${b.age} 歲</span>` : ''}</p>
+          <p class="bday-wish">全家都祝你天天開心，願望都實現</p>
         </div>
-        ${cards.length ? `<h3 class="bday-sub">家人寫給你的卡片</h3>${bdayCardsHtml(cards)}` : '<p class="bday-none">家人寫的卡片會出現在這裡。</p>'}`;
+        ${cards.length ? `<h3 class="bday-sub">家人寫給你的卡片・${cards.length} 張</h3>${bdayCardsHtml(cards)}` : '<p class="bday-none">家人寫的卡片會一張一張出現在這裡 💌</p>'}`;
       } else {
         const mine = cards.find((c) => c.from === state.userId);
         html += `
-        <div class="bday-other" style="--who:${esc(colorOf(m.id))}">
-          <span class="bday-cake" aria-hidden="true">🎂</span>
+        <div class="bday-other">
+          <div class="bday-confetti small" aria-hidden="true">${CONFETTI}</div>
+          <span class="bday-who">${avatarHtml(m)}<span class="bday-hat" aria-hidden="true">🎉</span></span>
           <div>
-            <h2>今天是${esc(m.display_name)}的生日</h2>
+            <h2>今天是${esc(m.display_name)}的生日${b.age > 0 ? `<small>${b.age} 歲</small>` : ''}</h2>
             <p>${mine ? '你的卡片已經送出，' + esc(m.display_name) + '會在首頁看到。' : '寫一張卡片給' + esc(m.display_name) + '吧。'}</p>
           </div>
           <button class="btn small" data-act="bday-card" data-to="${esc(m.id)}">${mine ? '改我的卡片' : '寫卡片'}</button>
@@ -791,17 +815,29 @@
     if (!m || m.id === state.userId) return;
     const c = state.bdayCards.find((x) => x.id === bdayCardId(to, year, state.userId)) || {};
     showSheet('bday-form', {
-      title: '給' + m.display_name + '的生日卡片', submit: c.id ? '儲存' : '送出卡片', focus: !c.id, footer: c.id ? DELETE_BTN : '',
+      title: '給' + m.display_name + '的生日卡片', submit: c.id ? '儲存' : '送出卡片', focus: false, footer: c.id ? DELETE_BTN : '',
       body: `
       <input type="hidden" name="item_id" value="${esc(c.id || '')}">
       <input type="hidden" name="to" value="${esc(to)}">
+      <div class="bcard-preview" id="bcard-preview">${bdayCardHtml({ from: state.userId, text: c.text || '寫下想對' + m.display_name + '說的話…', sticker: c.sticker, paper: c.paper }, 0)}</div>
       <fieldset class="seg emoji">
         <legend>貼圖</legend>
-        ${BDAY_STICKERS.map((e, i) => `<label style="--cat:var(--c-birthday, #E5557A)"><input type="radio" name="sticker" value="${e}" ${(c.sticker || BDAY_STICKERS[0]) === e || (!c.sticker && i === 0) ? 'checked' : ''}><span class="big">${e}</span></label>`).join('')}
+        ${BDAY_STICKERS.map((e) => `<label style="--cat:#D94B76"><input type="radio" name="sticker" value="${e}" ${(c.sticker || BDAY_STICKERS[0]) === e ? 'checked' : ''}><span class="big">${e}</span></label>`).join('')}
       </fieldset>
-      <label>想說的話<textarea class="title-input" name="text" rows="5" maxlength="300" placeholder="生日快樂！…">${esc(c.text || '')}</textarea></label>
-      <p class="hint">${esc(m.display_name)}會收到通知，卡片會出現在他首頁的最上面。只有你和${esc(m.display_name)}看得到內容。</p>`
+      <fieldset class="bpapers">
+        <legend>卡片顏色</legend>
+        ${BDAY_PAPERS.map(([k, label]) => `<label class="paper-${k}"><input type="radio" name="paper" value="${k}" ${(c.paper || 'pink') === k ? 'checked' : ''}><span aria-label="${label}"></span></label>`).join('')}
+      </fieldset>
+      <label>想說的話<textarea name="text" rows="4" maxlength="300" placeholder="生日快樂！…">${esc(c.text || '')}</textarea></label>
+      <div class="jr-chips">${BDAY_PHRASES.map((q) => `<button type="button" data-act="bday-phrase" data-text="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+      <p class="hint">${esc(m.display_name)}會收到通知，卡片會出現在${esc(m.display_name)}首頁的最上面。只有你和${esc(m.display_name)}看得到內容。</p>`
     });
+  }
+  function drawBdayPreview() {
+    const f = document.getElementById('bday-form'), box = document.getElementById('bcard-preview');
+    if (!f || !box) return;
+    const m = member(f.elements.to.value);
+    box.innerHTML = bdayCardHtml({ from: state.userId, text: f.elements.text.value.trim() || '寫下想對' + (m ? m.display_name : '壽星') + '說的話…', sticker: f.elements.sticker.value, paper: f.elements.paper.value }, 0);
   }
 
   function calSwitch() {
@@ -4146,11 +4182,11 @@
     },
     'bday-form': {
       done: '卡片送出了',
-      read: (f) => ({ to: f.to.value, text: f.text.value.trim(), sticker: f.sticker.value }),
+      read: (f) => ({ to: f.to.value, text: f.text.value.trim(), sticker: f.sticker.value, paper: f.paper.value }),
       check: (x) => (!x.text ? '寫幾句話給壽星吧' : null),
       save(x) {
         const year = Number(today().slice(0, 4));
-        return Api.setDoc('birthday_cards', bdayCardId(x.to, year, state.userId), { to: x.to, from: state.userId, year, text: x.text, sticker: x.sticker, created_at: Date.now() });
+        return Api.setDoc('birthday_cards', bdayCardId(x.to, year, state.userId), { to: x.to, from: state.userId, year, text: x.text, sticker: x.sticker, paper: x.paper, created_at: Date.now() });
       },
       remove: (id) => Api.deleteDoc('birthday_cards', id),
       after() { drawBday(); }
@@ -4616,6 +4652,10 @@
     else if (act === 'ai-event') aiFillEvent();
     else if (act === 'ai-trip') openAiTripSheet();
     else if (act === 'bday-card') openBdaySheet(el.dataset.to);
+    else if (act === 'bday-phrase') {
+      const f = document.getElementById('bday-form');
+      if (f) { const ta = f.elements.text; ta.value = (ta.value.trim() ? ta.value.replace(/\s*$/, '') + (/[！。!~]$/.test(ta.value.trim()) ? '' : '，') : '') + el.dataset.text; drawBdayPreview(); }
+    }
     else if (act === 'butler-ask') askButler(el.dataset.q);
     else if (act === 'butler-clear') { state.butler = { msgs: [], busy: false }; render(); }
     else if (act === 'butler-go') butlerGo(el.dataset.src);
@@ -4789,6 +4829,7 @@
   document.addEventListener('input', (ev) => {
     const t = ev.target;
     if (t.name === 'photos' && t.type === 'file') showPhotoPreviews(t);
+    if (t.form && t.form.id === 'bday-form') drawBdayPreview();
     if (t.id === 'chat-input') { state.draft = t.value; watchMention(t); }
     else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
     else if (t.id === 'transit-q') state.transit.q = t.value;
@@ -4808,7 +4849,7 @@
   });
 
   // 費用申請表單：打開「已經給了」才出現「實際給的金額」
-  document.addEventListener('change', (ev) => { if (ev.target.name === 'date' && ev.target.closest('#journal-form')) drawJournalPlaces(); });
+  document.addEventListener('change', (ev) => { if (ev.target.name === 'date' && ev.target.closest('#journal-form')) drawJournalPlaces(); if (ev.target.closest && ev.target.closest('#bday-form')) drawBdayPreview(); });
   document.addEventListener('change', (ev) => {
     const form = ev.target.form;
     if (!form || form.getAttribute('id') !== 'request-form' || ev.target.name !== 'given') return;
