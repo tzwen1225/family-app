@@ -234,6 +234,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // 聊天訊息的表情回應：每個人每則一個（文件 id 是「訊息id_自己的UID」），只能加、換、收回自己的
+    match /message_reacts/{id} {
+      allow read: if isFamily();
+      allow create, update: if isFamily()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.msg_id is string
+        && request.resource.data.emoji is string && request.resource.data.emoji.size() <= 8
+        && id == request.resource.data.msg_id + '_' + request.auth.uid;
+      allow delete: if isFamily() && (resource.data.uid == request.auth.uid || isAdmin());
+    }
+
     // 聊天照片的原圖：只能以自己的名義上傳；收回訊息時由本人刪除
     match /chat_images/{id} {
       allow read: if isFamily();

@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 01:40';
+  const VERSION = '2026-11-19 02:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -105,6 +105,7 @@
     todoFilter: 'all', todoShowDone: false, todoNewWho: '', todoNewDue: '', todoNewRepeat: '',   // 日常待辦（資料沿用 shopping）
     butler: { msgs: [], busy: false },   // 家庭小管家的對話（不存檔，重新整理就清掉）
     butlerReady: Promise.resolve(),      // 小管家要用的紀錄（行程、成績、零用錢）讀完了沒
+    msgReacts: [],                  // 聊天訊息的表情回應
     journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -418,6 +419,7 @@
       Api.watchWhere('birthday_cards', 'to', state.userId, (list) => { bdayTo = list; state.bdayCards = bdayTo.concat(bdayFrom); drawBday(); }),
       Api.watchWhere('birthday_cards', 'from', state.userId, (list) => { bdayFrom = list; state.bdayCards = bdayTo.concat(bdayFrom); drawBday(); }),
       Api.watchList('journal_reacts', (list) => { state.journalReacts = list; refreshTravel(); }),
+      Api.watchList('message_reacts', (list) => { state.msgReacts = list; if (state.tab === 'chat') refreshChat(false); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       // 資料卡：家長看全部；小朋友只讀得到自己新增的（安全規則也是這樣擋）
       (amChild() ? (cb) => Api.watchWhere('cards', 'created_by', state.userId, cb) : (cb) => Api.watchList('cards', cb))(
@@ -1095,6 +1097,33 @@
 
   // ---------- 聊天：@某人、引用回覆 ----------
   const AT_ALL = '所有人';
+  // 表情回應：message_reacts/{訊息id_UID} = { msg_id, uid, emoji, at }，每人每則一個，再按一次同一個就收回
+  const MSG_REACTS = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
+  const reactPickHtml = (id) => {
+    const my = state.msgReacts.find((r) => r.msg_id === id && r.uid === state.userId);
+    return `<div class="react-pick" role="group" aria-label="表情回應">${MSG_REACTS.map((e) => `<button class="${my && my.emoji === e ? 'on' : ''}" data-act="msg-react" data-id="${esc(id)}" data-emoji="${e}" aria-pressed="${!!(my && my.emoji === e)}">${e}</button>`).join('')}</div>`;
+  };
+  function reactChipsHtml(id) {
+    const list = state.msgReacts.filter((r) => r.msg_id === id && member(r.uid));
+    if (!list.length) return '';
+    const emojis = Array.from(new Set(list.map((r) => r.emoji)));
+    return `<div class="react-chips">${emojis.map((e) => {
+      const who = list.filter((r) => r.emoji === e);
+      const mine = who.some((r) => r.uid === state.userId);
+      return `<button class="${mine ? 'on' : ''}" data-act="msg-react" data-id="${esc(id)}" data-emoji="${esc(e)}" aria-label="${esc(e)}：${esc(who.map((r) => nameOf(r.uid)).join('、'))}">${esc(e)}<b>${esc(who.map((r) => nameOf(r.uid)).join('、'))}</b></button>`;
+    }).join('')}</div>`;
+  }
+  async function toggleMsgReact(id, emoji) {
+    const key = id + '_' + state.userId;
+    const my = state.msgReacts.find((r) => r.msg_id === id && r.uid === state.userId);
+    state.menuMsg = null;
+    if ($sheet.querySelector('.viewer')) closeSheet();
+    try {
+      if (my && my.emoji === emoji) await Api.deleteDoc('message_reacts', my.id || key);
+      else await Api.setDoc('message_reacts', key, { msg_id: id, uid: state.userId, emoji, at: Date.now() });
+    } catch (e) { console.error(e); toast('沒有成功，請確認已經執行過最新的 deploy.bat'); }
+    refreshChat(false);
+  }
   // 訊息文字：跳脫後把 @名字 標出來（搜尋時改成標出關鍵字）
   function richText(text, q) {
     if (q) return markText(text, q);
@@ -1207,7 +1236,8 @@
         <div class="msg ${mine ? 'mine' : ''} ${atMe ? 'at-me' : ''}" id="m-${esc(m.id)}" style="--who:${esc(colorOf(m.sender))}">
           ${showName ? `<div class="msg-name">${esc(nameOf(m.sender))}</div>` : ''}
           <div class="msg-row">${bubble}<span class="msg-meta"><time>${clock(m.sent_at)}</time>${m.recalled ? '' : readersHtml(m, pos)}</span></div>
-          ${state.menuMsg === m.id && !m.recalled && !q ? `<div class="msg-acts"><button class="reply-btn" data-act="reply-msg" data-id="${esc(m.id)}">回覆</button>${canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回</button>` : ''}</div>` : ''}
+          ${m.recalled ? '' : reactChipsHtml(m.id)}
+          ${state.menuMsg === m.id && !m.recalled && !q ? `${reactPickHtml(m.id)}<div class="msg-acts"><button class="reply-btn" data-act="reply-msg" data-id="${esc(m.id)}">回覆</button>${canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回</button>` : ''}</div>` : ''}
         </div>`;
       lastSender = m.sender;
     });
@@ -1414,6 +1444,7 @@
     $sheet.innerHTML = `
       <div class="viewer" data-act="close">
         <img src="${esc(m.thumb)}" alt="照片" class="loading">
+        ${reactPickHtml(m.id)}
         <div class="viewer-bar">
           <span>${esc(nameOf(m.sender))}　${stamp(m.sent_at)}</span>
           <button class="reply-btn" data-act="reply-msg" data-id="${esc(m.id)}">回覆</button>
@@ -4708,6 +4739,7 @@
     else if (act === 'msg-menu') { state.menuMsg = state.menuMsg === el.dataset.id ? null : el.dataset.id; refreshChat(false); }
     else if (act === 'recall') onRecall(el.dataset.id);
     else if (act === 'reply-msg') startReply(el.dataset.id);
+    else if (act === 'msg-react') toggleMsgReact(el.dataset.id, el.dataset.emoji);
     else if (act === 'reply-cancel') { state.replyTo = null; drawAssist(); }
     else if (act === 'pick-mention') pickMention(el.dataset.name);
     else if (act === 'goto-msg') gotoMessage(el.dataset.id);
