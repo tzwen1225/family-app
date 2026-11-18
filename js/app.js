@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 00:10';
+  const VERSION = '2026-11-19 00:30';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -804,6 +804,8 @@
     return html;
   }
   function drawBday() {
+    const arch = document.querySelector('.bday-archive');
+    if (arch && state.tab === 'me') arch.outerHTML = bdayArchiveEntry();
     const el = document.getElementById('bday');
     if (!el) return;
     const html = bdayHtml();
@@ -833,6 +835,51 @@
       <p class="hint">${esc(m.display_name)}會收到通知，卡片會出現在${esc(m.display_name)}首頁的最上面。只有你和${esc(m.display_name)}看得到內容。</p>`
     });
   }
+  // ---------- 生日卡片收藏 ----------
+  // 每一年的卡片都留在資料庫裡，不會自動刪除。設定 → 家人 →「生日卡片收藏」可以看：
+  //   我收到的：依年份分組，最新的在上面；我寫給家人的：依年份、壽星分組。
+  function bdayArchiveEntry() {
+    const got = state.bdayCards.filter((c) => c.to === state.userId && member(c.from));
+    const sent = state.bdayCards.filter((c) => c.from === state.userId && member(c.to));
+    const years = new Set(got.map((c) => c.year)).size;
+    return `
+      <section class="card-list bday-archive">
+        <h2>生日卡片收藏<small>每一年家人寫的卡片都會留在這裡</small></h2>
+        <div class="bday-arch-btns">
+          <button class="bday-arch-btn" data-act="bday-archive" data-kind="got">
+            <span class="bday-arch-ico" aria-hidden="true">💌</span>
+            <span><b>我收到的卡片</b><small>${got.length ? got.length + ' 張・' + years + ' 年' : '還沒有收到卡片'}</small></span>
+          </button>
+          <button class="bday-arch-btn" data-act="bday-archive" data-kind="sent">
+            <span class="bday-arch-ico" aria-hidden="true">✍️</span>
+            <span><b>我寫給家人的</b><small>${sent.length ? sent.length + ' 張' : '還沒有寫過'}</small></span>
+          </button>
+        </div>
+      </section>`;
+  }
+  function openBdayArchive(kind) {
+    const got = kind === 'got';
+    const list = state.bdayCards.filter((c) => (got ? c.to === state.userId && member(c.from) : c.from === state.userId && member(c.to)))
+      .sort((a, b) => b.year - a.year || a.created_at - b.created_at);
+    const years = Array.from(new Set(list.map((c) => c.year)));
+    const myBirth = (state.profiles[state.userId] || {}).birthday;
+    const body = !list.length
+      ? `<p class="bday-none">${got ? '生日當天家人寫給你的卡片，會一年一年收在這裡。' : '家人生日那天寫的卡片，會收在這裡。'}</p>`
+      : years.map((y, n) => {
+        const rows = list.filter((c) => c.year === y);
+        const age = got && myBirth ? y - Number(myBirth.slice(0, 4)) : 0;
+        const head = got ? `${y} 年${age > 0 ? `<span class="bday-age">${age} 歲</span>` : ''}` : `${y} 年`;
+        const cards = got ? bdayCardsHtml(rows)
+          : rows.map((c, i) => `<p class="bday-arch-to">寫給${esc(nameOf(c.to))}</p>${bdayCardHtml(c, i)}`).join('');
+        return `
+        <details class="bday-year" ${n === 0 ? 'open' : ''}>
+          <summary><span>${head}</span><small>${rows.length} 張</small></summary>
+          <div class="bday-year-body">${cards}</div>
+        </details>`;
+      }).join('');
+    showSheet('bday-archive', { title: got ? '我收到的生日卡片' : '我寫給家人的卡片', readonly: true, body: `<div class="bday-arch">${body}</div>` });
+  }
+
   function drawBdayPreview() {
     const f = document.getElementById('bday-form'), box = document.getElementById('bcard-preview');
     if (!f || !box) return;
@@ -3402,6 +3449,7 @@
             </div>`;
         }).join('')}
       </section>
+      ${bdayArchiveEntry()}
       <h3 class="set-group">這支手機</h3>
       <section class="card-list">
         <h2>介面風格<small>只會改這支手機，可以和面板顏色自由搭配</small></h2>
@@ -4652,6 +4700,7 @@
     else if (act === 'ai-event') aiFillEvent();
     else if (act === 'ai-trip') openAiTripSheet();
     else if (act === 'bday-card') openBdaySheet(el.dataset.to);
+    else if (act === 'bday-archive') openBdayArchive(el.dataset.kind);
     else if (act === 'bday-phrase') {
       const f = document.getElementById('bday-form');
       if (f) { const ta = f.elements.text; ta.value = (ta.value.trim() ? ta.value.replace(/\s*$/, '') + (/[！。!~]$/.test(ta.value.trim()) ? '' : '，') : '') + el.dataset.text; drawBdayPreview(); }

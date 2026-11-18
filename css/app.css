@@ -1792,3 +1792,19 @@ html[data-theme="night"] .opt-add-btn { color: #0E1412; }
 .bpapers span { display: block; width: 40px; height: 40px; border-radius: 50%; background: var(--paper); box-shadow: inset 0 0 0 3px var(--edge); cursor: pointer; }
 .bpapers input:checked + span { box-shadow: inset 0 0 0 3px var(--edge), 0 0 0 3px var(--sheet), 0 0 0 5px var(--edge); }
 .bpapers input:focus-visible + span { outline: 2px solid var(--green); outline-offset: 4px; }
+
+/* ---------- 生日卡片收藏 ---------- */
+.bday-arch-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.bday-arch-btn { display: flex; align-items: center; gap: 10px; text-align: left; padding: 14px 12px; border-radius: 16px; background: linear-gradient(120deg, #FFE9F1, #FFF5E6); color: #5A1730; min-height: 64px; }
+.bday-arch-btn b { display: block; font-size: 15px; }
+.bday-arch-btn small { display: block; font-size: 12px; color: #8A4A62; margin-top: 2px; }
+.bday-arch-ico { font-size: 26px; flex: none; }
+.bday-year { border-radius: 16px; background: var(--soft, rgba(0,0,0,.03)); margin-bottom: 12px; }
+.bday-year summary { display: flex; align-items: center; gap: 8px; padding: 14px 16px; font-size: 17px; font-weight: 800; cursor: pointer; list-style: none; min-height: 48px; box-sizing: border-box; }
+.bday-year summary::-webkit-details-marker { display: none; }
+.bday-year summary > span { display: flex; align-items: center; gap: 8px; }
+.bday-year summary small { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.bday-year summary::after { content: "›"; font-size: 20px; color: var(--ink-2); transition: transform .2s; }
+.bday-year[open] summary::after { transform: rotate(90deg); }
+.bday-year-body { padding: 8px 10px 16px; display: grid; gap: 12px; }
+.bday-arch-to { font-size: 13px; font-weight: 700; color: #C2185B; margin: 6px 4px -4px; }
