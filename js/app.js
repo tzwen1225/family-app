@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 16:20';
+  const VERSION = '2026-11-18 16:50';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -3327,7 +3327,7 @@
       body: `
       <p class="hint">勾選的項目會加進行程，之後都可以再改或刪掉。</p>
       ${aiPlan.days.map((d, di) => `
-        <h3 class="ai-day">${shortDate(d.date)}</h3>
+        <h3 class="ai-day">${shortDate(d.date)}${d.theme ? `<span>${esc(d.theme)}</span>` : ''}</h3>
         <div class="call-pick">
           ${d.items.map((x, i) => `
           <label class="call-pick-row ai-pick">
@@ -3335,7 +3335,11 @@
             <span class="plan-main"><span class="plan-title">${esc(x.title)}</span>${x.place ? `<span class="plan-place">${esc(x.place)}</span>` : ''}${x.note ? `<span class="plan-note">${esc(x.note)}</span>` : ''}</span>
             <input type="checkbox" name="pick" value="${di}-${i}" checked><span class="check" aria-hidden="true"></span>
           </label>`).join('')}
-        </div>`).join('')}`
+        </div>`).join('')}
+      ${(aiPlan.tips || []).length ? `
+        <h3 class="ai-day">小提醒</h3>
+        <ul class="ai-tips">${aiPlan.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+        <label class="switch"><span>把小提醒也存進行程（放在第一天的最後）</span><input type="checkbox" name="keep_tips" checked></label>` : ''}`
     });
   }
 
@@ -3820,11 +3824,15 @@
     },
     'ai-plan-form': {
       read: () => ({ picks: Array.from(document.querySelectorAll('#ai-plan-form input[name="pick"]:checked')).map((i) => i.value.split('-').map(Number)) }),
-      check: (x) => (!x.picks.length ? '請至少勾選一項' : !aiPlan ? '草稿不見了，請重新排一次' : null),
+      check: (x) => (!aiPlan ? '草稿不見了，請重新排一次' : !x.picks.length ? '請至少勾選一項' : null),
       async save(x) {
         for (const [di, i] of x.picks) {
           const d = aiPlan.days[di], it = d.items[i];
           await saveTripItem('plan', null, { title: it.title, date: d.date, time: it.time, place: it.place, note: it.note });
+        }
+        const keep = document.querySelector('#ai-plan-form input[name="keep_tips"]');
+        if (keep && keep.checked && aiPlan.tips.length) {
+          await saveTripItem('plan', null, { title: '這趟旅程的小提醒', date: aiPlan.days[0].date, time: '', place: '', note: aiPlan.tips.map((t) => '・' + t).join('\n').slice(0, 500) });
         }
         aiPlan = null;
       },

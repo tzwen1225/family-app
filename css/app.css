@@ -1593,3 +1593,7 @@ html[data-style="comic"] .tab.on svg.color { animation: comic-pop .35s steps(3);
 html[data-style="tech"] .msg.mine .quote, html[data-style="comic"] .msg.mine .quote { color: inherit; border-left-color: currentColor; }
 html[data-style="tech"] .msg.mine .quote b, html[data-style="comic"] .msg.mine .quote b { color: inherit; }
 html[data-theme="night"] .msg.mine .quote, html[data-theme="night"] .msg.mine .quote b { color: inherit; border-left-color: currentColor; }
+.ai-day span { margin-left: 8px; font-weight: 500; color: var(--ink-2); }
+.ai-pick .plan-note { white-space: normal; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.ai-tips { margin: 0 0 12px; padding: 10px 14px 10px 30px; background: var(--sheet); border-radius: 16px; font-size: 14px; line-height: 1.6; }
+.plan-note { white-space: pre-line; }

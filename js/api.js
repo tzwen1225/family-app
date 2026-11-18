@@ -469,12 +469,12 @@
         if (op === 'trip') {
           const days = [];
           for (let d = new Date(args.start_date + 'T00:00'); day(d) <= args.end_date; d.setDate(d.getDate() + 1)) {
-            days.push({ date: day(d), items: [
+            days.push({ date: day(d), theme: '示範主題', items: [
               { time: '09:30', title: '示範景點', place: (args.place || '') + '老街', note: '出發前請確認' },
               { time: '12:00', title: '午餐', place: '在地小吃', note: '' },
               { time: '14:30', title: '示範步道', place: '', note: '' }] });
           }
-          return { days };
+          return { days, tips: ['示範提醒：交通票券先買好', '示範提醒：下雨改去室內景點'] };
         }
         if (op === 'analyze') return { text: '（示範）' + args.name + '的' + (args.kind === 'scores' ? '成績' : '零用錢') + '說明會出現在這裡。\n\n接上 Gemini 之後，這裡會是根據實際紀錄寫出的幾段文字。' };
         throw new Error('op');
