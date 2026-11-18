@@ -406,27 +406,37 @@ async function askGemini(system, text, json) {
   const key = doc.exists ? String(doc.data().api_key || '').trim() : '';
   if (!key) throw new HttpsError('failed-precondition', 'no-key');
   const model = await pickGeminiModel(key, doc.data().model ? String(doc.data().model).trim() : '');
-  const res = await fetch(GEMINI + '/models/' + encodeURIComponent(model) + ':generateContent', {
+  const ask = () => fetch(GEMINI + '/models/' + encodeURIComponent(model) + ':generateContent', {
     method: 'POST',
     headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: 'user', parts: [{ text }] }],
-      generationConfig: { temperature: json ? 0.1 : 0.6, maxOutputTokens: 4096, ...(json ? { responseMimeType: 'application/json' } : {}) }
+      generationConfig: { temperature: json ? 0.1 : 0.6, maxOutputTokens: 16384, ...(json ? { responseMimeType: 'application/json' } : {}) }
     })
   });
+  let res = await ask();
+  // Gemini 忙線或臨時出錯：等一下再試一次
+  if ([429, 500, 502, 503, 504].includes(res.status)) { await new Promise((r) => setTimeout(r, 2000)); res = await ask(); }
   if (!res.ok) {
-    logger.warn('Gemini 回應', res.status, model);
+    let why = '';
+    try { why = String(((await res.json()).error || {}).message || '').slice(0, 200); } catch (e) { /* 不是 JSON */ }
+    logger.warn('Gemini 回應', res.status, model, why);
     if (res.status === 404) geminiModel.until = 0;
-    throw new HttpsError(res.status === 429 ? 'resource-exhausted' : 'unavailable',
-      res.status === 429 ? 'busy' : res.status === 400 || res.status === 403 ? 'bad-key' : 'ai-' + res.status);
+    const detail = { status: res.status, model, why };
+    if (res.status === 429) throw new HttpsError('resource-exhausted', 'busy', detail);
+    if (res.status === 403 || (res.status === 400 && /api key/i.test(why))) throw new HttpsError('failed-precondition', 'bad-key', detail);
+    if (res.status === 404) throw new HttpsError('failed-precondition', 'bad-model', detail);
+    throw new HttpsError('unavailable', res.status >= 500 ? 'ai-down' : 'ai-' + res.status, detail);
   }
   const data = await res.json();
   const out = ((((data.candidates || [])[0] || {}).content || {}).parts || []).map((p) => p.text || '').join('').trim();
-  if (!out) throw new HttpsError('unavailable', 'ai-empty');
+  const finish = String(((data.candidates || [])[0] || {}).finishReason || (data.promptFeedback || {}).blockReason || '');
+  const detail = { status: 200, model, why: finish };
+  if (!out) throw new HttpsError('unavailable', 'ai-empty', detail);
   if (!json) return out;
   try { return JSON.parse(out.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')); }
-  catch (e) { throw new HttpsError('unavailable', 'ai-format'); }
+  catch (e) { throw new HttpsError('unavailable', 'ai-format', detail); }
 }
 
 // 現在的台灣日期、星期（讓「下週三」「後天」算得出來）
@@ -518,7 +528,7 @@ JSON 格式：{"days":[{"date":"YYYY-MM-DD","items":[{"time":"HH:MM","title":"�
   }
 };
 
-exports.ai = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds: 60, memory: '256MiB' }, async (req) => {
+exports.ai = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds: 180, memory: '256MiB' }, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', 'login');
   const member = await db.doc('members/' + req.auth.uid).get();
   if (!member.exists) throw new HttpsError('permission-denied', 'not-family');
@@ -535,6 +545,6 @@ exports.ai = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds: 60,
   catch (e) {
     if (e instanceof HttpsError) throw e;
     logger.error('AI 失敗', data.op, e);
-    throw new HttpsError('unavailable', 'failed');
+    throw new HttpsError('unavailable', 'failed', { why: String((e && e.message) || e).slice(0, 200) });
   }
 });

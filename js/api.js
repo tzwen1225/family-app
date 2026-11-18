@@ -132,7 +132,7 @@
       },
       // AI 小幫手：由雲端函式代問 Gemini（金鑰只在伺服器上）
       async ai(op, args) {
-        const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'ai', { timeout: 60000 });
+        const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'ai', { timeout: 170000 });
         return (await call({ op, ...(args || {}) })).data;
       },
       async transit(op, args) {
