@@ -1498,3 +1498,10 @@ html[data-style="comic"] .tab.on svg.color { animation: comic-pop .35s steps(3);
 .photo-previews { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 6px; }
 .photo-previews img { flex: none; width: 64px; height: 64px; object-fit: cover; border-radius: 10px; }
 .photo-edit-thumb { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: 14px; margin-bottom: 4px; }
+
+/* 相簿拼貼：一天 1 張放大、2 張對半、最後一列沒排滿就把最後一張放寬 */
+.album-grid.one { grid-template-columns: 1fr; }
+.album-grid.one .album-cell { aspect-ratio: 16 / 10; }
+.album-grid.two { grid-template-columns: 1fr 1fr; }
+.album-cell.wide3 { grid-column: 1 / -1; aspect-ratio: 5 / 2; }
+.album-cell.wide2 { grid-column: span 2; aspect-ratio: auto; }

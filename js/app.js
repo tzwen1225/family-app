@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 11:40';
+  const VERSION = '2026-11-18 12:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1842,6 +1842,10 @@
     // 本月精選：愛心最多的那張（一樣多就選最新的）
     const best = all.length ? all.slice().sort((a, b) => likesOf(b.id).length - likesOf(a.id).length || b.created_at - a.created_at)[0] : null;
     const bestLikes = best ? likesOf(best.id).length : 0;
+    if (best && !fullImages.has(best.image_id)) fullImage(best).then((data) => {
+      const el = document.querySelector('.album-hero[data-id="' + best.id + '"] img');
+      if (el && data) el.src = data;
+    }).catch(() => {});
     const chip = (v, label, color) => `<button class="album-chip ${state.albumFilter === v ? 'on' : ''}" ${color ? `style="--who:${esc(color)}"` : ''} data-act="album-filter" data-filter="${v}" ${state.albumFilter === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
     const totalComments = state.photoComments.filter((c) => all.some((p) => p.id === c.photo_id)).length;
     const totalLikes = state.photoLikes.filter((l) => all.some((p) => p.id === l.photo_id)).length;
@@ -1877,10 +1881,12 @@
         ${days.map((d) => `
           <section class="album-day">
             <h2>${shortDate(d.date)}<span>${d.items.length} 張</span></h2>
-            <div class="album-grid ${d.items.length >= 3 ? 'mosaic' : ''}">
-              ${d.items.map((p) => {
+            <div class="album-grid ${d.items.length >= 3 ? 'mosaic' : d.items.length === 2 ? 'two' : 'one'}">
+              ${d.items.map((p, idx) => {
                 const n = commentsOf(p.id).length, h = likesOf(p.id).length;
-                return `<button class="album-cell" data-act="open-photo" data-id="${esc(p.id)}" aria-label="${esc(nameOf(p.author))}的照片${p.caption ? '：' + esc(p.caption) : ''}">
+                // 最後一列沒排滿時，最後一張放寬把那一列補滿，不留空格
+                const tail = d.items.length > 3 && idx === d.items.length - 1 ? ['', ' wide3', ' wide2'][d.items.length % 3] : '';
+                return `<button class="album-cell${tail}" data-act="open-photo" data-id="${esc(p.id)}" aria-label="${esc(nameOf(p.author))}的照片${p.caption ? '：' + esc(p.caption) : ''}">
                   <img src="${esc(p.thumb)}" alt="" loading="lazy" decoding="async">
                   ${n || h ? `<span class="album-badges">${h ? `<i class="${likedByMe(p.id) ? 'mine' : ''}">${HEART}${h}</i>` : ''}${n ? `<i>${BUBBLE}${n}</i>` : ''}</span>` : ''}
                 </button>`;
@@ -2027,12 +2033,14 @@
     const list = albumList();
     if (!list.length) return;
     state.slideshow = -1;
+    if (navigator.wakeLock) navigator.wakeLock.request('screen').then((w) => { if (state.slideshow) state.slideWake = w; else w.release(); }).catch(() => {});
     openPhoto(list[0].id);
   }
   function stopSlideshow(quiet) {
     if (!state.slideshow) return;
     clearTimeout(state.slideshow);
     state.slideshow = 0;
+    if (state.slideWake) { state.slideWake.release().catch(() => {}); state.slideWake = null; }
     if (!quiet && state.photoId) openPhoto(state.photoId);
   }
 
@@ -2064,19 +2072,27 @@
     } else lastStageTap = now;
   }
 
-  // 存到手機：用 iPhone 的分享選單（可以選「儲存影像」）；不支援時提示長按照片
-  async function sharePhoto(id) {
+  // 存到手機：用 iPhone 的分享選單（可以選「儲存影像」）；不支援時提示長按照片。
+  // iPhone 規定分享要在「按下去的當下」呼叫，所以檔案直接從記憶體裡的原圖做，不等網路。
+  function dataUrlFile(data, name) {
+    const [head, b64] = data.split(',');
+    const mime = (head.match(/data:(.*?);/) || [])[1] || 'image/jpeg';
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new File([arr], name, { type: mime });
+  }
+  function sharePhoto(id) {
     const p = findById(state.photos, id);
     if (!p) return;
     try {
-      const data = await fullImage(p) || p.thumb;
-      const blob = await (await fetch(data)).blob();
-      const file = new File([blob], '鍾家相簿-' + p.date + '.jpg', { type: blob.type || 'image/jpeg' });
+      const file = dataUrlFile(fullImages.get(p.image_id) || p.thumb, '鍾家相簿-' + p.date + '.jpg');
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: p.caption || '鍾家相簿' });
+        navigator.share({ files: [file], title: p.caption || '鍾家相簿' })
+          .catch((e) => { if (!e || e.name !== 'AbortError') toast('長按照片就可以儲存到手機'); });
         return;
       }
-    } catch (e) { if (e && e.name === 'AbortError') return; console.warn(e); }
+    } catch (e) { console.warn(e); }
     toast('長按照片就可以儲存到手機');
   }
 
@@ -3476,7 +3492,15 @@
         if (!x.date || x.date > today()) return '請選擇哪一天拍的（不能是未來）';
         return null;
       },
-      save: (x) => Api.updateDoc('photos', x.id, { caption: x.caption, people: x.people, date: x.date, month: x.date.slice(0, 7) }),
+      async save(x) {
+        const p = findById(state.photos, x.id);
+        const month = x.date.slice(0, 7), moved = p.month !== month;
+        const comments = commentsOf(p.id).map((c) => c.id), likes = state.photoLikes.filter((l) => l.photo_id === p.id).map((l) => l.id);
+        await Api.updateDoc('photos', x.id, { caption: x.caption, people: x.people, date: x.date, month });
+        // 照片搬到別的月份：留言和愛心也要跟著搬，不然在新的月份看不到
+        if (moved) await Promise.all(comments.map((id) => Api.updateDoc('photo_comments', id, { month }))
+          .concat(likes.map((id) => Api.updateDoc('photo_likes', id, { month })))).catch((e) => console.warn(e));
+      },
       done: '已更新',
       after(x) { if (x && x.date.slice(0, 7) !== state.albumMonth) toast('照片移到 ' + Number(x.date.slice(5, 7)) + ' 月了'); render(); }
     },

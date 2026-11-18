@@ -310,7 +310,10 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.photo_id is string && request.resource.data.month is string
         && id == request.resource.data.photo_id + '_' + request.auth.uid;
-      allow update: if false;
+      // 照片改日期搬到別的月份時，底下的這一筆只能跟著改 month（要和照片的新月份一樣）
+      allow update: if isFamily()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['month'])
+        && request.resource.data.month == get(/databases/$(database)/documents/photos/$(resource.data.photo_id)).data.month;
       allow delete: if isFamily() && (resource.data.uid == request.auth.uid
         || !exists(/databases/$(database)/documents/photos/$(resource.data.photo_id)));
     }
@@ -322,7 +325,10 @@ service cloud.firestore {
         && request.resource.data.photo_id is string && request.resource.data.month is string
         && request.resource.data.text is string
         && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 200;
-      allow update: if false;
+      // 照片改日期搬到別的月份時，底下的這一筆只能跟著改 month（要和照片的新月份一樣）
+      allow update: if isFamily()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['month'])
+        && request.resource.data.month == get(/databases/$(database)/documents/photos/$(resource.data.photo_id)).data.month;
       // 留言只能刪自己的（管理員也一樣）。照片被刪掉之後（只有放照片的人和管理員能刪照片），
       // 底下剩下的留言誰都可以清掉，這樣刪照片時才能一併刪除留言
       allow delete: if isFamily() && (madeIt()
