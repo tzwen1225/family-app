@@ -130,6 +130,11 @@
         const fn = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'callIce');
         return (await fn({})).data;
       },
+      // AI 小幫手：由雲端函式代問 Gemini（金鑰只在伺服器上）
+      async ai(op, args) {
+        const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'ai', { timeout: 60000 });
+        return (await call({ op, ...(args || {}) })).data;
+      },
       async transit(op, args) {
         const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'transit');
         return (await call({ op, ...(args || {}) })).data;
@@ -446,6 +451,34 @@
       async callIce() { return { iceServers: [] }; },
       async signOut() { load().user = null; persist(); },
       async reconnect() {},
+      // 示範用的假 AI：不會連到任何地方，只回固定格式的內容
+      async ai(op, args) {
+        await new Promise((r) => setTimeout(r, 300));
+        const pad = (n) => String(n).padStart(2, '0');
+        const day = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+        if (op === 'event') {
+          const d = new Date(); d.setDate(d.getDate() + 1);
+          const weekly = /每週|每周/.test(args.text);
+          const end = new Date(d); if (weekly) end.setMonth(end.getMonth() + 3);
+          return {
+            title: args.text.replace(/^(明天|後天|每週.|每周.)/, '').slice(0, 30) || args.text, date: day(d), end_date: day(end),
+            start_time: /晚上/.test(args.text) ? '19:00' : null, end_time: null, weekly, weekdays: weekly ? [d.getDay()] : [],
+            members: (args.members || []).filter((n) => args.text.includes(n)), category: (args.categories || [])[0] || '', note: ''
+          };
+        }
+        if (op === 'trip') {
+          const days = [];
+          for (let d = new Date(args.start_date + 'T00:00'); day(d) <= args.end_date; d.setDate(d.getDate() + 1)) {
+            days.push({ date: day(d), items: [
+              { time: '09:30', title: '示範景點', place: (args.place || '') + '老街', note: '出發前請確認' },
+              { time: '12:00', title: '午餐', place: '在地小吃', note: '' },
+              { time: '14:30', title: '示範步道', place: '', note: '' }] });
+          }
+          return { days };
+        }
+        if (op === 'analyze') return { text: '（示範）' + args.name + '的' + (args.kind === 'scores' ? '成績' : '零用錢') + '說明會出現在這裡。\n\n接上 Gemini 之後，這裡會是根據實際紀錄寫出的幾段文字。' };
+        throw new Error('op');
+      },
       // 示範用的假資料：時間會跟著現在的時刻變
       async transit(op, args) {
         await new Promise((r) => setTimeout(r, 150));

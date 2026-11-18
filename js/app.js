@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 13:00';
+  const VERSION = '2026-11-18 15:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1411,7 +1411,7 @@
 
     const shown = state.scoreSubject ? all.filter((x) => x.subject === state.scoreSubject) : all;
     return `
-      <header class="plain-head"><h1>成績</h1><p>${amChild() ? '只有你和爸媽看得到' : esc(kid.display_name) + '的紀錄'}</p></header>
+      <header class="plain-head with-action"><h1>成績</h1><p>${amChild() ? '只有你和爸媽看得到' : esc(kid.display_name) + '的紀錄'}</p>${amChild() ? '' : '<button class="ai-btn" data-act="ai-scores">AI 分析</button>'}</header>
       ${picker}
       ${termBar}
       <section class="subjects" style="--who:${esc(kid.color)}" aria-label="各科最近一次成績">${summary}</section>
@@ -1574,6 +1574,7 @@
             </button>`).join('') : '<p class="none">這天還沒有安排。</p>'}
         </section>`;
     }
+    html = `<button class="ai-btn" data-act="ai-trip">請 AI 排行程草稿</button>` + html;
     const stray = items.filter((x) => x.date < t.start_date || x.date > t.end_date);
     if (stray.length) html += `
         <section class="plan-day">
@@ -2835,7 +2836,7 @@
     const shown = state.ledgerDay ? rows.filter((e) => e.date === state.ledgerDay) : rows;
     const listHead = state.ledgerDay
       ? `<h2>${shortDate(state.ledgerDay)}的明細<button class="link-btn" data-act="ledger-day" data-date="">看整個月</button></h2>`
-      : '<h2>這個月的明細</h2>';
+      : `<h2>這個月的明細${amChild() ? '' : '<button class="ai-btn" data-act="ai-ledger">AI 分析</button>'}</h2>`;
 
     const entries = shown.length ? shown.map((e) => {
       const d = parse(e.date);
@@ -3004,6 +3005,11 @@
         <h2>視訊通話<small>行動網路的中繼伺服器</small></h2>
         <p class="hint">用 4G／5G 視訊時，影像可能要經過 Cloudflare 的中繼伺服器才連得上。每月 1,000 GB 內免費。只有管理員可以新增和查看。</p>
         <button class="btn ghost small" data-act="turn-key">查看或更換中繼伺服器設定</button>
+      </section>
+      <section class="card-list">
+        <h2>AI 小幫手<small>一句話新增行程、排旅遊草稿、成績與零用錢說明</small></h2>
+        <p class="hint">用 Google Gemini。按了才會問，只送出那一次的內容；成績和零用錢只有家長能請 AI 看。只有管理員可以新增和查看金鑰。</p>
+        <button class="btn ghost small" data-act="gemini-key">查看或更換 Gemini 金鑰</button>
       </section></details>` : ''}
       ${Api.isDemo ? '<p class="demo-note">示範模式：資料只存在這台裝置。設定 Firebase 後，全家才會看到同一份資料。</p>' : ''}
       <button class="btn ghost" data-act="logout">登出</button>
@@ -3065,22 +3071,32 @@
     });
   }
 
-  function openEventSheet(ev, occDate) {
+  // draft：AI 從一句話整理出來的內容，先填進新增表單，讓人看過再儲存
+  function openEventSheet(ev, occDate, draft) {
     if (ev && !canEditEvent(ev)) return openEventView(ev, occDate);
     sheetOccurrence = ev && ev.repeat ? occDate : null;
-    const weekly = !!(ev && ev.repeat === 'weekly');
     const e = ev || {
       title: '', category: 'schedule', event_date: state.calView === 'month' ? state.selected : today(),
-      end_date: null, start_time: null, end_time: null, member_ids: [], note: ''
+      end_date: null, start_time: null, end_time: null, member_ids: [], note: '', ...(draft || {})
     };
+    const weekly = e.repeat === 'weekly';
     const allDay = !e.start_time;
     if (!eventCatIds().includes(e.category)) e.category = 'other';
     // 舊行程如果是「其他」，編輯時保留這個選項，不強迫改類型
     const catChoices = eventCatIds().concat(ev && e.category === 'other' ? ['other'] : []);
     showSheet('event-form', {
-      title: ev ? '編輯' : '新增', focus: !ev,
+      title: ev ? '編輯' : '新增', focus: !ev && !draft,
       body: `
       <input type="hidden" name="item_id" value="${esc(e.id || '')}">
+      ${ev ? '' : `
+      <div class="ai-box">
+        <label for="ai-text">用一句話新增</label>
+        <div class="ai-row">
+          <input id="ai-text" name="ai_text" placeholder="下週三晚上七點${esc((kids()[0] || me()).display_name)}鋼琴課" value="${esc((draft && draft.ai_text) || '')}" maxlength="300" autocomplete="off" enterkeyhint="go">
+          <button type="button" class="ai-go" data-act="ai-event">AI 幫我填</button>
+        </div>
+        <p class="hint" id="ai-hint" role="status">${draft ? 'AI 填好了，請檢查下面的內容再按「儲存」。' : '日期、時間、誰的事會自動填到下面，你看過再儲存。'}</p>
+      </div>`}
       <input class="title-input" name="title" placeholder="要做什麼？" value="${esc(e.title)}" maxlength="80" autocomplete="off">
 
       <fieldset class="seg">
@@ -3134,6 +3150,152 @@
         <button type="button" class="btn danger" data-act="delete">刪除全部重複行程</button>` : DELETE_BTN
     });
     $sheet.querySelector('form').dataset.skips = JSON.stringify((ev && ev.skip_dates) || []);
+  }
+
+  // ---------- AI 小幫手（Google Gemini） ----------
+  // 都是「按了才問」：只送出這一次要整理的內容，回來的結果先給人看，不會自己存。
+  function aiError(e) {
+    const msg = String((e && e.message) || ''), code = String((e && e.code) || '');
+    const admin = isAdmin();
+    if (msg.includes('no-key')) return admin ? '還沒設定 Gemini 金鑰。到「設定 → 管理員設定 → AI 小幫手」填入。' : 'AI 小幫手還沒開通，請管理員到設定裡填金鑰。';
+    if (msg.includes('bad-key')) return admin ? 'Gemini 金鑰不能用，請到設定裡重新貼一次。' : 'AI 小幫手的金鑰有問題，請跟管理員說。';
+    if (msg.includes('daily-limit')) return '今天的 AI 次數用完了，明天再試。';
+    if (msg.includes('busy')) return 'AI 現在太忙，等一下再試。';
+    if (msg.includes('parents-only')) return '這個功能只有家長可以用。';
+    if (msg.includes('too-long')) return '旅程超過 14 天，AI 排不了這麼長。';
+    if (msg.includes('ai-format') || msg.includes('ai-empty')) return 'AI 這次沒有回出能用的內容，請再試一次。';
+    if (/not-found|internal/.test(code)) return admin ? 'AI 功能還沒部署，請用最新的 ZIP 執行一次 deploy.bat。' : 'AI 小幫手還沒開通，請跟管理員說。';
+    return '沒有成功，請確認網路後再試一次。';
+  }
+  async function askAi(op, args) {
+    try { return await Api.ai(op, args); }
+    catch (e) { console.error(e); const err = new Error(aiError(e)); err.friendly = err.message; throw err; }
+  }
+
+  // 一句話 → 填好的新增行程表單
+  async function aiFillEvent() {
+    const form = document.getElementById('event-form');
+    if (!form || !form.elements.ai_text) return;
+    const input = form.elements.ai_text, hint = document.getElementById('ai-hint'), btn = form.querySelector('.ai-go');
+    const text = input.value.trim();
+    if (!text) { hint.textContent = '先寫一句話，例如「每週二四晚上六點半數學補習」。'; input.focus(); return; }
+    if (btn.disabled) return;
+    btn.disabled = true; btn.textContent = '整理中…'; hint.textContent = '正在請 AI 整理…';
+    const cats = eventCatIds();
+    try {
+      const r = await askAi('event', { text, members: state.members.map((m) => m.display_name), categories: cats.map((k) => catOf(k).label) });
+      if (!document.getElementById('event-form')) return;   // 等待時已經關掉表單
+      const weekly = r.weekly && r.weekdays.length > 0;
+      openEventSheet(null, null, {
+        ai_text: text, title: r.title, event_date: r.date, end_date: r.end_date,
+        start_time: r.start_time, end_time: r.end_time, note: r.note,
+        category: cats.find((k) => catOf(k).label === r.category) || 'schedule',
+        member_ids: state.members.filter((m) => r.members.includes(m.display_name)).map((m) => m.id),
+        ...(weekly ? { repeat: 'weekly', repeat_days: r.weekdays } : {})
+      });
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'AI 幫我填'; hint.textContent = e.friendly || '沒有成功，請再試一次。';
+    }
+  }
+
+  // 旅遊行程草稿：先問想怎麼玩 → AI 排 → 勾選要留的 → 加進行程
+  let aiPlan = null;
+  function openAiTripSheet() {
+    const t = tripOf(state.tripId);
+    if (!t) return;
+    showSheet('ai-trip-form', {
+      title: '請 AI 排行程', submit: '開始排',
+      body: `
+      <p class="hint">${esc(t.title)}${t.place ? '・' + esc(t.place) : ''}・${rangeText(t)}</p>
+      <label>想怎麼玩？<textarea name="wish" rows="4" maxlength="300" placeholder="想去的地方、不想太累、小朋友想玩水、晚餐想吃海鮮…（可以不填）"></textarea></label>
+      <p class="hint">會把這趟旅程的名稱、地點、日期和上面這段話送到 Google Gemini。排出來的是草稿，你勾選要留下的再加進行程。</p>
+      <p class="hint">AI 不知道即時的營業時間和票價，出發前請自己再確認一次。</p>`
+    });
+  }
+  function openAiPlanSheet() {
+    if (!aiPlan) return;
+    showSheet('ai-plan-form', {
+      title: 'AI 排的草稿', submit: '加入行程',
+      body: `
+      <p class="hint">勾選的項目會加進行程，之後都可以再改或刪掉。</p>
+      ${aiPlan.days.map((d, di) => `
+        <h3 class="ai-day">${shortDate(d.date)}</h3>
+        <div class="call-pick">
+          ${d.items.map((x, i) => `
+          <label class="call-pick-row ai-pick">
+            <span class="plan-time">${esc(x.time)}</span>
+            <span class="plan-main"><span class="plan-title">${esc(x.title)}</span>${x.place ? `<span class="plan-place">${esc(x.place)}</span>` : ''}${x.note ? `<span class="plan-note">${esc(x.note)}</span>` : ''}</span>
+            <input type="checkbox" name="pick" value="${di}-${i}" checked><span class="check" aria-hidden="true"></span>
+          </label>`).join('')}
+        </div>`).join('')}`
+    });
+  }
+
+  // 成績／零用錢說明：只有家長看得到按鈕，數字先在手機算好再送
+  function openAiAnalyze(kind) {
+    if (amChild()) return;
+    const kid = member(state.ledgerKid);
+    if (!kid) return;
+    showSheet('ai-analyze', {
+      title: kid.display_name + (kind === 'scores' ? '的成績' : '的零用錢'), readonly: true,
+      body: `
+      <div id="ai-out" data-kind="${kind}">
+        <p class="hint">會把${esc(kid.display_name)}${kind === 'scores' ? (state.scoreTerm ? state.scoreTerm + '學期' : '全部') + '的成績紀錄' : '這個月和上個月的記帳紀錄'}送到 Google Gemini，請它寫成一段好讀的說明。結果只顯示在這裡，不會存下來，小朋友也看不到。</p>
+        <button type="button" class="btn" data-act="ai-run">開始分析</button>
+      </div>`
+    });
+  }
+  async function runAiAnalyze() {
+    const out = document.getElementById('ai-out');
+    if (!out || out.dataset.busy) return;
+    const kind = out.dataset.kind, kid = member(state.ledgerKid);
+    let data;
+    if (kind === 'scores') {
+      const rows = state.scores.filter((x) => x.kid === kid.id && (!state.scoreTerm || x.term === state.scoreTerm))
+        .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 80);
+      if (rows.length < 2) { out.innerHTML = '<p class="hint">成績紀錄還不到兩筆，等多記幾次再來分析。</p>'; return; }
+      data = { term: state.scoreTerm || '全部', records: rows.map((x) => ({ term: x.term || '', subject: x.subject, title: x.title, date: x.date, score: x.score, full: x.full })) };
+    } else {
+      const month = state.ledgerMonth, d = parse(month + '-01'); d.setMonth(d.getMonth() - 1);
+      const prev = ymd(d).slice(0, 7);
+      const pack = (mo) => {
+        const rows = state.ledger.filter((e) => e.kid === kid.id && e.date.slice(0, 7) === mo);
+        const sum = (type, par) => rows.filter((e) => e.type === type && !!e.by_parent === par).reduce((n, e) => n + e.amount, 0);
+        return {
+          month: mo, income: sum('income', false), spent_by_kid: sum('expense', false), paid_by_parents: sum('expense', true),
+          entries: rows.slice(0, 100).map((e) => ({ date: e.date, type: e.type === 'income' ? '收入' : e.by_parent ? '父母支出' : '支出', amount: e.amount, note: e.note || '' }))
+        };
+      };
+      data = { this_month: pack(month), last_month: pack(prev) };
+      if (!data.this_month.entries.length) { out.innerHTML = '<p class="hint">這個月還沒有記帳紀錄。</p>'; return; }
+    }
+    out.dataset.busy = '1';
+    out.innerHTML = '<p class="ai-wait" role="status">AI 正在看紀錄…</p>';
+    try {
+      const r = await askAi('analyze', { kind, name: kid.display_name, data });
+      const box = document.getElementById('ai-out');
+      if (box) box.innerHTML = `<div class="ai-text">${esc(r.text).split(/\n+/).map((p) => `<p>${p}</p>`).join('')}</div><p class="hint">這是 AI 根據紀錄寫的，數字請以紀錄為準。</p>`;
+    } catch (e) {
+      const box = document.getElementById('ai-out');
+      if (box) { delete box.dataset.busy; box.innerHTML = `<p class="form-error">${esc(e.friendly || '沒有成功')}</p><button type="button" class="btn ghost" data-act="ai-run">再試一次</button>`; }
+    }
+  }
+
+  function openGeminiSheet() {
+    if (!isAdmin()) return;
+    Api.getDoc('secrets', 'gemini').then((cur) => {
+      const has = !!(cur && cur.api_key);
+      showSheet('gemini-form', {
+        title: 'AI 小幫手的金鑰', focus: false,
+        body: `
+        <p class="hint">${has ? '目前已經設定' + (cur.updated_at ? '（' + stamp(cur.updated_at) + ' 儲存）' : '') + '。要更換就直接改掉再儲存；清空再儲存就是關掉 AI。' : '還沒有設定。沒設定時，AI 的按鈕按了會提示還沒開通。'}</p>
+        <label>Gemini API 金鑰<input type="text" name="api_key" value="${esc((cur && cur.api_key) || '')}" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200"></label>
+        <label>模型名稱（可以不填）<input type="text" name="model" value="${esc((cur && cur.model) || '')}" placeholder="不填會自動用最新的 Flash" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="60"></label>
+        <p class="hint">到 aistudio.google.com 登入 →「Get API key」→ 建立金鑰，複製貼上。</p>
+        <p class="hint">免費額度的內容 Google 可能拿去改進產品；在 AI Studio 幫這把金鑰開啟付費（Billing）就不會，一家人用一個月大約幾塊到幾十塊台幣。</p>
+        <p class="hint">只有管理員看得到、改得了；其他家人的手機讀不到。</p>`
+      });
+    }).catch((e) => { console.error(e); toast('讀不到目前的設定，請確認已經執行過 deploy.bat'); });
   }
 
   function openNoteSheet(note) {
@@ -3528,6 +3690,39 @@
       done: '已更新',
       after(x) { if (x && x.date.slice(0, 7) !== state.albumMonth) toast('照片移到 ' + Number(x.date.slice(5, 7)) + ' 月了'); render(); }
     },
+    'gemini-form': {
+      read: (f) => ({ api_key: f.api_key.value.trim(), model: f.model.value.trim() }),
+      check: (x) => (/\s/.test(x.api_key + x.model) ? '中間不會有空白，請重新複製一次' : null),
+      save: (x) => Api.setDoc('secrets', 'gemini', { api_key: x.api_key, model: x.model, updated_by: state.userId, updated_at: Date.now() }),
+      done: '已儲存'
+    },
+    'ai-trip-form': {
+      read: (f) => ({ wish: f.wish.value.trim() }),
+      check: () => null,
+      async save(x) {
+        const t = tripOf(state.tripId);
+        const btn = document.querySelector('#ai-trip-form button[type=submit]');
+        if (btn) btn.textContent = '排行程中…';
+        try {
+          aiPlan = await askAi('trip', { title: t.title, place: t.place || '', start_date: t.start_date, end_date: t.end_date, people: state.members.length + ' 人，兩位大人和國中生', note: x.wish });
+        } finally { if (btn) btn.textContent = '開始排'; }
+      },
+      done: '草稿排好了',
+      after() { openAiPlanSheet(); }
+    },
+    'ai-plan-form': {
+      read: () => ({ picks: Array.from(document.querySelectorAll('#ai-plan-form input[name="pick"]:checked')).map((i) => i.value.split('-').map(Number)) }),
+      check: (x) => (!x.picks.length ? '請至少勾選一項' : !aiPlan ? '草稿不見了，請重新排一次' : null),
+      async save(x) {
+        for (const [di, i] of x.picks) {
+          const d = aiPlan.days[di], it = d.items[i];
+          await saveTripItem('plan', null, { title: it.title, date: d.date, time: it.time, place: it.place, note: it.note });
+        }
+        aiPlan = null;
+      },
+      done: '已加入行程',
+      after() { render(); }
+    },
     'turn-form': {
       read: (f) => ({ key_id: f.key_id.value.trim(), api_token: f.api_token.value.trim() }),
       check: (x) => (!x.key_id || !x.api_token ? '兩個欄位都要填' : /\s/.test(x.key_id + x.api_token) ? '中間不會有空白，請重新複製一次' : null),
@@ -3688,11 +3883,11 @@
       await spec.save(item);
       closeSheet();
       toast(spec.done || '已儲存');
-      await spec.after(item);
+      if (spec.after) await spec.after(item);
     } catch (e) {
       console.error(e);
       btn.disabled = false;
-      fail('沒有成功，請確認網路後再試一次');
+      fail((e && e.friendly) || '沒有成功，請確認網路後再試一次');
     }
   }
 
@@ -3842,6 +4037,12 @@
     else if (act === 'tra-fav') toggleFavStation();
     else if (act === 'tra-station') { const t = state.transit; const st = (t.stations || []).find((x) => x.id === el.dataset.id); if (st) { t.station = st; t.board = null; t.traQ = ''; t.updatedAt = 0; render(); loadTra(); } }
     else if (act === 'tdx-key') openTdxSheet();
+    else if (act === 'gemini-key') openGeminiSheet();
+    else if (act === 'ai-event') aiFillEvent();
+    else if (act === 'ai-trip') openAiTripSheet();
+    else if (act === 'ai-scores') openAiAnalyze('scores');
+    else if (act === 'ai-ledger') openAiAnalyze('ledger');
+    else if (act === 'ai-run') runAiAnalyze();
     else if (act === 'turn-key') openTurnSheet();
     else if (act === 'call-pick') openCallPicker();
     else if (act === 'call-all') document.querySelectorAll('#call-form input[name="call_to"]').forEach((c) => { c.checked = true; });
@@ -4053,6 +4254,10 @@
   document.addEventListener('change', (ev) => { if (ev.target.id === 'chat-file') onPickImage(ev.target); });
 
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && $sheet.innerHTML) closeSheet(); });
+  // 在「用一句話新增」按 Enter：請 AI 填，不是直接儲存（選字中的 Enter 不算）
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && ev.target && ev.target.name === 'ai_text') { ev.preventDefault(); if (!ev.isComposing) aiFillEvent(); }
+  });
 
   // App 切到背景時標成離線；回來時標成上線並重新讀取目前的分頁
   let hiddenAt = Date.now();

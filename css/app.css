@@ -1531,3 +1531,30 @@ html[data-style="comic"] .tab.on svg.color { animation: comic-pop .35s steps(3);
 .set-admin[open] summary::after { transform: rotate(90deg); }
 .set-admin .card-list { margin-top: 0; padding: 0 0 12px; background: none; border-radius: 0; box-shadow: none !important; outline: 0 !important; border: 0 !important; }
 .set-admin .card-list + .card-list { border-top: 1px solid var(--line) !important; }
+
+/* ---------- AI 小幫手 ---------- */
+.ai-btn {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 14px; border: 0; border-radius: 999px;
+  font-size: 13px; font-weight: 700; color: var(--accent, var(--green)); background: color-mix(in srgb, var(--accent, var(--green)) 13%, transparent);
+}
+.ai-btn::before { content: "✦"; font-size: 12px; }
+.plain-head.with-action .ai-btn, .entries h2 .ai-btn { margin-left: auto; flex: none; }
+.entries h2 { display: flex; align-items: center; gap: 8px; }
+#trip-body > .ai-btn { margin: 4px 0 6px; }
+.ai-box { background: color-mix(in srgb, var(--accent, var(--green)) 9%, var(--sheet)); border-radius: 16px; padding: 12px 14px; margin-bottom: 14px; }
+.ai-box > label { display: block; font-size: 13px; font-weight: 700; color: var(--ink-2); margin: 0 0 6px; }
+.ai-row { display: flex; gap: 8px; align-items: stretch; }
+.ai-row input { flex: 1; min-width: 0; margin: 0; }
+.ai-go { flex: none; border: 0; border-radius: 12px; padding: 0 14px; min-height: 44px; font-size: 14px; font-weight: 700; color: #fff; background: var(--accent, var(--green)); white-space: nowrap; }
+.ai-go:disabled { opacity: .6; }
+.ai-box .hint { margin: 8px 0 0; }
+.ai-day { font-size: 14px; font-weight: 800; color: var(--c-trip); margin: 16px 0 6px; }
+.ai-pick { align-items: flex-start; }
+.ai-pick .plan-time { flex: none; width: 46px; font-weight: 700; font-size: 14px; padding-top: 2px; }
+.ai-pick .plan-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ai-pick input:checked + .check { background: var(--green); border-color: var(--green); }
+.ai-pick input:checked + .check::after { content: ''; position: absolute; left: 8px; top: 4px; width: 5px; height: 10px; border: solid var(--sheet); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.ai-text p { font-size: 16px; line-height: 1.75; margin: 0 0 12px; }
+.ai-wait { padding: 28px 0; text-align: center; color: var(--ink-2); animation: ai-pulse 1.2s ease-in-out infinite alternate; }
+@keyframes ai-pulse { from { opacity: .45; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ai-wait { animation: none; } }
