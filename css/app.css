@@ -1298,3 +1298,5 @@ html[data-style="simple"] .fab { color: var(--ink); }
 html[data-style="simple"] .hub-icon { background: var(--track) !important; }
 html[data-style="simple"] .hub-icon svg { stroke: var(--ink); }
 html[data-style="simple"] .addbar, html[data-style="simple"] .tabbar { background: var(--sheet); }
+
+.transit-diag { font-size: 11px; color: var(--ink-2); padding: 0 0 12px; overflow-wrap: anywhere; }

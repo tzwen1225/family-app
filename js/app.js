@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 08:10';
+  const VERSION = '2026-11-18 09:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2053,7 +2053,7 @@
     const id = tr.station.id;
     const data = await transitCall('tra', { station: id });
     tr.loading = false;
-    if (data && tr.station && tr.station.id === id) { tr.board = data.trains; tr.updatedAt = Date.now(); }
+    if (data && tr.station && tr.station.id === id) { tr.board = data.trains; tr.boardDiag = data.diag || '（伺服器是舊版，請重新執行 deploy.bat）'; tr.updatedAt = Date.now(); }
     drawTransit();
   }
   async function onTransitSearch(form) {
@@ -2203,7 +2203,7 @@
             <span class="train-time">${esc(t.time)}</span>
             <span class="transit-main">往 ${esc(t.to)}<small>${esc(t.type)}　${esc(t.no)} 次</small></span>
             <span class="eta ${t.delay === null || t.delay === undefined ? 'off' : t.delay > 0 ? 'late' : 'ok'}">${t.delay === null || t.delay === undefined ? '表定' : t.delay > 0 ? '晚 ' + t.delay + ' 分' : '準點'}</span>
-          </div>`).join('') : '<p class="none">今天接下來已經沒有這一站的班次了。</p>'}
+          </div>`).join('') : `<p class="none">今天接下來已經沒有這一站的班次了。</p>${isAdmin() && !(tr.board || []).length ? `<p class="transit-diag">查詢紀錄（管理員才看得到）：${esc(tr.boardDiag || '')}</p>` : ''}`}
       </section>` : ''}`;
   }
   // 'HH:MM' 加上幾分鐘（比對誤點後的實際時間用）

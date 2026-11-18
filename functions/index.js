@@ -268,43 +268,63 @@ const transitOps = {
   },
 
   // 台鐵某一站的即時看板：接下來進站的列車和誤點幾分
-  // 台鐵某一站：今天接下來的班次（來自當日時刻表），再把即時看板上的誤點分鐘數套上去。
+  // 台鐵某一站：今天的班次（來自當日時刻表），再把即時看板上的誤點分鐘數套上去。
   // 即時看板只列出「現在前後一段時間內」的列車，班次少的支線小站（例如竹中、內灣線各站）常常是空的，
-  // 所以以時刻表為主、看板只用來補誤點。
+  // 所以以時刻表為主、看板只用來補誤點。時刻表依序試三個來源，第一個有資料的就用。
+  // 回傳的 diag 是給管理員看的查詢紀錄（哪個來源成功、各有幾筆），方便找問題。
   async tra({ station }) {
     const id = String(station || '').replace(/[^0-9A-Za-z]/g, '').slice(0, 8);
     if (!id) throw new HttpsError('invalid-argument', 'station');
-    const soft = (p) => p.catch((e) => { if (e.code === 'failed-precondition') throw e; logger.warn('台鐵資料', id, e.message); return null; });
-    const [table, board] = await Promise.all([
-      soft(tdxGet('/v3/Rail/TRA/DailyStationTimetable/Today/Station/' + id, {}, 3600000)),
-      soft(tdxGet('/v3/Rail/TRA/StationLiveBoard/Station/' + id, {}, 30000))
-    ]);
-    if (!table && !board) throw new HttpsError('unavailable', 'tdx-tra');
+    const diag = [];
     const hm = (s) => String(s || '').slice(0, 5);
-    const live = {};
+    const twDate = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const tryGet = async (label, path, params, ttl) => {
+      try { const d = await tdxGet(path, params || {}, ttl); return d; }
+      catch (e) { if (e.code === 'failed-precondition') throw e; diag.push(label + '=' + e.message); return null; }
+    };
+    const fromV3 = (data) => {
+      const out = [];
+      const rows = Array.isArray(data) ? data : (data && (data.StationTimetables || data.Timetables)) || [];
+      rows.forEach((st) => (st.TimeTables || st.Timetables || st.StopTimes || []).forEach((t) => out.push({
+        no: t.TrainNo, time: hm(t.DepartureTime || t.ArrivalTime), dir: Number(st.Direction != null ? st.Direction : t.Direction) ? 1 : 0,
+        type: zh(t.TrainTypeName), to: zh(t.DestinationStationName) || zh(t.EndingStationName)
+      })));
+      return out;
+    };
+    const fromV2 = (data) => (Array.isArray(data) ? data : []).map((r) => {
+      const info = r.DailyTrainInfo || r.TrainInfo || {};
+      const stop = (r.StopTimes || []).find((s) => String(s.StationID) === id) || {};
+      return { no: info.TrainNo, time: hm(stop.DepartureTime || stop.ArrivalTime), dir: Number(info.Direction) ? 1 : 0,
+        type: zh(info.TrainTypeName), to: zh(info.EndingStationName) };
+    });
+    let trains = [];
+    const sources = [
+      ['v3', () => tryGet('v3', '/v3/Rail/TRA/DailyStationTimetable/Today/Station/' + id, {}, 3600000), fromV3],
+      ['v3d', () => tryGet('v3d', '/v3/Rail/TRA/DailyStationTimetable/TrainDate/' + twDate, { $filter: `StationID eq '${id}'` }, 3600000), fromV3],
+      ['v2', () => tryGet('v2', '/v2/Rail/TRA/DailyTimetable/Station/' + id + '/' + twDate, {}, 3600000), fromV2]
+    ];
+    for (const [label, get, parse] of sources) {
+      const data = await get();
+      if (!data) continue;
+      const list = parse(data).filter((t) => t.no && t.time);
+      diag.push(label + ':' + list.length);
+      if (list.length) { trains = list; break; }
+    }
+    const board = await tryGet('board', '/v3/Rail/TRA/StationLiveBoard/Station/' + id, {}, 30000);
     const boardRows = board ? (Array.isArray(board) ? board : board.StationLiveBoards || []) : [];
+    if (board) diag.push('board:' + boardRows.length);
+    const live = {};
     boardRows.forEach((t) => { if (t.TrainNo) live[t.TrainNo] = t; });
-    const trains = [];
-    const tableRows = table ? (Array.isArray(table) ? table : table.StationTimetables || []) : [];
-    tableRows.forEach((st) => (st.TimeTables || st.Timetables || []).forEach((t) => {
-      const no = t.TrainNo || '';
-      const time = hm(t.DepartureTime || t.ArrivalTime);
-      if (!no || !time) return;
-      const l = live[no];
-      trains.push({
-        no, time, dir: Number(st.Direction) ? 1 : 0,
-        type: zh(t.TrainTypeName).replace(/\(.*$/, ''),
-        to: zh(t.DestinationStationName) || zh(t.EndingStationName),
-        delay: l ? Number(l.DelayTime || 0) : null       // null：看板上沒有這班，只有表定時間
-      });
-    }));
-    // 時刻表拿不到時，退回只用看板
+    trains = trains.map((t) => ({ ...t, type: t.type.replace(/\(.*$/, ''), delay: live[t.no] ? Number(live[t.no].DelayTime || 0) : null }));
+    // 時刻表都拿不到時，退回只用看板
     if (!trains.length) boardRows.forEach((t) => {
       const time = hm(t.ScheduleDepartureTime || t.ScheduleArrivalTime);
       if (t.TrainNo && time) trains.push({ no: t.TrainNo, time, dir: Number(t.Direction) ? 1 : 0, type: zh(t.TrainTypeName).replace(/\(.*$/, ''), to: zh(t.EndingStationName), delay: Number(t.DelayTime || 0) });
     });
-    trains.sort((x, y) => x.time.localeCompare(y.time));
-    return { trains, updated: (board && board.UpdateTime) || (table && table.UpdateTime) || '', timetable: !!tableRows.length };
+    if (!trains.length && diag.every((d) => d.includes('='))) throw new HttpsError('unavailable', 'tdx-tra ' + diag.join(' '));
+    const seen = new Set();
+    trains = trains.filter((t) => !seen.has(t.no) && seen.add(t.no)).sort((x, y) => x.time.localeCompare(y.time));
+    return { trains, updated: (board && board.UpdateTime) || '', diag: 'fn 2026-11-18b ' + id + ' ' + diag.join(' ') };
   }
 };
 
