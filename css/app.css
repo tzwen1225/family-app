@@ -1505,3 +1505,29 @@ html[data-style="comic"] .tab.on svg.color { animation: comic-pop .35s steps(3);
 .album-grid.two { grid-template-columns: 1fr 1fr; }
 .album-cell.wide3 { grid-column: 1 / -1; aspect-ratio: 5 / 2; }
 .album-cell.wide2 { grid-column: span 2; aspect-ratio: auto; }
+
+/* ================= 整體操作感 ================= */
+/* 首頁問候 */
+.hello { padding: 2px 4px 10px; }
+.hello h1 { font-size: 26px; font-weight: 800; letter-spacing: -.01em; line-height: 1.25; }
+.hello p { font-size: 13px; color: var(--ink-2); margin-top: 1px; }
+/* 換頁動畫 */
+.page-in { animation: page-in .18s ease-out; }
+.slide-fwd { animation: slide-fwd .22s ease-out; }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes slide-fwd { from { transform: translateX(28px); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .page-in, .slide-fwd { animation: none; } }
+/* 表單面板上方的小橫條：提示可以往下拉關閉 */
+.sheet-head { position: relative; touch-action: none; }
+.sheet-head::before { content: ""; position: absolute; left: 50%; top: 5px; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: color-mix(in srgb, var(--ink) 18%, transparent); }
+/* 設定頁的分組 */
+.set-group { font-size: 13px; font-weight: 700; color: var(--ink-2); margin: 22px 4px -8px; letter-spacing: .04em; }
+.set-group:first-of-type { margin-top: 10px; }
+.set-admin { margin-top: 16px; background: var(--sheet); border-radius: 16px; padding: 0 16px; }
+.set-admin summary { display: flex; align-items: center; gap: 8px; min-height: 52px; font-weight: 600; cursor: pointer; list-style: none; }
+.set-admin summary::-webkit-details-marker { display: none; }
+.set-admin summary small { flex: 1; font-size: 12px; font-weight: 400; color: var(--ink-2); }
+.set-admin summary::after { content: "›"; font-size: 22px; color: var(--ink-2); transition: transform .15s; }
+.set-admin[open] summary::after { transform: rotate(90deg); }
+.set-admin .card-list { margin-top: 0; padding: 0 0 12px; background: none; border-radius: 0; box-shadow: none !important; outline: 0 !important; border: 0 !important; }
+.set-admin .card-list + .card-list { border-top: 1px solid var(--line) !important; }

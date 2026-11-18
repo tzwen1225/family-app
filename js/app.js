@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 12:10';
+  const VERSION = '2026-11-18 13:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -632,12 +632,21 @@
   let renderedTab = null;
   const scroller = () => document.getElementById('scroller');
 
+  let renderedKey = '';
+  let lastMotion = { name: '', at: 0, key: '' };
+  const scrollMemo = {};
   function render() {
     if (!state.userId) return;
     const active = document.activeElement;
     const focusId = active && /^(INPUT|TEXTAREA)$/.test(active.tagName) && !$sheet.contains(active) ? active.id : '';
     const sameTab = renderedTab === state.tab;
-    const keepTop = sameTab && scroller() ? scroller().scrollTop : 0;
+    // 每一頁各自記住捲到哪裡：切到別的分頁再回來，會停在原本的位置
+    const key = state.tab + (state.tab === 'notes' ? ':' + state.notesView : '');
+    const sameKey = renderedKey === key;
+    if (scroller() && renderedKey) scrollMemo[renderedKey] = scroller().scrollTop;
+    const keepTop = sameKey ? scrollMemo[key] || 0 : state.tab === 'notes' ? 0 : scrollMemo[key] || 0;
+    // 換頁的小動畫：換分頁淡入、進到功能從右邊滑入、回上一層從左邊滑入
+    const motion = sameKey || !renderedKey ? '' : sameTab && state.tab === 'notes' ? (state.notesView === 'hub' ? 'slide-back' : 'slide-fwd') : 'page-in';
     const views = { cal: viewCalendar, chat: viewChat, posts: viewPosts, notes: viewNotes, me: viewMe };
 
     $app.innerHTML = `
@@ -658,7 +667,14 @@
             ${state.tab === id ? ICON_ON[id] : ICON[id]}<span>${label}</span>
           </button>`).join('')}
       </nav>`;
-    renderedTab = state.tab;
+    renderedTab = state.tab; renderedKey = key;
+    // 資料載入後常會緊接著再畫一次；動畫要接著原本的進度繼續，不能被切斷或重播
+    if (motion) lastMotion = { name: motion, at: Date.now(), key };
+    const played = Date.now() - lastMotion.at;
+    if (lastMotion.key === key && played < 220) {
+      scroller().classList.add(lastMotion.name);
+      scroller().style.animationDelay = -played + 'ms';
+    }
 
     // 重畫後恢復捲動位置與輸入焦點
     if (state.tab === 'chat' && !sameTab) scrollChat(); else scroller().scrollTop = keepTop;
@@ -684,7 +700,10 @@
   }
 
   function viewCalendar() {
-    return `<section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>`
+    const hour = new Date().getHours(), now = parse(today());
+    const hello = hour < 5 ? '夜深了' : hour < 11 ? '早安' : hour < 18 ? '午安' : '晚安';
+    return `<header class="hello"><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></header>`
+      + `<section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>`
       + `<section class="today-card mine-card" id="mine" aria-label="我的今天">${mineHtml()}</section>`
       + `<section class="home-polls" id="home-polls" aria-label="投票" ${homePollsHtml() ? '' : 'hidden'}>${homePollsHtml()}</section>`
       + calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming());
@@ -2913,6 +2932,7 @@
   function viewMe() {
     return `
       <header class="plain-head"><h1>設定</h1><p>${esc(me().display_name)}已登入</p></header>
+      <h3 class="set-group">家人</h3>
       <section class="card-list">
         <h2>家庭成員<small>${isAdmin() ? '點名字可以編輯基本資料' : '點自己的名字可以編輯基本資料'}</small></h2>
         ${state.members.map((m) => {
@@ -2932,35 +2952,7 @@
             </div>`;
         }).join('')}
       </section>
-      <section class="card-list">
-        <h2>行事曆類型<small>${amChild() ? '由家長管理' : '家長可以新增或刪除'}</small></h2>
-        <div class="cats">
-          ${EVENT_CATS.map((k) => `<span class="cat-chip" style="--cat:${CATEGORIES[k].color}">${CATEGORIES[k].label}</span>`).join('')}
-          ${state.categories.map((c) => `
-            <span class="cat-chip" style="--cat:${esc(c.color)}">${esc(c.label)}${amChild() ? '' : `<button data-act="del-category" data-id="${esc(c.id)}" aria-label="刪除類型「${esc(c.label)}」">×</button>`}</span>`).join('')}
-        </div>
-        ${amChild() ? '' : '<button class="btn ghost small" data-act="new-category">新增類型</button>'}
-      </section>
-      <section class="card-list">
-        <h2>考試科目<small>${amChild() ? '由家長管理' : '家長可以新增或刪除'}</small></h2>
-        <div class="cats">
-          ${state.subjects.length ? '' : `<p class="hint">${amChild() ? '還沒有科目，請爸媽新增。' : '還沒有科目。新增之後，登記成績時才有科目可以選。'}</p>`}
-          ${state.subjects.map((x) => `
-            <span class="cat-chip" style="--cat:var(--green)">${esc(x.label)}${amChild() ? '' : `<button data-act="del-subject" data-id="${esc(x.id)}" aria-label="刪除科目「${esc(x.label)}」">×</button>`}</span>`).join('')}
-        </div>
-        ${amChild() ? '' : '<button class="btn ghost small" data-act="new-subject">新增科目</button>'}
-      </section>
-      ${isAdmin() ? `
-      <section class="card-list">
-        <h2>交通查詢<small>公車、台鐵即時資訊的資料來源</small></h2>
-        <p class="hint">即時資料來自交通部 TDX 平臺，需要一組免費的 API 金鑰。只有管理員可以新增和查看。</p>
-        <button class="btn ghost small" data-act="tdx-key">查看或更換 TDX 金鑰</button>
-      </section>
-      <section class="card-list">
-        <h2>視訊通話<small>行動網路的中繼伺服器</small></h2>
-        <p class="hint">用 4G／5G 視訊時，影像可能要經過 Cloudflare 的中繼伺服器才連得上。每月 1,000 GB 內免費。只有管理員可以新增和查看。</p>
-        <button class="btn ghost small" data-act="turn-key">查看或更換中繼伺服器設定</button>
-      </section>` : ''}
+      <h3 class="set-group">這支手機</h3>
       <section class="card-list">
         <h2>介面風格<small>只會改這支手機，可以和面板顏色自由搭配</small></h2>
         <div class="styles" role="group" aria-label="介面風格">
@@ -2981,6 +2973,38 @@
         </div>
       </section>
       ${pushSectionHtml()}
+      <h3 class="set-group">家庭設定</h3>
+      <section class="card-list">
+        <h2>行事曆類型<small>${amChild() ? '由家長管理' : '家長可以新增或刪除'}</small></h2>
+        <div class="cats">
+          ${EVENT_CATS.map((k) => `<span class="cat-chip" style="--cat:${CATEGORIES[k].color}">${CATEGORIES[k].label}</span>`).join('')}
+          ${state.categories.map((c) => `
+            <span class="cat-chip" style="--cat:${esc(c.color)}">${esc(c.label)}${amChild() ? '' : `<button data-act="del-category" data-id="${esc(c.id)}" aria-label="刪除類型「${esc(c.label)}」">×</button>`}</span>`).join('')}
+        </div>
+        ${amChild() ? '' : '<button class="btn ghost small" data-act="new-category">新增類型</button>'}
+      </section>
+      <section class="card-list">
+        <h2>考試科目<small>${amChild() ? '由家長管理' : '家長可以新增或刪除'}</small></h2>
+        <div class="cats">
+          ${state.subjects.length ? '' : `<p class="hint">${amChild() ? '還沒有科目，請爸媽新增。' : '還沒有科目。新增之後，登記成績時才有科目可以選。'}</p>`}
+          ${state.subjects.map((x) => `
+            <span class="cat-chip" style="--cat:var(--green)">${esc(x.label)}${amChild() ? '' : `<button data-act="del-subject" data-id="${esc(x.id)}" aria-label="刪除科目「${esc(x.label)}」">×</button>`}</span>`).join('')}
+        </div>
+        ${amChild() ? '' : '<button class="btn ghost small" data-act="new-subject">新增科目</button>'}
+      </section>
+      ${isAdmin() ? `
+      <details class="set-admin">
+        <summary>管理員設定<small>交通查詢、視訊通話的金鑰</small></summary>
+      <section class="card-list">
+        <h2>交通查詢<small>公車、台鐵即時資訊的資料來源</small></h2>
+        <p class="hint">即時資料來自交通部 TDX 平臺，需要一組免費的 API 金鑰。只有管理員可以新增和查看。</p>
+        <button class="btn ghost small" data-act="tdx-key">查看或更換 TDX 金鑰</button>
+      </section>
+      <section class="card-list">
+        <h2>視訊通話<small>行動網路的中繼伺服器</small></h2>
+        <p class="hint">用 4G／5G 視訊時，影像可能要經過 Cloudflare 的中繼伺服器才連得上。每月 1,000 GB 內免費。只有管理員可以新增和查看。</p>
+        <button class="btn ghost small" data-act="turn-key">查看或更換中繼伺服器設定</button>
+      </section></details>` : ''}
       ${Api.isDemo ? '<p class="demo-note">示範模式：資料只存在這台裝置。設定 Firebase 後，全家才會看到同一份資料。</p>' : ''}
       <button class="btn ghost" data-act="logout">登出</button>
       <p class="version">鍾家大宅把拔製作<small>版本 ${VERSION}</small></p>`;
@@ -3734,6 +3758,12 @@
     if (!el) return;
     const act = el.dataset.act;
     if (act === 'tab') {
+      // 再點一次目前的分頁：回到最上面（聊天是回到最新訊息），跟 iPhone 的習慣一樣
+      if (el.dataset.tab === state.tab && !(state.tab === 'notes' && state.notesView !== 'hub')) {
+        const sc = scroller();
+        if (sc) sc.scrollTo({ top: state.tab === 'chat' ? sc.scrollHeight : 0, behavior: 'smooth' });
+        return;
+      }
       if (el.dataset.tab === 'notes' && state.tab === 'notes' && state.notesView !== 'hub') { state.notesView = 'hub'; state.tripId = null; state.transit.route = null; }
       state.tab = el.dataset.tab;
       state.menuMsg = null; state.pollEdit = null;
@@ -4592,6 +4622,27 @@
       });
     }).catch((e) => { console.error(e); toast('讀不到目前的設定，請確認已經執行過 deploy.bat'); });
   }
+
+  // 表單面板：抓著上面的標題列往下拉就關閉（跟 iPhone 的面板一樣）
+  let pull = null;
+  document.addEventListener('touchstart', (ev) => {
+    const head = ev.target.closest && ev.target.closest('.sheet-head');
+    pull = head && !ev.target.closest('button') && ev.touches.length === 1 ? { y: ev.touches[0].clientY, sheet: head.closest('.sheet') } : null;
+  }, { passive: true });
+  document.addEventListener('touchmove', (ev) => {
+    if (!pull) return;
+    const dy = Math.max(0, ev.touches[0].clientY - pull.y);
+    pull.dy = dy;
+    pull.sheet.style.transition = 'none';
+    pull.sheet.style.transform = 'translateY(' + dy + 'px)';
+  }, { passive: true });
+  document.addEventListener('touchend', () => {
+    if (!pull) return;
+    const { sheet, dy } = pull;
+    pull = null;
+    if (dy > 90) { const x = sheet.querySelector('[data-act="close"]'); if (x) x.click(); return; }
+    sheet.style.transition = 'transform .2s'; sheet.style.transform = '';
+  }, { passive: true });
 
   // 中文輸入法選好字之後，補做一次搜尋（有些 iPhone 選字完不會再送一次 input）
   document.addEventListener('compositionend', (ev) => {
