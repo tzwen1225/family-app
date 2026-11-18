@@ -11,7 +11,7 @@
 //
 // 部署：在專案資料夾執行 firebase deploy --only functions
 
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const logger = require('firebase-functions/logger');
 const { initializeApp } = require('firebase-admin/app');
@@ -111,6 +111,18 @@ exports.onPoll = onDocumentCreated('polls/{id}', async (event) => {
   const names = await memberNames();
   const others = Object.keys(names).filter((uid) => uid !== p.author);
   await notify(others, (names[p.author] || '家人') + '發起了投票', clip(p.question), 'poll-' + event.params.id);
+});
+
+// 投票進行中有人加了選項：通知其他人（可以回來改投）
+exports.onPollOption = onDocumentUpdated('polls/{id}', async (event) => {
+  const before = event.data.before.data(), after = event.data.after.data();
+  const was = Array.isArray(before.options) ? before.options.length : 0;
+  const now = Array.isArray(after.options) ? after.options : [];
+  if (now.length <= was || after.closed || after.voided) return;
+  const by = (after.option_by || {})[String(now.length - 1)] || '';
+  const names = await memberNames();
+  const others = Object.keys(names).filter((uid) => uid !== by);
+  await notify(others, (names[by] || '家人') + '在投票加了選項', clip(after.question) + '：' + clip(now[now.length - 1]), 'poll-' + event.params.id);
 });
 
 // 日常待辦（資料在 shopping）：有人把一件事交給你時通知你；交給全家的不通知，免得太吵
