@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 20:00';
+  const VERSION = '2026-11-18 20:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -678,7 +678,7 @@
         </form>` : ''}
       ${state.tab === 'notes' && state.notesView === 'butler' ? `
         <form class="chat-bar" id="butler-form">
-          <input id="butler-input" name="text" type="text" placeholder="${state.butler.msgs.length ? '繼續問' : '想問什麼都可以'}" maxlength="1000" autocomplete="off" enterkeyhint="send" aria-label="問小管家">
+          <input id="butler-input" name="text" type="text" placeholder="${state.butler.msgs.length ? '繼續問' : '想問什麼都可以'}" maxlength="${amChild() ? 1000 : 4000}" autocomplete="off" enterkeyhint="send" aria-label="問小管家">
           <button type="submit" class="send" aria-label="送出">${ICON.send}</button>
         </form>` : ''}
       ${fabLabel() ? `<div class="addbar"><button class="fab" data-act="new" aria-label="${fabLabel()}"><span class="fab-plus" aria-hidden="true">${ICON.plus}</span>${fabLabel()}</button></div>` : ''}
