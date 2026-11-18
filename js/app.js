@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 21:00';
+  const VERSION = '2026-11-18 21:30';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -3446,12 +3446,13 @@
     if (msg.includes('no-key')) return admin ? '還沒設定 Gemini 金鑰。到「設定 → 管理員設定 → AI 小幫手」填入。' : 'AI 小幫手還沒開通，請管理員到設定裡填金鑰。';
     if (msg.includes('bad-key')) return admin ? 'Gemini 金鑰不能用，請到設定裡重新貼一次。' : 'AI 小幫手的金鑰有問題，請跟管理員說。';
     if (msg.includes('daily-limit')) return '今天的 AI 次數用完了，明天再試。';
-    if (msg.includes('busy')) return 'AI 現在太忙，等一下再試。';
     if (msg.includes('parents-only')) return '這個功能只有家長可以用。';
     if (msg.includes('too-long')) return '旅程超過 14 天，AI 排不了這麼長。';
     // 管理員多看一行原因，方便排除問題
     const d = (e && e.details) || {};
     const more = admin ? '（' + [code.replace('functions/', ''), msg, d.status, d.model, d.why].filter(Boolean).join(' ').slice(0, 160) + '）' : '';
+    if (msg.includes('quota')) return (admin ? 'Gemini 的免費額度用完了。到 aistudio.google.com 幫這把金鑰開啟付費（Billing）就不會被擋；不開的話要等額度恢復，通常是隔天下午。' : 'AI 今天的額度用完了，請跟管理員說。') + more;
+    if (msg.includes('busy')) return 'Gemini 說現在太頻繁或太忙，過一分鐘再試。' + more;
     if (msg.includes('bad-model')) return (admin ? '找不到這個 Gemini 模型，請到設定把「模型名稱」清空再儲存。' : 'AI 小幫手的設定有問題，請跟管理員說。') + more;
     if (msg.includes('ai-format') || msg.includes('ai-empty')) return 'AI 這次沒有回出能用的內容，請再試一次。' + more;
     if (msg.includes('ai-down')) return 'Gemini 現在忙不過來，過一兩分鐘再試。' + more;

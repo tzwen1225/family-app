@@ -391,7 +391,7 @@ exports.callIce = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const AI_DAILY = 60;          // 小朋友每天的次數上限
 const AI_DAILY_PARENT = 500;  // 家長幾乎不設限，只留一個防止程式出錯狂打的上限
-let geminiModel = { name: '', until: 0 };
+let geminiModel = { name: '', spare: [], until: 0 };
 
 // 沒指定模型時，問 Gemini 目前有哪些，挑版本最新的 Flash（便宜、夠快）
 async function pickGeminiModel(key, wanted) {
@@ -406,7 +406,9 @@ async function pickGeminiModel(key, wanted) {
   const any = list.filter((n) => /flash/.test(n) && !/image|tts|live|audio|embedding/.test(n)).sort((a, b) => ver(b) - ver(a));
   const name = plain[0] || any[0];
   if (!name) throw new HttpsError('unavailable', 'ai-no-model');
-  geminiModel = { name, until: Date.now() + 24 * 3600000 };
+  // 備用：額度是每個模型分開算的，主要的用完時改用較輕量的 Flash-Lite 或上一代 Flash
+  const lite = list.filter((n) => /^gemini-[\d.]+-flash-lite$/.test(n)).sort((a, b) => ver(b) - ver(a));
+  geminiModel = { name, spare: [lite[0], plain[1], lite[1]].filter((n) => n && n !== name), until: Date.now() + 24 * 3600000 };
   return name;
 }
 
@@ -424,10 +426,11 @@ async function askGemini(system, text, opt) {
   }
   const key = String(geminiSecret.data.api_key || '').trim();
   if (!key) { geminiSecret.until = 0; throw new HttpsError('failed-precondition', 'no-key'); }
-  const model = await pickGeminiModel(key, geminiSecret.data.model ? String(geminiSecret.data.model).trim() : '');
-  const quirks = geminiQuirks[model] || (geminiQuirks[model] = {});
+  const wanted = geminiSecret.data.model ? String(geminiSecret.data.model).trim() : '';
+  let model = await pickGeminiModel(key, wanted);
+  let quirks = geminiQuirks[model] || (geminiQuirks[model] = {});
   const ask = () => {
-    const think = o.fast && !quirks.noThink, search = o.search && !o.noWeb && !quirks.noSearch;
+    const think = o.fast && !quirks.noThink, search = o.search && !o.noWeb && !quirks.noSearch && !(quirks.searchOff > Date.now());
     return fetch(GEMINI + '/models/' + encodeURIComponent(model) + ':generateContent', {
       method: 'POST',
       headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
@@ -455,8 +458,20 @@ async function askGemini(system, text, opt) {
       if (res.status === 400 && (think || search)) { quirks.noThink = true; quirks.noSearch = true; ({ res } = await ask()); }
     }
   }
-  // Gemini 忙線或臨時出錯：等一下再試一次
-  if ([429, 500, 502, 503, 504].includes(res.status)) { await new Promise((r) => setTimeout(r, 1200)); ({ res } = await ask()); }
+  // 額度用完或太頻繁（429）：先不上網查再試（搜尋有自己的額度），再換備用的模型（每個模型的額度分開算）
+  if (res.status === 429) {
+    if (search) { quirks.searchOff = Date.now() + 30 * 60000; ({ res } = await ask()); }
+    for (const spare of wanted ? [] : geminiModel.spare) {
+      if (res.status !== 429) break;
+      logger.warn('Gemini 額度不足，改用', spare);
+      model = spare; quirks = geminiQuirks[model] || (geminiQuirks[model] = {});
+      ({ res, think, search } = await ask());
+      if (res.status === 400 && (think || search)) { quirks.noThink = true; quirks.noSearch = true; ({ res } = await ask()); }
+      if (res.status === 429 && search) { quirks.searchOff = Date.now() + 30 * 60000; ({ res } = await ask()); }
+    }
+  }
+  // Gemini 臨時出錯：等一下再試一次
+  if ([500, 502, 503, 504].includes(res.status)) { await new Promise((r) => setTimeout(r, 1200)); ({ res } = await ask()); }
   if (!res.ok) {
     let why = '';
     try { why = String(((await res.json()).error || {}).message || '').slice(0, 200); } catch (e) { /* 不是 JSON */ }
@@ -464,7 +479,7 @@ async function askGemini(system, text, opt) {
     if (res.status === 404) geminiModel.until = 0;
     if (res.status === 403 || res.status === 400) geminiSecret.until = 0;
     const detail = { status: res.status, model, why };
-    if (res.status === 429) throw new HttpsError('resource-exhausted', 'busy', detail);
+    if (res.status === 429) throw new HttpsError('resource-exhausted', /quota|billing|exceeded/i.test(why) ? 'quota' : 'busy', detail);
     if (res.status === 403 || (res.status === 400 && /api key/i.test(why))) throw new HttpsError('failed-precondition', 'bad-key', detail);
     if (res.status === 404) throw new HttpsError('failed-precondition', 'bad-model', detail);
     throw new HttpsError('unavailable', res.status >= 500 ? 'ai-down' : 'ai-' + res.status, detail);
