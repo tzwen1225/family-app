@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 00:30';
+  const VERSION = '2026-11-19 01:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -104,6 +104,7 @@
     shopping: [], cards: [],
     todoFilter: 'all', todoShowDone: false, todoNewWho: '', todoNewDue: '', todoNewRepeat: '',   // 日常待辦（資料沿用 shopping）
     butler: { msgs: [], busy: false },   // 家庭小管家的對話（不存檔，重新整理就清掉）
+    butlerReady: Promise.resolve(),      // 小管家要用的紀錄（行程、成績、零用錢）讀完了沒
     journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -314,7 +315,7 @@
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
-    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'butler') { loadScores(); loadLedger(); } else if (state.notesView === 'album') loadAlbum(); else if (state.notesView === 'transit') loadTransit(); }
+    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'butler') state.butlerReady = Promise.all([loadScores(), loadLedger(), loadEvents()]).catch(() => {}); else if (state.notesView === 'album') loadAlbum(); else if (state.notesView === 'transit') loadTransit(); }
   }
 
   // ---------- 啟動 ----------
@@ -789,7 +790,7 @@
           <span class="bday-who">${avatarHtml(m)}<span class="bday-hat" aria-hidden="true">🎉</span></span>
           <div>
             <h2>今天是${esc(m.display_name)}的生日${b.age > 0 ? `<small>${b.age} 歲</small>` : ''}</h2>
-            <p>${mine ? '你的卡片已經送出，' + esc(m.display_name) + '會在首頁看到。' : '寫一張卡片給' + esc(m.display_name) + '吧。'}</p>
+            <p>${mine ? '你的卡片已經送出 💌' : '寫張卡片祝' + esc(m.display_name) + '生日快樂'}</p>
           </div>
           <button class="btn small" data-act="bday-card" data-to="${esc(m.id)}">${mine ? '改我的卡片' : '寫卡片'}</button>
         </div>`;
@@ -848,11 +849,11 @@
         <div class="bday-arch-btns">
           <button class="bday-arch-btn" data-act="bday-archive" data-kind="got">
             <span class="bday-arch-ico" aria-hidden="true">💌</span>
-            <span><b>我收到的卡片</b><small>${got.length ? got.length + ' 張・' + years + ' 年' : '還沒有收到卡片'}</small></span>
+            <span class="bday-arch-text"><b>我收到的卡片</b><small>${got.length ? got.length + ' 張・' + years + ' 年' : '還沒有收到卡片'}</small></span>
           </button>
           <button class="bday-arch-btn" data-act="bday-archive" data-kind="sent">
             <span class="bday-arch-ico" aria-hidden="true">✍️</span>
-            <span><b>我寫給家人的</b><small>${sent.length ? sent.length + ' 張' : '還沒有寫過'}</small></span>
+            <span class="bday-arch-text"><b>我寫給家人的卡片</b><small>${sent.length ? sent.length + ' 張' : '還沒有寫過'}</small></span>
           </button>
         </div>
       </section>`;
@@ -1505,8 +1506,6 @@
         </article>`;
   }
 
-  const pollOrder = (a, b) => (pollOver(a) - pollOver(b)) || (b.created_at - a.created_at);
-
   // 歷史紀錄裡的一列：只有標題和結果；作廢的只有標題。
   // 點一下有結果的那一列，可以展開看每個選項是誰投的。
   function pollResultText(p) {
@@ -1887,7 +1886,7 @@
     if (x.place) html += link('map', mapUrl(near(x.place)), '地圖');
     if (x.place && prev && prev.place) html += link('dir', dirUrl(near(prev.place), near(x.place)), '路線');
     shopList(x).forEach((n) => { html += link('shop', mapUrl(near(n)), n); });
-    if (x.place || x.title) html += link('web', webUrl(near(x.place || x.title)), '查網頁');
+    if (x.place) html += link('web', webUrl(near(x.place)), '查網頁');
     return html ? `<div class="plan-links">${html}</div>` : '';
   }
   // 行程的種類（cat）、停留時間（minutes）、預估花費（cost）、預約（booking：need 要預約｜done 已預約）、去過了（visited）
@@ -1956,7 +1955,7 @@
     }
     const total = items.reduce((n, x) => n + (Number(x.cost) || 0), 0);
     const need = items.filter((x) => x.booking === 'need').length;
-    html = `<div class="plan-top"><button class="ai-btn" data-act="ai-trip">請 AI 排行程草稿</button>${items.length ? `<span>共 ${items.length} 項${total ? '・預估 ' + total.toLocaleString('en-US') + ' 元' : ''}${need ? `・<em class="need">${need} 項要預約</em>` : ''}</span>` : ''}</div>` + html;
+    html = `<div class="plan-top">${t.end_date >= today() ? '<button class="ai-btn" data-act="ai-trip">請 AI 排行程草稿</button>' : ''}${items.length ? `<span>共 ${items.length} 項${total ? '・預估 ' + total.toLocaleString('en-US') + ' 元' : ''}${need ? `・<em class="need">${need} 項要預約</em>` : ''}</span>` : ''}</div>` + html;
     const stray = items.filter((x) => x.date < t.start_date || x.date > t.end_date);
     if (stray.length) html += `
         <section class="plan-day">
@@ -2480,7 +2479,6 @@
     const bar = document.getElementById('album-likebar');
     if (bar) bar.innerHTML = likeBarHtml(p);
   }
-  const refreshPhotoComments = refreshPhotoPanel;
 
   // 看一張照片：先顯示小圖，原圖讀到再換上；上面是第幾張、誰放的，下面是愛心、說明、留言
   async function openPhoto(id) {
@@ -3378,22 +3376,6 @@
       <section class="entries ledger-list">${listHead}${entries}</section>`;
   }
 
-  function viewNoteList() {
-    const cards = state.notes.map((n) => `
-        <button class="note ${n.pinned ? 'pinned' : ''}" data-act="edit-note" data-id="${esc(n.id)}">
-          ${n.pinned ? '<span class="pin">置頂</span>' : ''}
-          <span class="note-title">${esc(n.title || '（沒有標題）')}</span>
-          ${n.body ? `<span class="note-body">${esc(n.body)}</span>` : ''}
-          <span class="note-meta">${member(n.updated_by) ? esc(nameOf(n.updated_by)) + '　' : ''}${stamp(n.updated_at)}</span>
-        </button>`).join('');
-    return `
-      <header class="plain-head"><h1>雜記</h1><p>全家都看得到</p></header>
-      ${cards ? `<div class="notes">${cards}</div>` : `
-        <div class="empty big">
-          <p>還沒有雜記。密碼、要記得的事都可以放這裡。</p>
-        </div>`}`;
-  }
-
   // ---------- 設定 ----------
   function birthdayText(b) {
     if (!b) return '';
@@ -3662,7 +3644,7 @@
     // 管理員多看一行原因，方便排除問題
     const d = (e && e.details) || {};
     const more = admin ? '（' + [code.replace('functions/', ''), msg, d.status, d.model, d.why].filter(Boolean).join(' ').slice(0, 160) + '）' : '';
-    if (msg.includes('quota')) return (admin ? 'Gemini 的免費額度用完了。到 aistudio.google.com 幫這把金鑰開啟付費（Billing）就不會被擋；不開的話要等額度恢復，通常是隔天下午。' : 'AI 今天的額度用完了，請跟管理員說。') + more;
+    if (msg.includes('quota')) return (admin ? 'Gemini 今天的額度用完了。到 aistudio.google.com 幫這把金鑰開啟付費（Billing）額度會大很多；不開的話要等額度恢復，通常是隔天下午。' : 'AI 今天的額度用完了，請跟管理員說。') + more;
     if (msg.includes('busy')) return 'Gemini 說現在太頻繁或太忙，過一分鐘再試。' + more;
     if (msg.includes('bad-model')) return (admin ? '找不到這個 Gemini 模型，請到設定把「模型名稱」清空再儲存。' : 'AI 小幫手的設定有問題，請跟管理員說。') + more;
     if (msg.includes('ai-format') || msg.includes('ai-empty')) return 'AI 這次沒有回出能用的內容，請再試一次。' + more;
@@ -3857,11 +3839,12 @@
   }
   function butlerListHtml() {
     const b = state.butler;
-    return b.msgs.map((m) => (m.role === 'user' ? `<p class="bt-q">${esc(m.text)}</p>` : `
+    return b.msgs.map((m, i) => (m.role === 'user' ? `<p class="bt-q">${esc(m.text)}</p>` : `
       <article class="bt-a ${m.error ? 'err' : ''}">
         ${esc(m.text).split(/\n+/).map((p) => `<p>${p}</p>`).join('')}
         ${(m.links || []).length || (m.queries || []).length ? `<div class="bt-src"><small>上網查到的資料</small><div>${(m.links || []).map((l) => `<a class="plan-link web" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join('')}${(m.queries || []).map((x) => `<a class="plan-link map" href="${esc(webUrl(x))}" target="_blank" rel="noopener">搜尋：${esc(x)}</a>`).join('')}</div></div>` : ''}
         ${(m.sources || []).length ? `<div class="bt-src"><small>小管家看了這些紀錄，數字請以紀錄為準</small><div>${m.sources.map((k) => `<button class="plan-link map" data-act="butler-go" data-src="${k}">${BUTLER_SRC[k][0]}</button>`).join('')}</div></div>` : ''}
+        ${m.error ? '' : `<button class="link-btn bt-copy" data-act="butler-copy" data-i="${i}">複製回答</button>`}
       </article>`)).join('') + (b.busy ? '<p class="ai-wait bt-wait" role="status">小管家正在想…</p>' : '');
   }
   function drawButler() {
@@ -3892,6 +3875,7 @@
     drawButler();
     try {
       const full = butlerNeedsRecords(text);
+      if (full) await state.butlerReady;   // 剛進來就發問：等紀錄讀完，才不會少送
       const ctx = full ? butlerContext() : { 今天: today() + '（星期' + WEEKDAYS[parse(today()).getDay()] + '）', 發問的人: me().display_name, 家人: state.members.map((m) => m.display_name + (m.child ? '（小朋友）' : '')), 說明: '這一題沒有附上家庭紀錄。如果需要紀錄才能回答，請對方把問題說得具體一點（例如提到行程、待辦、成績、零用錢、旅遊）。' };
       const r = await askAi('butler', { question: text, history, context: JSON.stringify(ctx), child: amChild() });
       b.msgs.push({ role: 'ai', text: r.answer, sources: (r.sources || []).filter((k) => BUTLER_SRC[k]), queries: r.queries || [], links: (r.links || []).filter((l) => /^https:\/\//.test(l.url)) });
@@ -4707,6 +4691,11 @@
     }
     else if (act === 'butler-ask') askButler(el.dataset.q);
     else if (act === 'butler-clear') { state.butler = { msgs: [], busy: false }; render(); }
+    else if (act === 'butler-copy') {
+      const m = state.butler.msgs[Number(el.dataset.i)];
+      if (m && navigator.clipboard) navigator.clipboard.writeText(m.text).then(() => toast('已複製'), () => toast('沒有複製成功，請長按文字選取'));
+      else toast('這支手機不能直接複製，請長按文字選取');
+    }
     else if (act === 'butler-go') butlerGo(el.dataset.src);
     else if (act === 'day-theme') openDayThemeSheet(el.dataset.date);
     else if (act === 'plan-visit') { const x = findById(state.tripItems, el.dataset.id); if (x) Api.updateDoc('trip_items', x.id, { visited: !x.visited }).catch(() => toast('沒有成功，請再試一次')); }

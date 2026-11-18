@@ -133,7 +133,7 @@ exports.onPollOption = onDocumentUpdated('polls/{id}', async (event) => {
 // 只提醒有填開始時間的行程（全天的沒有「前一小時」）。跨日行程只在第一天提醒；每週重複的每一場都會提醒。
 // 提醒過的記在 event_reminders/{行程id_日期_時間}，同一場不會提醒第二次；改了時間會重新提醒。
 const HOUR = 3600000, TAIPEI = 8 * HOUR;
-let eventCache = { list: null, until: 0 };
+let eventCache = { list: null, until: 0, day: '' };
 const ymdOf = (ms) => new Date(ms + TAIPEI).toISOString().slice(0, 10);
 
 // 這個行程在 date 這一天有沒有一場（回傳開始的時間點，沒有就是 null）
@@ -148,13 +148,22 @@ function occurrenceStart(ev, date) {
 }
 
 async function remindEvents(now) {
-  if (!eventCache.list || now > eventCache.until) {
-    const snap = await db.collection('events').get();
-    eventCache = { list: snap.docs.map((d) => ({ id: d.id, ...d.data() })), until: now + 10 * 60000 };
+  const today = ymdOf(now), tomorrow = ymdOf(now + 24 * HOUR);
+  if (!eventCache.list || now > eventCache.until || eventCache.day !== today) {
+    // 只讀「可能在今明兩天開始」的行程，不用每次把整個行事曆讀一遍：單次的看日期，每週重複的全部（數量很少）
+    const [once, weekly] = await Promise.all([
+      db.collection('events').where('event_date', '>=', today).where('event_date', '<=', tomorrow).get(),
+      db.collection('events').where('repeat', '==', 'weekly').get()
+    ]);
+    const seen = {};
+    eventCache = {
+      list: once.docs.concat(weekly.docs).filter((d) => !seen[d.id] && (seen[d.id] = true)).map((d) => ({ id: d.id, ...d.data() })),
+      until: now + 10 * 60000, day: today
+    };
   }
   const due = [];
   eventCache.list.forEach((ev) => {
-    [ymdOf(now), ymdOf(now + 24 * HOUR)].forEach((date) => {
+    [today, tomorrow].forEach((date) => {
       const start = occurrenceStart(ev, date);
       if (start !== null && start > now && start - now <= HOUR) due.push({ ev, date, start });
     });
@@ -521,6 +530,31 @@ async function pickGeminiModel(key, wanted) {
   return name;
 }
 
+// 429 的原因：Google 會在 details 裡說是哪一種額度（每分鐘或每天）、建議等多久
+function quotaInfo(body) {
+  const details = Array.isArray(((body || {}).error || {}).details) ? body.error.details : [];
+  const ids = [];
+  let wait = 0;
+  details.forEach((d) => {
+    (Array.isArray(d && d.violations) ? d.violations : []).forEach((v) => ids.push(String((v && (v.quotaId || v.quotaMetric)) || '')));
+    const m = /^(\d+(?:\.\d+)?)s$/.exec(String((d && d.retryDelay) || ''));
+    if (m) wait = Math.ceil(Number(m[1]));
+  });
+  const id = ids.join(' ');
+  return { id, wait, perDay: /PerDay/i.test(id), perMinute: /PerMinute/i.test(id) };
+}
+
+// AI 有時還是會用 Markdown：把符號拿掉，列點改成「・」
+function tidy(text) {
+  return String(text || '')
+    .replace(/```[a-z]*\n?/gi, '')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1').replace(/__([^_\n]+)__/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/^(\s*)[*-]\s+/gm, '$1・')
+    .replace(/\n{3,}/g, '\n\n').trim();
+}
+
 // opt 可以是 true（要 JSON）或 { json, fast, search }：
 //   fast   少想一點、快一點回（一問一答用）
 //   search 讓 Gemini 需要時自己上 Google 查（只給家長）
@@ -529,17 +563,31 @@ const geminiQuirks = {};
 let geminiSecret = { data: null, until: 0 };
 async function askGemini(system, text, opt) {
   const o = opt === true ? { json: true } : opt || {};
+  // 金鑰暫存一分鐘，省掉每次都讀資料庫；出錯時會馬上重讀，所以管理員換了金鑰很快就生效
   if (!geminiSecret.data || Date.now() > geminiSecret.until) {
     const doc = await db.doc('secrets/gemini').get();
-    geminiSecret = { data: doc.exists ? doc.data() : {}, until: Date.now() + 5 * 60000 };
+    const data = doc.exists ? doc.data() : {};
+    if (geminiSecret.data && String(geminiSecret.data.api_key || '') !== String(data.api_key || '')) {
+      // 換了一把金鑰：之前記下的「額度不夠」不算數
+      Object.values(geminiQuirks).forEach((q) => { delete q.busyUntil; delete q.searchOff; });
+      geminiModel.until = 0;
+    }
+    geminiSecret = { data, until: Date.now() + 60000 };
   }
   const key = String(geminiSecret.data.api_key || '').trim();
   if (!key) { geminiSecret.until = 0; throw new HttpsError('failed-precondition', 'no-key'); }
   const wanted = geminiSecret.data.model ? String(geminiSecret.data.model).trim() : '';
-  let model = await pickGeminiModel(key, wanted);
+  const first = await pickGeminiModel(key, wanted);
+  // 可以用的模型依序排好；剛剛才說額度不夠的先跳過 10 分鐘，省得每次都先撞一次牆
+  const lineup = wanted ? [first] : [first, ...geminiModel.spare];
+  const rested = lineup.filter((m) => !((geminiQuirks[m] || {}).busyUntil > Date.now()));
+  const queue = rested.length ? rested : lineup;
+  let model = queue[0];
   let quirks = geminiQuirks[model] || (geminiQuirks[model] = {});
   const ask = () => {
-    const think = o.fast && !quirks.noThink, search = o.search && !o.noWeb && !quirks.noSearch && !(quirks.searchOff > Date.now());
+    // 少想一點有兩種寫法：新的模型用 thinkingLevel，舊一點的用 thinkingBudget
+    const tc = !o.fast || quirks.think === 'none' ? null : quirks.think === 'budget' ? { thinkingBudget: 0 } : { thinkingLevel: 'low' };
+    const search = o.search && !o.noWeb && !quirks.noSearch && !(quirks.searchOff > Date.now());
     return fetch(GEMINI + '/models/' + encodeURIComponent(model) + ':generateContent', {
       method: 'POST',
       headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
@@ -550,45 +598,61 @@ async function askGemini(system, text, opt) {
         generationConfig: {
           temperature: o.json ? 0.1 : 0.6, maxOutputTokens: 16384,
           ...(o.json ? { responseMimeType: 'application/json' } : {}),
-          ...(think ? { thinkingConfig: { thinkingLevel: 'low' } } : {})
+          ...(tc ? { thinkingConfig: tc } : {})
         }
       })
-    }).then((res) => ({ res, think, search }));
+    }).then((res) => ({ res, think: !!tc, search }));
   };
-  let { res, think, search } = await ask();
-  // 這個模型不收「少想一點」或「上網查」的設定：拿掉再試
-  if (res.status === 400 && (think || search)) {
-    let why = '';
-    try { why = String(((await res.clone().json()).error || {}).message || ''); } catch (e) { /* 不是 JSON */ }
-    if (!/api key/i.test(why)) {
-      if (think && (!search || /think/i.test(why))) quirks.noThink = true; else quirks.noSearch = true;
+  // 送出，並處理「這個模型不收某個設定」（400）：少想一點的兩種寫法依序試，都不收就不帶；上網查不收也不帶。
+  // 試出來的結果記在 quirks，同一個模型下次直接用對的寫法。
+  const send = async () => {
+    let r = await ask();
+    for (let i = 0; i < 3 && r.res.status === 400 && (r.think || r.search); i++) {
+      let why = '';
+      try { why = String(((await r.res.clone().json()).error || {}).message || ''); } catch (e) { /* 不是 JSON */ }
+      if (/api key/i.test(why)) break;
+      if (r.think && (!r.search || /think/i.test(why))) quirks.think = quirks.think === 'budget' ? 'none' : 'budget';
+      else quirks.noSearch = true;
       logger.warn('Gemini 不支援的設定', model, why.slice(0, 160));
-      ({ res, think, search } = await ask());
-      if (res.status === 400 && (think || search)) { quirks.noThink = true; quirks.noSearch = true; ({ res } = await ask()); }
+      r = await ask();
     }
-  }
+    return r;
+  };
+  let { res, search } = await send();
   // 額度用完或太頻繁（429）：先不上網查再試（搜尋有自己的額度），再換備用的模型（每個模型的額度分開算）
   if (res.status === 429) {
-    if (search) { quirks.searchOff = Date.now() + 30 * 60000; ({ res } = await ask()); }
-    for (const spare of wanted ? [] : geminiModel.spare) {
+    if (search) { quirks.searchOff = Date.now() + 30 * 60000; ({ res } = await send()); }
+    for (const spare of queue.slice(1)) {
       if (res.status !== 429) break;
+      quirks.busyUntil = Date.now() + 10 * 60000;
       logger.warn('Gemini 額度不足，改用', spare);
       model = spare; quirks = geminiQuirks[model] || (geminiQuirks[model] = {});
-      ({ res, think, search } = await ask());
-      if (res.status === 400 && (think || search)) { quirks.noThink = true; quirks.noSearch = true; ({ res } = await ask()); }
-      if (res.status === 429 && search) { quirks.searchOff = Date.now() + 30 * 60000; ({ res } = await ask()); }
+      ({ res, search } = await send());
+      if (res.status === 429 && search) { quirks.searchOff = Date.now() + 30 * 60000; ({ res } = await send()); }
     }
+  }
+  // 還是 429：看 Google 說的原因。只是「這一分鐘問太多次」而且幾秒後就能再問的，等一下再試一次
+  let quota = { id: '', wait: 0, perDay: false, perMinute: false };
+  if (res.status === 429) {
+    try { quota = quotaInfo(await res.clone().json()); } catch (e) { /* 讀不到原因 */ }
+    if (!quota.perDay && quota.wait > 0 && quota.wait <= 12) {
+      await new Promise((r) => setTimeout(r, (quota.wait + 1) * 1000));
+      ({ res } = await ask());
+    }
+    if (res.status === 429) quirks.busyUntil = Date.now() + 10 * 60000;
   }
   // Gemini 臨時出錯：等一下再試一次
   if ([500, 502, 503, 504].includes(res.status)) { await new Promise((r) => setTimeout(r, 1200)); ({ res } = await ask()); }
   if (!res.ok) {
     let why = '';
     try { why = String(((await res.json()).error || {}).message || '').slice(0, 200); } catch (e) { /* 不是 JSON */ }
+    if (quota.id || quota.wait) why = (why + ' [' + quota.id + (quota.wait ? ' 建議等 ' + quota.wait + ' 秒' : '') + ']').slice(0, 300);
     logger.warn('Gemini 回應', res.status, model, why);
     if (res.status === 404) geminiModel.until = 0;
-    if (res.status === 403 || res.status === 400) geminiSecret.until = 0;
+    geminiSecret.until = 0;   // 下一次重新讀金鑰（可能剛換過）
     const detail = { status: res.status, model, why };
-    if (res.status === 429) throw new HttpsError('resource-exhausted', /quota|billing|exceeded/i.test(why) ? 'quota' : 'busy', detail);
+    // 每天的額度用完 → quota；只是這一分鐘太頻繁 → busy；Google 沒說是哪一種時，照訊息判斷
+    if (res.status === 429) throw new HttpsError('resource-exhausted', quota.perDay ? 'quota' : quota.perMinute || quota.wait ? 'busy' : /quota|billing|exceeded/i.test(why) ? 'quota' : 'busy', detail);
     if (res.status === 403 || (res.status === 400 && /api key/i.test(why))) throw new HttpsError('failed-precondition', 'bad-key', detail);
     if (res.status === 404) throw new HttpsError('failed-precondition', 'bad-model', detail);
     throw new HttpsError('unavailable', res.status >= 500 ? 'ai-down' : 'ai-' + res.status, detail);
@@ -602,13 +666,13 @@ async function askGemini(system, text, opt) {
   if (o.search) {
     const g = cand.groundingMetadata || {};
     return {
-      text: out,
+      text: tidy(out),
       queries: (Array.isArray(g.webSearchQueries) ? g.webSearchQueries : []).slice(0, 4).map((q) => str(q, 80)).filter(Boolean),
       links: (Array.isArray(g.groundingChunks) ? g.groundingChunks : []).map((c) => c && c.web).filter((w) => w && /^https:\/\//.test(String(w.uri || '')))
         .slice(0, 5).map((w) => ({ url: str(w.uri, 600), title: str(w.title, 60) || '來源' }))
     };
   }
-  if (!o.json) return out;
+  if (!o.json) return tidy(out);
   try { return JSON.parse(out.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')); }
   catch (e) { throw new HttpsError('unavailable', 'ai-format', detail); }
 }
