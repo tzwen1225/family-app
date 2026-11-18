@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-18 18:40';
+  const VERSION = '2026-11-18 19:30';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -103,6 +103,7 @@
     notesView: 'hub',        // hub（鍾家生活的首頁，預設）| ledger（零用錢）| scores | notes（旅遊）| album | transit | shop | cards // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
     shopping: [], cards: [],
     todoFilter: 'all', todoShowDone: false, todoNewWho: '', todoNewDue: '', todoNewRepeat: '',   // 日常待辦（資料沿用 shopping）
+    butler: { msgs: [], busy: false },   // 家庭小管家的對話（不存檔，重新整理就清掉）
     journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -311,7 +312,7 @@
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
-    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'album') loadAlbum(); else if (state.notesView === 'transit') loadTransit(); }
+    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'butler') { loadScores(); loadLedger(); } else if (state.notesView === 'album') loadAlbum(); else if (state.notesView === 'transit') loadTransit(); }
   }
 
   // ---------- 啟動 ----------
@@ -507,7 +508,7 @@
       if (!state.tripId) return '新增旅程';
       return { plan: '新增行程', journal: '寫日誌', cost: '新增花費' }[state.tripTab] || '';   // 行李直接在上方輸入
     }
-    if (state.notesView === 'hub') return '';
+    if (state.notesView === 'hub' || state.notesView === 'butler') return '';
     if (state.notesView === 'album') return '放照片';
     if (state.notesView === 'transit') return '';
     if (state.notesView === 'shop') return '';                       // 待辦直接在上方輸入
@@ -674,6 +675,11 @@
           </label>
           <input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息">
           <button type="submit" class="send" aria-label="傳送">${ICON.send}</button>
+        </form>` : ''}
+      ${state.tab === 'notes' && state.notesView === 'butler' ? `
+        <form class="chat-bar" id="butler-form">
+          <input id="butler-input" name="text" type="text" placeholder="${state.butler.msgs.length ? '繼續問' : '問問看家裡的事'}" maxlength="300" autocomplete="off" enterkeyhint="send" aria-label="問小管家">
+          <button type="submit" class="send" aria-label="送出">${ICON.send}</button>
         </form>` : ''}
       ${fabLabel() ? `<div class="addbar"><button class="fab" data-act="new" aria-label="${fabLabel()}"><span class="fab-plus" aria-hidden="true">${ICON.plus}</span>${fabLabel()}</button></div>` : ''}
       <nav class="tabbar" aria-label="主選單">
@@ -2987,6 +2993,7 @@
   // ---------- 雜記 ----------
   // 鍾家生活：先看到所有功能的清單，點進去才是各個功能；每個功能左上角可以回到清單
   const HUB = [
+    ['butler', '家庭小管家', '#1F6B52', '<path d="M12 4l1.800 4.700L18.500 10.500l-4.700 1.800L12 17l-1.800-4.700L5.500 10.500l4.700-1.800z"/><path d="M18.500 15.500l.700 1.800 1.800.700-1.800.700-.700 1.800-.700-1.800-1.800-.700 1.800-.700z"/>'],
     ['ledger', '零用錢', '#34A853', '<path d="M4 8.500A2.500 2.500 0 0 1 6.500 6H17a2 2 0 0 1 2 2v1"/><rect x="4" y="9" width="16" height="10" rx="2.500"/><circle cx="15.500" cy="14" r="1.300" fill="#fff" stroke="none"/>'],
     ['scores', '成績', '#F29D0B', '<path d="M5 19V11M10 19V5M15 19v-6M20 19V8"/>'],
     ['notes', '旅遊', '#0E9AA7', '<path d="M3.500 12.500l17-7.500-6 15-3-6z"/><path d="M11.500 14l3-3"/>'],
@@ -3000,6 +3007,7 @@
       const n = state.requests.filter((r) => r.status !== 'given').length;
       return n ? `<em>${n} 筆費用${amChild() ? '等爸媽給' : '還沒給'}</em>` : amChild() ? '記支出、跟爸媽申請費用' : '小朋友的記帳本';
     }
+    if (id === 'butler') return '用問的：行程、待辦、成績、零用錢、旅遊';
     if (id === 'scores') return amChild() ? '只有你和爸媽看得到' : '考試成績紀錄';
     if (id === 'notes') {
       const next = state.trips.filter((t) => t.end_date >= today()).sort((x, y) => x.start_date.localeCompare(y.start_date))[0];
@@ -3026,7 +3034,7 @@
       </nav>`;
   }
   function viewNotes() {
-    const views = { ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, transit: viewTransit, shop: viewShop, cards: viewCards };
+    const views = { butler: viewButler, ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, transit: viewTransit, shop: viewShop, cards: viewCards };
     const view = views[state.notesView];
     if (!view) return viewHub();
     // 旅程裡面、公車路線裡面已經有自己的「返回」，就不再多放一個
@@ -3567,6 +3575,107 @@
       const box = document.getElementById('ai-out');
       if (box) { delete box.dataset.busy; box.innerHTML = `<p class="form-error">${esc(e.friendly || '沒有成功')}</p><button type="button" class="btn ghost" data-act="ai-run">再試一次</button>`; }
     }
+  }
+
+  // ---------- 家庭小管家 ----------
+  // 鍾家生活 →「家庭小管家」。用問的查 App 裡的資料。每次發問，把「這個人本來就看得到」的紀錄整理成一份摘要，
+  // 連同問題送給 AI；小朋友只會送出自己的成績和零用錢。對話不存檔。
+  const BUTLER_SRC = { calendar: ['行事曆', 'cal', ''], todos: ['待辦', 'notes', 'shop'], scores: ['成績', 'notes', 'scores'], ledger: ['零用錢', 'notes', 'ledger'], trips: ['旅遊', 'notes', 'notes'], posts: ['我有話要說', 'posts', ''] };
+  function butlerAsks() {
+    const k = kids(), child = amChild();
+    const next = state.trips.filter((t) => t.end_date >= today()).sort((a, b) => a.start_date.localeCompare(b.start_date))[0];
+    return [
+      ['這週', child ? ['我這週有什麼行程？', '我還有哪些事沒做？'] : ['這週全家各有什麼行程？', '這幾天有哪些事還沒處理？']],
+      [child ? '我的紀錄' : '小朋友', child ? ['我這學期各科考得怎麼樣？', '我這個月零用錢花在哪裡？']
+        : k.length ? [k[0].display_name + '這學期各科考得怎麼樣？', (k[1] || k[0]).display_name + '這個月零用錢花在哪裡？'] : []],
+      ['旅遊', next ? [next.title + '還有什麼沒準備？'] : []]
+    ].filter((g) => g[1].length);
+  }
+  function butlerContext() {
+    const t = today(), nm = (id) => nameOf(id);
+    const mine = (ids) => !ids || !ids.length ? '全家' : ids.map(nm).join('、');
+    const events = [];
+    for (let d = t, i = 0; i < 14; d = addDays(d, 1), i++) {
+      eventsOn(state.upcoming, d).sort(byTime).forEach((e) => events.push({ 日期: d, 星期: WEEKDAYS[parse(d).getDay()], 時間: e.start_time ? e.start_time + (e.end_time ? '–' + e.end_time : '') : '全天', 名稱: e.title, 類型: catOf(e.category).label, 誰: mine(e.member_ids), 備註: (e.note || '').slice(0, 60) }));
+    }
+    const todos = state.shopping.filter((x) => !x.done).slice(0, 40).map((x) => ({ 事情: x.text, 交給: todoWho(x) ? nm(todoWho(x)) : '全家', 期限: todoDue(x) || '', 重要: !!x.star, 誰加的: x.added_by ? nm(x.added_by) : '' }));
+    const kidIds = amChild() ? [state.userId] : kids().map((k) => k.id);
+    const month = t.slice(0, 7), pd = parse(month + '-01'); pd.setMonth(pd.getMonth() - 1);
+    const prev = ymd(pd).slice(0, 7);
+    const scores = {}, ledger = {};
+    kidIds.forEach((id) => {
+      scores[nm(id)] = state.scores.filter((x) => x.kid === id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40)
+        .map((x) => ({ 學期: x.term || '', 科目: x.subject, 考試: x.title, 日期: x.date, 分數: x.score, 滿分: x.full }));
+      const pack = (mo) => {
+        const rows = state.ledger.filter((e) => e.kid === id && e.date.slice(0, 7) === mo);
+        const sum = (type, par) => rows.filter((e) => e.type === type && !!e.by_parent === par).reduce((n, e) => n + e.amount, 0);
+        return { 月份: mo, 收到零用錢: sum('income', false), 自己花的: sum('expense', false), 父母幫忙付的: sum('expense', true),
+          明細: rows.slice(0, 60).map((e) => ({ 日期: e.date, 種類: e.type === 'income' ? '收入' : e.by_parent ? '父母支出' : '支出', 金額: e.amount, 項目: e.note || '' })) };
+      };
+      ledger[nm(id)] = { 這個月: pack(month), 上個月: pack(prev),
+        還沒給的費用申請: state.requests.filter((r) => r.kid === id && r.status !== 'given').map((r) => ({ 項目: r.title, 金額: r.amount, 需要日期: r.need_date })) };
+    });
+    const trips = state.trips.filter((x) => x.end_date >= addDays(t, -7)).sort((a, b) => a.start_date.localeCompare(b.start_date)).slice(0, 3).map((x) => ({
+      名稱: x.title, 地點: x.place || '', 開始: x.start_date, 結束: x.end_date, 備註: (x.note || '').slice(0, 100),
+      行程: itemsOf(x.id, 'plan').sort((a, b) => (a.date + (a.time || '99')).localeCompare(b.date + (b.time || '99'))).slice(0, 60)
+        .map((p) => ({ 日期: p.date, 時間: p.time || '', 做什麼: p.title, 地點: p.place || '', 預約: p.booking === 'need' ? '還沒預約' : p.booking === 'done' ? '已預約' : '' })),
+      還沒帶的行李: itemsOf(x.id, 'pack').filter((p) => !p.done).map((p) => p.text).slice(0, 40),
+      已經帶的行李數: itemsOf(x.id, 'pack').filter((p) => p.done).length
+    }));
+    const posts = state.posts.filter((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId)).slice(0, 10).map((p) => ({ 誰說的: nm(p.author), 內容: p.text.slice(0, 100) }));
+    return {
+      今天: t + '（星期' + WEEKDAYS[parse(t).getDay()] + '）', 發問的人: me().display_name,
+      家人: state.members.map((m) => m.display_name + (m.child ? '（小朋友）' : '')),
+      calendar_未來14天行程: events, todos_還沒做的待辦: todos, scores_成績: scores, ledger_零用錢: ledger, trips_旅遊: trips, posts_等我回覆的話: posts
+    };
+  }
+  function viewButler() {
+    const b = state.butler;
+    const head = `
+      <header class="plain-head with-action"><h1>家庭小管家</h1>${b.msgs.length ? '<button class="chip-btn bt-clear" data-act="butler-clear">清除對話</button>' : `<p>${amChild() ? '問你自己的行程和紀錄' : '用問的查家裡的事'}</p>`}</header>`;
+    if (!b.msgs.length) return head + `
+      <div class="bt-start">
+        ${butlerAsks().map(([title, list]) => `
+          <section><h2>${esc(title)}</h2>${list.map((q) => `<button class="bt-ask" data-act="butler-ask" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</section>`).join('')}
+        <p class="hint">按了才會把相關的紀錄送到 Google Gemini。對話不會存下來，離開 App 就清掉。${amChild() ? '成績和零用錢只會用到你自己的。' : ''}</p>
+        <p class="hint">小管家只知道 App 裡記的事，回答可能有錯，數字請以紀錄為準。</p>
+      </div>`;
+    return head + `<div class="bt-list" id="butler-list" aria-live="polite">${butlerListHtml()}</div>`;
+  }
+  function butlerListHtml() {
+    const b = state.butler;
+    return b.msgs.map((m) => (m.role === 'user' ? `<p class="bt-q">${esc(m.text)}</p>` : `
+      <article class="bt-a ${m.error ? 'err' : ''}">
+        ${esc(m.text).split(/\n+/).map((p) => `<p>${p}</p>`).join('')}
+        ${(m.sources || []).length ? `<div class="bt-src"><small>小管家看了這些紀錄，數字請以紀錄為準</small><div>${m.sources.map((k) => `<button class="plan-link map" data-act="butler-go" data-src="${k}">${BUTLER_SRC[k][0]}</button>`).join('')}</div></div>` : ''}
+      </article>`)).join('') + (b.busy ? '<p class="ai-wait bt-wait" role="status">小管家正在看紀錄…</p>' : '');
+  }
+  function drawButler() {
+    if (state.tab !== 'notes' || state.notesView !== 'butler') return;
+    const el = document.getElementById('butler-list');
+    if (!el) { render(); } else el.innerHTML = butlerListHtml();
+    const go = () => { const sc = scroller(); if (sc && state.notesView === 'butler') sc.scrollTop = sc.scrollHeight; };
+    go(); setTimeout(go, 120);
+  }
+  async function askButler(q) {
+    const b = state.butler, text = String(q || '').trim();
+    if (!text || b.busy) return;
+    const history = b.msgs.filter((m) => !m.error).slice(-6).map((m) => ({ role: m.role, text: m.text.slice(0, 600) }));
+    b.msgs.push({ role: 'user', text }); b.busy = true;
+    drawButler();
+    try {
+      const r = await askAi('butler', { question: text, history, context: JSON.stringify(butlerContext()), child: amChild() });
+      b.msgs.push({ role: 'ai', text: r.answer, sources: (r.sources || []).filter((k) => BUTLER_SRC[k]) });
+    } catch (e) { b.msgs.push({ role: 'ai', text: e.friendly || '沒有成功，請再試一次。', error: true }); }
+    b.busy = false;
+    drawButler();
+  }
+  function butlerGo(key) {
+    const [, tab, view] = BUTLER_SRC[key] || [];
+    if (!tab) return;
+    state.tab = tab;
+    if (tab === 'notes') { state.notesView = view; if (view === 'notes') state.tripId = null; }
+    render(); scroller().scrollTop = 0; loadTab();
   }
 
   function openGeminiSheet() {
@@ -4350,6 +4459,9 @@
     else if (act === 'gemini-key') openGeminiSheet();
     else if (act === 'ai-event') aiFillEvent();
     else if (act === 'ai-trip') openAiTripSheet();
+    else if (act === 'butler-ask') askButler(el.dataset.q);
+    else if (act === 'butler-clear') { state.butler = { msgs: [], busy: false }; render(); }
+    else if (act === 'butler-go') butlerGo(el.dataset.src);
     else if (act === 'day-theme') openDayThemeSheet(el.dataset.date);
     else if (act === 'plan-visit') { const x = findById(state.tripItems, el.dataset.id); if (x) Api.updateDoc('trip_items', x.id, { visited: !x.visited }).catch(() => toast('沒有成功，請再試一次')); }
     else if (act === 'ai-journal') aiWriteJournal(el);
@@ -4485,6 +4597,7 @@
     const id = form.getAttribute('id');
     if (id === 'login-form') onLogin(form);
     else if (id === 'chat-form') onSend(form);
+    else if (id === 'butler-form') { const i = form.elements.text, q = i.value; if (q.trim() && !state.butler.busy) { i.value = ''; askButler(q); } }
     else if (id === 'shop-form') onShopAdd(form);
     else if (id === 'pack-form') onPackAdd(form);
     else if (id === 'call-form') onCallForm(form);

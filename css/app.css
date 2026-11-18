@@ -1655,3 +1655,23 @@ em.ok { font-style: normal; font-weight: 700; color: var(--green); }
 .plan-done { margin-left: 6px; color: var(--green); font-weight: 800; }
 .plan-link.visit { border: 0; color: var(--ink-2); background: var(--track); }
 .plan-link.visit.on { color: #fff; background: var(--green); }
+
+/* ---------- 家庭小管家 ---------- */
+.bt-start { display: flex; flex-direction: column; gap: 20px; padding-top: 10px; }
+.bt-start section { display: flex; flex-direction: column; gap: 10px; }
+.bt-start h2 { font-size: 13px; font-weight: 500; color: var(--ink-2); }
+.bt-ask { text-align: left; background: var(--sheet); border-radius: 16px; padding: 14px 16px; font-size: 16px; line-height: 1.4; min-height: 52px; }
+.bt-clear { margin-left: auto; }
+.bt-list { display: flex; flex-direction: column; gap: 14px; padding: 12px 0 16px; }
+.bt-q { align-self: flex-end; max-width: 82%; background: var(--green); color: #fff; border-radius: 18px; padding: 10px 14px; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+.bt-a { background: var(--sheet); border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.bt-a p { font-size: 16px; line-height: 1.7; overflow-wrap: anywhere; }
+.bt-a.err p { color: var(--danger); font-size: 15px; }
+.bt-src { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.bt-src small { font-size: 12px; color: var(--ink-2); }
+.bt-src div { display: flex; flex-wrap: wrap; gap: 8px; }
+.bt-src .plan-link { border: 0; min-height: 36px; }
+.bt-wait { padding: 8px 0; text-align: left; }
+html[data-theme="night"] .bt-q { color: #0E1412; }
+html[data-style="tech"] .bt-q { color: #04131A; }
+html[data-style="comic"] .bt-q { background: #FFD400; color: #111; border: 2px solid #111; }
