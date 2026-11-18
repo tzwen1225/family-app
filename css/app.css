@@ -1788,3 +1788,18 @@ html[data-style="comic"] :is(.bt-ask, .bt-a, .ai-box) { border: 2.5px solid #111
 .bday-arch-btn::after { content: "›"; font-size: 20px; color: #B07A8E; flex: none; }
 /* 小管家：複製回答 */
 .bt-copy { align-self: flex-end; font-size: 13px; min-height: 32px; color: var(--ink-2); }
+
+/* ---------- 首頁：問候、天氣、家人狀態固定在上面 ---------- */
+.home-top {
+  position: sticky; top: 0; z-index: 3; background: var(--paper);
+  margin: calc(-1 * (var(--safe-t) + 14px)) -16px 10px; padding: calc(var(--safe-t) + 14px) 16px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.home-top .presence { margin-bottom: 0; }
+.hello { display: flex; align-items: center; gap: 10px; }
+.hello > div:first-child { flex: 1; min-width: 0; }
+.wx { flex: none; display: flex; align-items: center; gap: 6px; text-align: right; }
+.wx:empty { display: none; }
+.wx-icon { font-size: 30px; line-height: 1; }
+.wx-text b { display: block; font-size: 15px; font-weight: 800; white-space: nowrap; }
+.wx-text small { display: block; font-size: 11px; color: var(--ink-2); white-space: nowrap; }

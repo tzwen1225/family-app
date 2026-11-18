@@ -46,6 +46,15 @@ service cloud.firestore {
     }
 
     // 投票還能投嗎：沒被手動結束，而且沒過截止時間（deadline_at 是 0 或沒有，代表沒設截止日）
+    // 日期比大小用：今天的台灣日期、'YYYY-MM-DD' 字串，都換成 20261119 這樣的數字
+    function todayNum() {
+      let t = request.time + duration.value(8, 'h');
+      return t.year() * 10000 + t.month() * 100 + t.day();
+    }
+    function dateNum(s) {
+      return int(s[0:4]) * 10000 + int(s[5:7]) * 100 + int(s[8:10]);
+    }
+
     function pollOpen(pollId) {
       let p = get(/databases/$(database)/documents/polls/$(pollId)).data;
       return p.closed == false && p.get('voided', false) == false
@@ -211,8 +220,10 @@ service cloud.firestore {
         && (!isChild() || ownPending(request.resource.data));
       allow update: if isFamily() && validRequest()
         && (!isChild() || (ownPending(resource.data) && ownPending(request.resource.data)));
+      // 過了「哪一天需要」就不能再刪除（家長也一樣），紀錄會留著
       allow delete: if isFamily()
-        && (!isChild() || ownPending(resource.data));
+        && (!isChild() || ownPending(resource.data))
+        && dateNum(resource.data.need_date) >= todayNum();
     }
 
     // 聊天室：只能以自己的名義發言；一小時內可以收回，不能刪除

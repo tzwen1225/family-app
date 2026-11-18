@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 01:00';
+  const VERSION = '2026-11-19 01:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -888,6 +888,47 @@
     box.innerHTML = bdayCardHtml({ from: state.userId, text: f.elements.text.value.trim() || '寫下想對' + (m ? m.display_name : '壽星') + '說的話…', sticker: f.elements.sticker.value, paper: f.elements.paper.value }, 0);
   }
 
+  // ---------- 今天天氣（首頁名字旁邊） ----------
+  // 資料來自 Open-Meteo（免費、不用金鑰），地點固定在新竹。半小時更新一次，結果存在手機上，沒網路時顯示上次的。
+  const WX_PLACE = { name: '新竹', lat: 24.8, lon: 120.97 };
+  const WX_KEY = 'family-weather';
+  let wx = null, wxLoading = false;
+  try { wx = JSON.parse(localStorage.getItem(WX_KEY)); } catch (e) { /* 沒有存過 */ }
+  function wxKind(code) {
+    if (code === 0) return ['☀️', '晴'];
+    if (code <= 2) return ['🌤️', '晴時多雲'];
+    if (code === 3) return ['☁️', '陰'];
+    if (code <= 48) return ['🌫️', '有霧'];
+    if (code <= 57) return ['🌦️', '毛毛雨'];
+    if (code <= 67) return ['🌧️', '下雨'];
+    if (code <= 77) return ['🌨️', '下雪'];
+    if (code <= 82) return ['🌧️', '陣雨'];
+    if (code <= 86) return ['🌨️', '陣雪'];
+    return ['⛈️', '雷雨'];
+  }
+  function weatherHtml() {
+    if (!wx || wx.day !== today()) return '';
+    const [icon, label] = wxKind(wx.code);
+    return `<span class="wx-icon" aria-hidden="true">${icon}</span><span class="wx-text"><b>${esc(label)} ${Math.round(wx.temp)}°</b><small>${esc(WX_PLACE.name)} ${Math.round(wx.min)}–${Math.round(wx.max)}°${wx.rain >= 30 ? '・降雨 ' + Math.round(wx.rain) + '%' : ''}</small></span>`;
+  }
+  async function loadWeather() {
+    if (wxLoading || (wx && wx.day === today() && Date.now() - wx.at < 30 * 60000)) return;
+    wxLoading = true;
+    try {
+      const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + WX_PLACE.lat + '&longitude=' + WX_PLACE.lon
+        + '&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FTaipei&forecast_days=1');
+      if (!res.ok) throw new Error('weather ' + res.status);
+      const d = await res.json();
+      wx = { at: Date.now(), day: today(), code: Number(d.current.weather_code), temp: Number(d.current.temperature_2m),
+        max: Number(d.daily.temperature_2m_max[0]), min: Number(d.daily.temperature_2m_min[0]), rain: Number(d.daily.precipitation_probability_max[0]) || 0 };
+      if (![wx.code, wx.temp, wx.max, wx.min].every(Number.isFinite)) throw new Error('weather format');
+      try { localStorage.setItem(WX_KEY, JSON.stringify(wx)); } catch (e) { /* 存不了沒關係 */ }
+      const el = document.getElementById('wx');
+      if (el) el.innerHTML = weatherHtml();
+    } catch (e) { console.warn('天氣讀不到', e); }
+    wxLoading = false;
+  }
+
   function calSwitch() {
     const b = (v, label) => `<button class="${state.calView === v ? 'on' : ''}" data-act="cal-view" data-view="${v}" ${state.calView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
     return `<div class="switcher" role="group" aria-label="檢視方式">${b('month', '月曆')}${b('list', '近期')}</div>`;
@@ -896,9 +937,13 @@
   function viewCalendar() {
     const hour = new Date().getHours(), now = parse(today());
     const hello = hour < 5 ? '夜深了' : hour < 11 ? '早安' : hour < 18 ? '午安' : '晚安';
-    return `<header class="hello"><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></header>`
+    loadWeather();
+    // 問候、天氣和家人狀態固定在最上面，往下滑也看得到
+    return `<div class="home-top">
+        <header class="hello"><div><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></div><div class="wx" id="wx">${weatherHtml()}</div></header>
+        <section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>
+      </div>`
       + `<section class="bday" id="bday" aria-label="生日" ${bdayHtml() ? '' : 'hidden'}>${bdayHtml()}</section>`
-      + `<section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>`
       + `<section class="today-card mine-card" id="mine" aria-label="我的今天">${mineHtml()}</section>`
       + `<section class="home-polls" id="home-polls" aria-label="投票" ${homePollsHtml() ? '' : 'hidden'}>${homePollsHtml()}</section>`
       + calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming());
@@ -4028,7 +4073,7 @@
 
   function openRequestSheet(r) {
     showSheet('request-form', {
-      title: nameOf(r.kid) + '需要的費用', footer: DELETE_BTN,
+      title: nameOf(r.kid) + '需要的費用', footer: r.need_date < today() ? '<p class="hint">已經過了需要的日期，這筆不能刪除了。</p>' : DELETE_BTN,
       body: `
       <input type="hidden" name="item_id" value="${esc(r.id)}">
       <label>用途<input type="text" name="title" value="${esc(r.title)}" maxlength="100" autocomplete="off"></label>
@@ -4171,7 +4216,7 @@
         await Api.saveRequest({ ...next, status: given ? 'given' : 'pending', given_amount: given ? paid : null });
         return loadLedger();
       },
-      remove: (id) => Api.deleteRequest(id),
+      remove: (id) => { const r = findById(state.requests, id); if (r && r.need_date < today()) throw new Error('past'); return Api.deleteRequest(id); },
       after() { refreshTodos(); if (state.tab === 'notes') render(); }
     },
     'trip-form': {
