@@ -1853,3 +1853,21 @@ fieldset.people[disabled] { opacity: .55; }
 .post-acts .link-btn:not(.del) { color: var(--green); font-weight: 600; }
 /* 首頁：當天行程在上、月曆在下 */
 .leaf + .month-head { margin-top: 16px; }
+
+/* ---------- 首頁「我的今天」：緊湊排列 ---------- */
+.mine-card { padding: 2px 4px 2px 0; }
+.mine-card h2 { padding: 8px 12px 0 14px; }
+.mine-card h3 { padding: 6px 12px 0 14px; font-size: 11px; }
+.mine-tasks { padding: 0 8px 2px 14px; }
+.mine-card .todo { gap: 8px; }
+.mine-card .todo-main { padding: 6px 0; }
+.mine-card .todo-title { font-size: 15px; line-height: 1.35; }
+.mine-card .todo-sub { font-size: 12px; line-height: 1.35; }
+.mine-card .todo-done { min-height: 32px; padding: 0 13px; font-size: 13px; }
+.mine-card .event { padding-top: 6px; padding-bottom: 6px; min-height: 0; }
+.mine-card .event-time { font-size: 13px; line-height: 1.35; }
+.mine-card .none { padding: 4px 14px 8px; font-size: 13px; }
+/* 大字風格：保留大字，只收緊上下空白 */
+html[data-style="big"] .mine-card .todo-title { font-size: 17px; }
+html[data-style="big"] .mine-card .todo-sub { font-size: 14px; }
+html[data-style="big"] .mine-card .todo-done { min-height: 38px; font-size: 15px; }
