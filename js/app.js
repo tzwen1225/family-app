@@ -919,19 +919,20 @@
   }
   // 點天氣：第一次打開「用我的位置」，之後點是重新整理
   async function onWeatherTap() {
+    let known = null;
     if (!wxUsesGeo()) {
       if (!navigator.geolocation) return toast('這支手機沒辦法取得位置，天氣會顯示新竹');
       const pos = await wxLocate();
       if (pos === 'denied') return toast('沒有允許取得位置。到 iPhone「設定 → 隱私權與安全性 → 定位服務」打開後再點一次');
       if (!pos) return toast('現在抓不到位置，請到空曠一點的地方再試');
       try { localStorage.setItem(WX_GEO_KEY, 'on'); } catch (e) { /* 存不了沒關係 */ }
-      toast('之後會顯示你所在位置的天氣');
+      known = pos;   // 剛剛才定位過，不用再定位一次
     }
     // 已經打開的：點一下就重新定位、重新查天氣
     if (wxLoading) return;
     const el = document.getElementById('wx');
     if (el) el.classList.add('busy');
-    await loadWeather(true);
+    await loadWeather(true, known);
     if (el) el.classList.remove('busy');
     toast(wx && wx.here && Date.now() - wx.at < 5000 ? '已更新：' + wx.place : '現在更新不了，先顯示上次的天氣');
   }
@@ -952,13 +953,13 @@
     const [icon, label] = wxKind(wx.code);
     return `<span class="wx-icon" aria-hidden="true">${icon}</span><span class="wx-text"><b>${esc(label)} ${Math.round(wx.temp)}°</b><small>${wx.here ? '📍' : ''}${esc(wx.place || WX_HOME.name)} ${Math.round(wx.min)}–${Math.round(wx.max)}°${wx.rain >= 30 ? '・降雨 ' + Math.round(wx.rain) + '%' : ''}</small>${wxUsesGeo() ? '' : '<small class="wx-tip">點一下改看我的位置</small>'}</span>`;
   }
-  async function loadWeather(force) {
+  async function loadWeather(force, known) {
     if (wxLoading || (!force && wx && wx.day === today() && Date.now() - wx.at < 30 * 60000)) return;
     wxLoading = true;
     try {
       let spot = WX_HOME, here = false;
       if (wxUsesGeo()) {
-        const pos = await wxLocate(force);
+        const pos = known || await wxLocate(force);
         if (pos && pos !== 'denied') { spot = { ...pos, name: '' }; here = true; }
         else if (wx && wx.here && wx.lat != null) { spot = { lat: wx.lat, lon: wx.lon, name: wx.place }; here = true; }   // 這次抓不到：用上次的位置
       }
