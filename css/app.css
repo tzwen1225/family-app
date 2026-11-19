@@ -1826,3 +1826,4 @@ html[data-style="comic"] :is(.bt-ask, .bt-a, .ai-box) { border: 2.5px solid #111
 .lock-list dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 button.wx { text-align: right; min-height: 44px; }
 .wx-tip { color: var(--green) !important; font-weight: 600; }
+.wx.busy { opacity: .45; }

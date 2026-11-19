@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 09:00';
+  const VERSION = '2026-11-19 09:20';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -901,12 +901,12 @@
   try { wx = JSON.parse(localStorage.getItem(WX_KEY)); } catch (e) { /* 沒有存過 */ }
   const wxUsesGeo = () => { try { return localStorage.getItem(WX_GEO_KEY) === 'on'; } catch (e) { return false; } };
   // 目前位置（抓不到就回 null）。座標四捨五入到小數兩位，查天氣夠用，也不會送出精確位置
-  const wxLocate = () => new Promise((resolve) => {
+  const wxLocate = (fresh) => new Promise((resolve) => {
     if (!navigator.geolocation) return resolve(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: Math.round(pos.coords.latitude * 100) / 100, lon: Math.round(pos.coords.longitude * 100) / 100 }),
       (err) => resolve(err && err.code === 1 ? 'denied' : null),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 10 * 60000 });
+      { enableHighAccuracy: false, timeout: fresh ? 12000 : 8000, maximumAge: fresh ? 0 : 10 * 60000 });   // fresh：不用手機記住的舊位置，重新定位
   });
   async function wxPlaceName(lat, lon) {
     try {
@@ -927,8 +927,13 @@
       try { localStorage.setItem(WX_GEO_KEY, 'on'); } catch (e) { /* 存不了沒關係 */ }
       toast('之後會顯示你所在位置的天氣');
     }
-    wx = null;
-    loadWeather();
+    // 已經打開的：點一下就重新定位、重新查天氣
+    if (wxLoading) return;
+    const el = document.getElementById('wx');
+    if (el) el.classList.add('busy');
+    await loadWeather(true);
+    if (el) el.classList.remove('busy');
+    toast(wx && wx.here && Date.now() - wx.at < 5000 ? '已更新：' + wx.place : '現在更新不了，先顯示上次的天氣');
   }
   function wxKind(code) {
     if (code === 0) return ['☀️', '晴'];
@@ -947,13 +952,13 @@
     const [icon, label] = wxKind(wx.code);
     return `<span class="wx-icon" aria-hidden="true">${icon}</span><span class="wx-text"><b>${esc(label)} ${Math.round(wx.temp)}°</b><small>${wx.here ? '📍' : ''}${esc(wx.place || WX_HOME.name)} ${Math.round(wx.min)}–${Math.round(wx.max)}°${wx.rain >= 30 ? '・降雨 ' + Math.round(wx.rain) + '%' : ''}</small>${wxUsesGeo() ? '' : '<small class="wx-tip">點一下改看我的位置</small>'}</span>`;
   }
-  async function loadWeather() {
-    if (wxLoading || (wx && wx.day === today() && Date.now() - wx.at < 30 * 60000)) return;
+  async function loadWeather(force) {
+    if (wxLoading || (!force && wx && wx.day === today() && Date.now() - wx.at < 30 * 60000)) return;
     wxLoading = true;
     try {
       let spot = WX_HOME, here = false;
       if (wxUsesGeo()) {
-        const pos = await wxLocate();
+        const pos = await wxLocate(force);
         if (pos && pos !== 'denied') { spot = { ...pos, name: '' }; here = true; }
         else if (wx && wx.here && wx.lat != null) { spot = { lat: wx.lat, lon: wx.lon, name: wx.place }; here = true; }   // 這次抓不到：用上次的位置
       }
