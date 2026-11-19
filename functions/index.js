@@ -87,6 +87,15 @@ exports.onPost = onDocumentCreated('posts/{id}', async (event) => {
   await notify(to, (names[p.author] || '家人') + '有話要對你說', clip(p.text), 'post-' + event.params.id);
 });
 
+// 發話被編輯、加了新的人：通知新加進來的人
+exports.onPostEdit = onDocumentUpdated('posts/{id}', async (event) => {
+  const before = event.data.before.data(), after = event.data.after.data();
+  const added = (after.to || []).filter((uid) => !(before.to || []).includes(uid) && uid !== after.author);
+  if (!added.length) return;
+  const names = await memberNames();
+  await notify(added, (names[after.author] || '家人') + '有話要對你說', clip(after.text), 'post-' + event.params.id);
+});
+
 exports.onReply = onDocumentCreated('replies/{id}', async (event) => {
   const r = event.data.data();
   const post = await db.collection('posts').doc(r.post_id).get();

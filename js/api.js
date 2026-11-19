@@ -190,6 +190,8 @@
         await F.addDoc(col('posts'), { text: p.text, to: p.to, author: uid(), created_at: Date.now() });
       },
       deletePost: (id) => remove('posts', id),
+      editPost: (id, p) => F.updateDoc(F.doc(db, 'posts', id), { text: p.text, to: p.to, edited_at: Date.now() }),
+      editReply: (id, text) => F.updateDoc(F.doc(db, 'replies', id), { text, edited_at: Date.now() }),
       async addReply(postId, text) {
         await F.addDoc(col('replies'), { post_id: postId, text, author: uid(), created_at: Date.now() });
       },
@@ -542,6 +544,8 @@
         emit('posts');
       },
       async deletePost(id) { drop('posts', id); emit('posts'); },
+      async editPost(id, p) { const old = load().posts.find((x) => x.id === id); upsert('posts', id, { ...old, text: p.text, to: p.to, edited_at: Date.now() }); emit('posts'); },
+      async editReply(id, text) { const old = load().replies.find((x) => x.id === id); upsert('replies', id, { ...old, text, edited_at: Date.now() }); emit('replies'); },
       async addReply(postId, text) {
         upsert('replies', null, { post_id: postId, text, author: load().user, created_at: Date.now() }, 'r');
         emit('replies');

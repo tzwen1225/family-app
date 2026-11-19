@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 21:50';
+  const VERSION = '2026-11-19 21:47';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1576,7 +1576,7 @@
           <header>
             ${author ? avatarHtml(author, 'sm') : ''}
             <b>${esc(nameOf(p.author))}</b>
-            <time>${stamp(p.created_at)}</time>
+            <time>${stamp(p.created_at)}${p.edited_at ? '<small class="edited">・已編輯</small>' : ''}</time>
             ${needsMe ? '<span class="flag">等你回覆</span>' : ''}
           </header>
           <p class="post-text">${esc(p.text)}</p>
@@ -1585,14 +1585,15 @@
           </div>
           ${replies.map((r) => `
             <div class="reply" style="--who:${esc(colorOf(r.author))}">
-              <b>${esc(nameOf(r.author))}</b><span>${esc(r.text)}</span><time>${stamp(r.created_at)}</time>
+              <b>${esc(nameOf(r.author))}</b><span>${esc(r.text)}</span><time>${stamp(r.created_at)}${r.edited_at ? '・已編輯' : ''}</time>
+              ${r.author === state.userId ? `<button class="link-btn reply-edit" data-act="edit-reply" data-id="${esc(r.id)}">編輯</button>` : ''}
             </div>`).join('')}
           ${tagged ? `
             <form class="reply-form" data-post="${esc(p.id)}">
               <input id="reply-${esc(p.id)}" name="text" type="text" placeholder="回覆${esc(nameOf(p.author))}" value="${esc(state.postDrafts[p.id] || '')}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="回覆">
               <button type="submit" class="send sm" aria-label="送出回覆">${ICON.send}</button>
             </form>` : ''}
-          ${mine ? `<button class="link-btn del" data-act="del-post" data-id="${esc(p.id)}">刪除</button>` : ''}
+          ${mine ? `<div class="post-acts"><button class="link-btn" data-act="edit-post" data-id="${esc(p.id)}">編輯</button><button class="link-btn del" data-act="del-post" data-id="${esc(p.id)}">刪除</button></div>` : ''}
         </article>`;
     }).join('');
   }
@@ -4107,20 +4108,35 @@
     });
   }
 
-  function openPostSheet() {
+  // 發話：沒帶 post 是新增；帶了是編輯自己的發話（已經回覆的人不能從名單拿掉）
+  function openPostSheet(post) {
     const others = state.members.filter((m) => m.id !== state.userId);
+    const p = post || { text: '', to: [] };
     showSheet('post-form', {
-      title: '我有話要說', submit: '送出', focus: true,
+      title: post ? '編輯我說的話' : '我有話要說', submit: post ? '儲存' : '送出', focus: true,
       body: `
-      <textarea class="title-input" name="text" rows="4" maxlength="2000" placeholder="想說什麼？"></textarea>
+      <input type="hidden" name="item_id" value="${esc(p.id || '')}">
+      <textarea class="title-input" name="text" rows="4" maxlength="2000" placeholder="想說什麼？">${esc(p.text)}</textarea>
       <fieldset class="people">
         <legend>要給誰？<small>只有被選到的人可以回覆</small></legend>
-        ${others.map((m) => `
+        ${others.map((m) => {
+          const done = post && repliedBy(post, m.id);
+          return `
           <label style="--who:${esc(m.color)}">
-            <input type="checkbox" name="to" value="${esc(m.id)}">
-            <span>${esc(m.display_name)}</span>
-          </label>`).join('')}
-      </fieldset>`
+            <input type="checkbox" name="to" value="${esc(m.id)}" ${p.to.includes(m.id) ? 'checked' : ''} ${done ? 'disabled' : ''}>
+            <span>${esc(m.display_name)}${done ? ' ✓' : ''}</span>
+          </label>`;
+        }).join('')}
+      </fieldset>
+      ${post ? '<p class="hint">已經回覆的人不能拿掉。新加進來的人會收到通知。</p>' : ''}`
+    });
+  }
+  function openReplyEditSheet(r) {
+    showSheet('reply-edit-form', {
+      title: '編輯我的回覆', submit: '儲存', focus: true,
+      body: `
+      <input type="hidden" name="item_id" value="${esc(r.id)}">
+      <textarea class="title-input" name="text" rows="3" maxlength="2000">${esc(r.text)}</textarea>`
     });
   }
 
@@ -4694,10 +4710,26 @@
     },
     'post-form': {
       done: '已送出',
-      read: (f, form) => ({ text: f.text.value.trim(), to: checkedValues(form, 'to') }),
-      check: (p) => (!p.text ? '請寫下想說的話' : !p.to.length ? '請選擇要給誰' : null),
-      save: (x) => Api.addPost(x),
+      read: (f, form) => ({ id: f.item_id.value || null, text: f.text.value.trim(), to: checkedValues(form, 'to') }),
+      check(p) {
+        const old = p.id && findById(state.posts, p.id);
+        const kept = old ? old.to.filter((id) => repliedBy(old, id)).length : 0;
+        return !p.text ? '請寫下想說的話' : !p.to.length && !kept ? '請選擇要給誰' : null;
+      },
+      save(x) {
+        if (!x.id) return Api.addPost(x);
+        const old = findById(state.posts, x.id);
+        // 停用的勾選框（已經回覆的人）讀不到，要自己補回去
+        const keep = old ? old.to.filter((id) => repliedBy(old, id)) : [];
+        return Api.editPost(x.id, { text: x.text, to: Array.from(new Set(keep.concat(x.to))) });
+      },
       after: () => { const s = scroller(); if (s) s.scrollTop = 0; }
+    },
+    'reply-edit-form': {
+      done: '已儲存',
+      read: (f) => ({ id: f.item_id.value, text: f.text.value.trim() }),
+      check: (r) => (!r.text ? '回覆不能是空的' : null),
+      save: (r) => Api.editReply(r.id, r.text)
     },
     'profile-form': {
       read: (f) => ({
@@ -4875,6 +4907,8 @@
     else if (act === 'pick-mention') pickMention(el.dataset.name);
     else if (act === 'goto-msg') gotoMessage(el.dataset.id);
     else if (act === 'del-post') onDeletePost(el);
+    else if (act === 'edit-post') { const p = findById(state.posts, el.dataset.id); if (p) openPostSheet(p); }
+    else if (act === 'edit-reply') { const r = findById(state.replies, el.dataset.id); if (r) openReplyEditSheet(r); }
     else if (act === 'close') closeSheet();
     else if (act === 'delete') onDelete(el);
     else if (act === 'del-journal') onDeleteJournal(el);

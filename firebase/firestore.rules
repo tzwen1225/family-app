@@ -533,12 +533,21 @@ service cloud.firestore {
       allow read: if isFamily();
       allow create: if isFamily() && validPost();
       allow delete: if isFamily() && resource.data.author == request.auth.uid;
-      allow update: if false;
+      // 只有發話的人能編輯：內容和要給誰可以改，發話的人和時間不能改
+      allow update: if isFamily() && resource.data.author == request.auth.uid && validPost()
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'to', 'edited_at'])
+        && request.resource.data.edited_at is number;
     }
     match /replies/{id} {
       allow read: if isFamily();
       allow create: if isFamily() && validReply();
-      allow update, delete: if false;
+      // 只能改自己回覆的內容
+      allow update: if isFamily() && resource.data.author == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'edited_at'])
+        && request.resource.data.text is string && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 2000
+        && request.resource.data.edited_at is number;
+      allow delete: if false;
     }
 
     // 成員基本資料：每個人只能改自己的；管理員可以改所有人的。

@@ -1838,3 +1838,9 @@ button.wx { text-align: right; min-height: 44px; }
 *, *::before, *::after { touch-action: manipulation; }
 .sheet-head { touch-action: none; }
 .del-left.admin { color: var(--green); }
+
+/* ---------- 我有話要說：編輯 ---------- */
+.post-acts { display: flex; justify-content: flex-end; gap: 16px; margin-top: 6px; }
+.post-acts .link-btn.del { margin: 0; }
+.post header .edited { font-size: inherit; color: var(--ink-2); }
+.reply .reply-edit { font-size: 12px; min-height: 28px; margin-left: auto; color: var(--ink-2); }
