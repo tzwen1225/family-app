@@ -1,0 +1,61 @@
+# 自動部署 Firebase：雲端函式（推播、AI、交通、提醒）和資料庫安全規則。
+# 只要 functions/ 或 firebase/ 有改動、推到 main，就會自動跑；不用再手動執行 deploy.bat。
+# 需要先在 GitHub 的 Settings → Secrets and variables → Actions 新增一個 secret：
+#   FIREBASE_SERVICE_ACCOUNT ＝ Google Cloud 服務帳戶的 JSON 金鑰（整份內容貼上）
+# 還沒設定時這裡會略過、不會失敗；也可以在 Actions 頁面按「Run workflow」手動跑。
+name: 部署 Firebase（雲端函式和安全規則）
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'functions/**'
+      - 'firebase/**'
+      - 'firebase.json'
+      - '.github/workflows/deploy-firebase.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: firebase-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 檢查金鑰
+        id: key
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then
+            echo "::warning::還沒設定 FIREBASE_SERVICE_ACCOUNT，這次略過部署。"
+            echo "ok=0" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+            echo "ok=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.ok == '1'
+        with:
+          node-version: 22
+
+      - name: 安裝雲端函式需要的套件
+        if: steps.key.outputs.ok == '1'
+        working-directory: functions
+        run: npm install --no-audit --no-fund
+
+      - name: 部署
+        if: steps.key.outputs.ok == '1'
+        run: |
+          echo "版本：$(cat version.txt)"
+          npx --yes firebase-tools@latest deploy --only functions,firestore:rules --project chuang-e5b8e --non-interactive --force
+
+      - name: 清掉金鑰檔
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"
