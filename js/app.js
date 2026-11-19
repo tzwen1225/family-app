@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 21:55';
+  const VERSION = '2026-11-19 22:19';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1062,18 +1062,8 @@
     const diff = daysBetween(t, state.selected);
     const rel = diff === 0 ? '今天' : diff === 1 ? '明天' : diff === -1 ? '昨天' : diff > 0 ? diff + ' 天後' : -diff + ' 天前';
 
+    // 選到那天的行程放在上面，月曆在下面
     return `
-      <header class="month-head">
-        <h1>${y}年${m}月</h1>
-        <div class="month-nav">
-          ${state.cursor !== t.slice(0, 7) || state.selected !== t ? '<button class="chip-btn" data-act="today">回到今天</button>' : ''}
-          <button class="icon-btn" data-act="prev" aria-label="上個月">‹</button>
-          <button class="icon-btn" data-act="next" aria-label="下個月">›</button>
-        </div>
-      </header>
-      <div class="weekdays" aria-hidden="true">${WEEKDAYS.map((w, i) => `<span class="${i === 0 || i === 6 ? 'weekend' : ''}">${w}</span>`).join('')}</div>
-      <div class="grid">${cells}</div>
-
       <section class="leaf" aria-label="當天行程">
         <div class="leaf-date">
           <div class="leaf-num">${sel.getDate()}</div>
@@ -1088,7 +1078,18 @@
               <p>這天還沒有安排。</p>
             </div>`}
         </div>
-      </section>`;
+      </section>
+
+      <header class="month-head">
+        <h1>${y}年${m}月</h1>
+        <div class="month-nav">
+          ${state.cursor !== t.slice(0, 7) || state.selected !== t ? '<button class="chip-btn" data-act="today">回到今天</button>' : ''}
+          <button class="icon-btn" data-act="prev" aria-label="上個月">‹</button>
+          <button class="icon-btn" data-act="next" aria-label="下個月">›</button>
+        </div>
+      </header>
+      <div class="weekdays" aria-hidden="true">${WEEKDAYS.map((w, i) => `<span class="${i === 0 || i === 6 ? 'weekend' : ''}">${w}</span>`).join('')}</div>
+      <div class="grid">${cells}</div>`;
   }
 
   // 時間欄：第一行是開始，第二行（較淡）是結束
@@ -4876,6 +4877,12 @@
       state.selected = el.dataset.date;
       if (state.selected.slice(0, 7) !== state.cursor) { state.cursor = state.selected.slice(0, 7); render(); loadEvents(); }
       else render();
+      // 當天行程在月曆上面：被捲出畫面時，捲回來讓人看到
+      const leaf = document.querySelector('.leaf'), sc = scroller(), top = document.querySelector('.home-top');
+      if (leaf && sc) {
+        const gap = leaf.getBoundingClientRect().top - sc.getBoundingClientRect().top - (top ? top.offsetHeight : 0) - 8;
+        if (gap < 0) sc.scrollBy({ top: gap, behavior: 'smooth' });
+      }
     }
     else if (act === 'new') {
       if (state.tab === 'notes' && state.notesView === 'ledger') { if (kids().length) openLedgerSheet(null); }

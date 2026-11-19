@@ -1851,3 +1851,5 @@ button.wx { text-align: right; min-height: 44px; }
 fieldset.people[disabled] { opacity: .55; }
 .post-acts .link-btn { font-size: 13px; min-height: 36px; }
 .post-acts .link-btn:not(.del) { color: var(--green); font-weight: 600; }
+/* 首頁：當天行程在上、月曆在下 */
+.leaf + .month-head { margin-top: 16px; }
