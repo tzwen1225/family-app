@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 09:40';
+  const VERSION = '2026-11-19 11:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -193,8 +193,10 @@
     if (min < 1) return '剛剛離開';
     return min < 60 ? min + ' 分鐘前' : stamp(p.last_seen);
   }
+  // 頭像上的字：基本資料裡有填「頭像上的字」就用它（例如 爸、媽），沒填就用名字的第一個字
+  const faceOf = (m) => ((state.profiles[m.id] || {}).face || m.display_name).slice(0, 1);
   function avatarHtml(m, cls) {
-    return `<span class="avatar ${cls || ''} ${isOnline(m.id) ? 'online' : ''}" style="background:${esc(m.color)}">${esc(m.display_name.slice(0, 1))}</span>`;
+    return `<span class="avatar ${cls || ''} ${isOnline(m.id) ? 'online' : ''}" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>`;
   }
   function presenceHtml() {
     return state.members.map((m) => `
@@ -1359,7 +1361,7 @@
   function readersHtml(m, pos) {
     const who = state.members.filter((x) => x.id !== m.sender && pos[x.id] >= m.sent_at);
     if (!who.length) return m.sender === state.userId ? '<span class="readers none">還沒有人讀</span>' : '';
-    return `<span class="readers" aria-label="已讀：${esc(who.map((x) => x.display_name).join('、'))}">已讀${who.map((x) => `<span class="avatar xs" style="background:${esc(x.color)}" title="${esc(x.display_name)}">${esc(x.display_name.slice(0, 1))}</span>`).join('')}</span>`;
+    return `<span class="readers" aria-label="已讀：${esc(who.map((x) => x.display_name).join('、'))}">已讀${who.map((x) => `<span class="avatar xs" style="background:${esc(x.color)}" title="${esc(x.display_name)}">${esc(faceOf(x))}</span>`).join('')}</span>`;
   }
 
   function onMessages(list) {
@@ -4134,6 +4136,7 @@
       title: m.display_name + '的基本資料',
       body: `
       <input type="hidden" name="item_id" value="${esc(id)}">
+      <label>頭像上的字（一個字）<input type="text" name="face" value="${esc(p.face || '')}" maxlength="2" autocomplete="off" placeholder="不填就用名字的第一個字「${esc(m.display_name.slice(0, 1))}」"></label>
       <label>生日<input type="date" name="birthday" value="${esc(p.birthday || '')}" max="${today()}"></label>
       <label>電話<input type="tel" name="phone" value="${esc(p.phone || '')}" maxlength="30" autocomplete="off" inputmode="tel"></label>
       <label>學校或公司<input type="text" name="org" value="${esc(p.org || '')}" maxlength="60" autocomplete="off"></label>
@@ -4663,7 +4666,7 @@
     },
     'profile-form': {
       read: (f) => ({
-        id: f.item_id.value, birthday: f.birthday.value, phone: f.phone.value.trim(), org: f.org.value.trim(), note: f.note.value.trim(),
+        id: f.item_id.value, face: Array.from(f.face.value.trim()).slice(0, 1).join(''), birthday: f.birthday.value, phone: f.phone.value.trim(), org: f.org.value.trim(), note: f.note.value.trim(),
         child: f.child ? f.child.checked : null      // 只有管理員的表單才有這個開關
       }),
       check: (p) => (p.birthday && p.birthday > today() ? '生日不能是未來的日期' : null),
@@ -5462,7 +5465,7 @@
     callRoot().innerHTML = `
       <div class="call-incoming" role="alertdialog" aria-label="${esc(nameOf(d.from))}邀請你視訊">
         <div class="call-who">
-          ${who ? `<span class="avatar call-avatar ring" style="background:${esc(who.color)}">${esc(who.display_name.slice(0, 1))}</span>` : ''}
+          ${who ? `<span class="avatar call-avatar ring" style="background:${esc(who.color)}">${esc(faceOf(who))}</span>` : ''}
           <b>${esc(nameOf(d.from))}</b>
           <span>${others.length ? '邀請你和' + esc(callNames(others)) + '一起視訊' : '邀請你視訊'}</span>
         </div>
@@ -5484,7 +5487,7 @@
       <div class="call-view" role="dialog" aria-label="視訊通話">
         <div class="call-grid" id="call-grid"></div>
         <div class="call-wait" id="call-wait">
-          <div class="call-wait-faces">${others.map((u) => { const m = member(u); return m ? `<span class="avatar call-avatar" style="background:${esc(m.color)}">${esc(m.display_name.slice(0, 1))}</span>` : ''; }).join('')}</div>
+          <div class="call-wait-faces">${others.map((u) => { const m = member(u); return m ? `<span class="avatar call-avatar" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>` : ''; }).join('')}</div>
         </div>
         <div class="call-top"><b>${esc(callNames(others))}</b><span id="call-status">準備中…</span></div>
         <video id="call-local" autoplay playsinline muted></video>

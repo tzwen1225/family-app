@@ -57,7 +57,7 @@
     updated_at: Date.now(), updated_by: uid
   });
   const cleanProfile = (p) => ({
-    birthday: p.birthday || '', phone: p.phone || '', org: p.org || '', note: p.note || ''
+    birthday: p.birthday || '', phone: p.phone || '', org: p.org || '', note: p.note || '', face: p.face || ''
   });
   const cleanLedger = (e) => ({
     kid: e.kid, type: e.type === 'income' ? 'income' : 'expense',
