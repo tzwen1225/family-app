@@ -1833,3 +1833,7 @@ button.wx { text-align: right; min-height: 44px; }
   content: attr(data-count); top: 3px; left: calc(50% + 4px); width: auto; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
   border-radius: 99px; background: var(--red); color: #fff; font: 700 11px/18px var(--num, inherit); text-align: center; box-shadow: 0 0 0 2px var(--sheet);
 }
+
+/* 點兩下不要放大畫面（兩指縮放照片還是可以） */
+*, *::before, *::after { touch-action: manipulation; }
+.sheet-head { touch-action: none; }

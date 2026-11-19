@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 11:00';
+  const VERSION = '2026-11-19 21:30';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -666,8 +666,31 @@
   let renderedKey = '';
   let lastMotion = { name: '', at: 0, key: '' };
   const scrollMemo = {};
+  // ---------- 中文輸入法選字中，不要重畫畫面 ----------
+  // 注音、拼音打字時，字會先停在「組字中」，等選字後才真的打進去。這時候如果畫面被重畫，
+  // 輸入框會被換掉，選字列就消失、選不了字。所以組字中要重畫的，先記下來，選好字（或離開輸入框）再做。
+  let composing = false;
+  const afterCompose = new Set();
+  function flushCompose() {
+    composing = false;
+    const list = Array.from(afterCompose);
+    afterCompose.clear();
+    if (list.length) setTimeout(() => list.forEach((fn) => fn()), 0);
+  }
+  document.addEventListener('compositionstart', () => { composing = true; }, true);
+  document.addEventListener('compositionend', flushCompose, true);
+  document.addEventListener('focusout', () => { if (composing) flushCompose(); }, true);
+  // 要重畫的區塊裡有正在組字的輸入框 → 先排隊，回傳 true
+  function holdForIme(container, fn) {
+    const a = document.activeElement;
+    if (!composing || !a || !container || !container.contains(a)) return false;
+    afterCompose.add(fn);
+    return true;
+  }
+
   function render() {
     if (!state.userId) return;
+    if (holdForIme($app, render)) return;
     const active = document.activeElement;
     const focusId = active && /^(INPUT|TEXTAREA)$/.test(active.tagName) && !$sheet.contains(active) ? active.id : '';
     const sameTab = renderedTab === state.tab;
@@ -3176,6 +3199,7 @@
     if (state.tab === 'notes' && state.notesView === 'hub' && !$sheet.innerHTML) return render();
     const el = document.getElementById('shop-list');
     if (!el) return;
+    if (holdForIme(el, refreshShop)) return;
     el.innerHTML = shopListHtml();
     document.getElementById('shop-count').textContent = todoCountText();
   }
@@ -3305,6 +3329,7 @@
     refreshTodos();
     const el = document.getElementById('post-list');
     if (!el) return;
+    if (holdForIme(el, refreshPosts)) return;
     const active = document.activeElement;
     const focusId = active && el.contains(active) ? active.id : '';
     el.innerHTML = postListHtml();
