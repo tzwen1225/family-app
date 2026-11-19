@@ -186,17 +186,29 @@
       },
       watchMessages: (cb) => watch('聊天室', F.query(col('messages'), F.orderBy('sent_at'), F.limitToLast(300)), cb),
 
+      // 沒有標註任何人（to 是空的）= 全家都看得到，記 public: true
       async addPost(p) {
-        await F.addDoc(col('posts'), { text: p.text, to: p.to, author: uid(), created_at: Date.now() });
+        await F.addDoc(col('posts'), { text: p.text, to: p.to, public: p.to.length === 0, author: uid(), created_at: Date.now() });
       },
       deletePost: (id) => remove('posts', id),
-      editPost: (id, p) => F.updateDoc(F.doc(db, 'posts', id), { text: p.text, to: p.to, edited_at: Date.now() }),
+      editPost: (id, p) => F.updateDoc(F.doc(db, 'posts', id), { text: p.text, to: p.to, public: p.to.length === 0, edited_at: Date.now() }),
       editReply: (id, text) => F.updateDoc(F.doc(db, 'replies', id), { text, edited_at: Date.now() }),
       async addReply(postId, text) {
         await F.addDoc(col('replies'), { post_id: postId, text, author: uid(), created_at: Date.now() });
       },
-      watchPosts: (cb) => watch('我有話要說', F.query(col('posts'), F.orderBy('created_at'), F.limitToLast(60)), cb),
-      watchReplies: (cb) => watch('回覆', F.query(col('replies'), F.orderBy('created_at'), F.limitToLast(500)), cb),
+      // 只讀得到「全家的」「我發的」「有標註我的」三種，分三個查詢再合起來（安全規則只放行這三種）
+      watchPosts(cb) {
+        const me = uid(), parts = [[], [], []];
+        const send = () => {
+          const all = new Map();
+          parts.forEach((list) => list.forEach((p) => all.set(p.id, p)));
+          cb(Array.from(all.values()).sort((a, b) => a.created_at - b.created_at));
+        };
+        const offs = [F.where('public', '==', true), F.where('author', '==', me), F.where('to', 'array-contains', me)]
+          .map((w, i) => F.onSnapshot(F.query(col('posts'), w), (snap) => { parts[i] = snap.docs.map(row); send(); },
+            (err) => console.warn('我有話要說即時同步中斷', err)));
+        return () => offs.forEach((off) => off());
+      },
 
       async listProfiles() { return toMap(await list('profiles')); },
       async saveProfile(memberId, p) { await F.setDoc(F.doc(db, 'profiles', memberId), cleanProfile(p)); },
@@ -540,18 +552,18 @@
       watchMessages: watch('messages'),
 
       async addPost(p) {
-        upsert('posts', null, { text: p.text, to: p.to, author: load().user, created_at: Date.now() }, 'p');
+        upsert('posts', null, { text: p.text, to: p.to, public: p.to.length === 0, author: load().user, created_at: Date.now() }, 'p');
         emit('posts');
       },
       async deletePost(id) { drop('posts', id); emit('posts'); },
-      async editPost(id, p) { const old = load().posts.find((x) => x.id === id); upsert('posts', id, { ...old, text: p.text, to: p.to, edited_at: Date.now() }); emit('posts'); },
+      async editPost(id, p) { const old = load().posts.find((x) => x.id === id); upsert('posts', id, { ...old, text: p.text, to: p.to, public: p.to.length === 0, edited_at: Date.now() }); emit('posts'); },
       async editReply(id, text) { const old = load().replies.find((x) => x.id === id); upsert('replies', id, { ...old, text, edited_at: Date.now() }); emit('replies'); },
       async addReply(postId, text) {
         upsert('replies', null, { post_id: postId, text, author: load().user, created_at: Date.now() }, 'r');
         emit('replies');
       },
-      watchPosts: watch('posts'),
-      watchReplies: watch('replies'),
+      // 示範模式也照正式版的規則：只看得到全家的、自己發的、有標註自己的
+      watchPosts: (cb) => watch('posts')((list) => { const me = load().user; cb(list.filter((p) => p.public || p.to.length === 0 || p.author === me || p.to.includes(me))); }),
 
       async listProfiles() { return { ...load().profiles }; },
       async saveProfile(memberId, p) { load().profiles[memberId] = { id: memberId, ...cleanProfile(p) }; persist(); },
@@ -586,7 +598,10 @@
         setTimeout(() => cb(G(name).slice()), 0);
         return () => { gsubs[name] = gsubs[name].filter((x) => x !== cb); };
       },
-      watchWhere(name, field, value, cb) { return this.watchList(name, (list) => cb(list.filter((x) => x[field] === value))); },
+      watchWhere(name, field, value, cb) {
+        if (subs[name]) return watch(name)((list) => cb(list.filter((x) => x[field] === value)));   // 回覆、訊息這幾種是另外存的
+        return this.watchList(name, (list) => cb(list.filter((x) => x[field] === value)));
+      },
       async listDocs(name, filter) { return G(name).filter((x) => !filter || x[filter[0]] === filter[1]).slice(); },
       async addDoc(name, data) {
         freshDocs();

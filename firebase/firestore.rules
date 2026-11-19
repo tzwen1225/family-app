@@ -129,12 +129,17 @@ service cloud.firestore {
         && d.get('reply_to', {}) is map;
     }
 
+    // 發話：to 是空的 = 給全家（public 一定要是 true）；有標註人 = 只有發話的人和被標註的人看得到
     function validPost() {
       let d = request.resource.data;
       return d.text is string && d.text.size() >= 1 && d.text.size() <= 2000
         && d.author == request.auth.uid
-        && d.to is list && d.to.size() >= 1 && d.to.size() <= 10
+        && d.to is list && d.to.size() <= 10
+        && d.get('public', false) == (d.to.size() == 0)
         && d.created_at is number;
+    }
+    function canSeePost(p) {
+      return p.get('public', false) == true || p.author == request.auth.uid || request.auth.uid in p.to;
     }
 
     // 回覆：必須是被那則發言標註的人
@@ -144,7 +149,11 @@ service cloud.firestore {
         && d.author == request.auth.uid
         && d.post_id is string
         && d.created_at is number
-        && request.auth.uid in get(/databases/$(database)/documents/posts/$(d.post_id)).data.to;
+        && postOpenTo(get(/databases/$(database)/documents/posts/$(d.post_id)).data);
+    }
+    // 誰可以回覆：給全家的人人可以；有標註人的只有被標註的人可以
+    function postOpenTo(p) {
+      return p.get('public', false) == true || request.auth.uid in p.to;
     }
 
     // 收回訊息：只能收回自己的、送出一小時內的，而且只能清空內容
@@ -530,17 +539,18 @@ service cloud.firestore {
 
     // 我有話要說：全家都看得到，只有發言的人可以刪除
     match /posts/{id} {
-      allow read: if isFamily();
+      allow read: if isFamily() && canSeePost(resource.data);
       allow create: if isFamily() && validPost();
       allow delete: if isFamily() && resource.data.author == request.auth.uid;
       // 只有發話的人能編輯：內容和要給誰可以改，發話的人和時間不能改
       allow update: if isFamily() && resource.data.author == request.auth.uid && validPost()
         && request.resource.data.created_at == resource.data.created_at
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'to', 'edited_at'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'to', 'public', 'edited_at'])
         && request.resource.data.edited_at is number;
     }
     match /replies/{id} {
-      allow read: if isFamily();
+      // 看得到那則發話的人，才看得到底下的回覆
+      allow read: if isFamily() && canSeePost(get(/databases/$(database)/documents/posts/$(resource.data.post_id)).data);
       allow create: if isFamily() && validReply();
       // 只能改自己回覆的內容
       allow update: if isFamily() && resource.data.author == request.auth.uid

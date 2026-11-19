@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 21:47';
+  const VERSION = '2026-11-19 21:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -405,8 +405,8 @@
     stopWatchers = [
       Api.watchEvents(() => { if (state.userId) loadEvents(); }),
       Api.watchMessages(onMessages),
-      Api.watchPosts((list) => { state.posts = list; refreshPosts(); }),
-      Api.watchReplies((list) => { state.replies = list; refreshPosts(); }),
+      Api.watchPosts((list) => { state.posts = list; syncReplyWatchers(); refreshPosts(); }),
+      () => { replyWatch.forEach((w) => w.off()); replyWatch.clear(); },
       Api.watchPresence((map) => {
         state.presence = map; refreshPresence();
         if (state.tab === 'chat') refreshChat(false);     // 有人讀了訊息：更新「已讀」
@@ -1560,6 +1560,26 @@
   }
 
   // ---------- 我有話要說 ----------
+  // 標註了人：只有發話的人和被標註的人看得到、被標註的人可以回覆。沒標註任何人：全家都看得到、都可以回覆。
+  const isPublicPost = (p) => p.public === true || !p.to || p.to.length === 0;
+  const canReply = (p) => (isPublicPost(p) ? true : p.to.includes(state.userId));
+  // 回覆只讀看得到的那幾則發話底下的（安全規則是一則一則檢查的）
+  const replyWatch = new Map();
+  function syncReplyWatchers() {
+    const ids = new Set(state.posts.map((p) => p.id));
+    replyWatch.forEach((w, id) => { if (!ids.has(id)) { w.off(); replyWatch.delete(id); } });
+    ids.forEach((id) => {
+      if (replyWatch.has(id)) return;
+      const w = { list: [], off: () => {} };
+      replyWatch.set(id, w);
+      w.off = Api.watchWhere('replies', 'post_id', id, (list) => {
+        w.list = list;
+        state.replies = Array.from(replyWatch.values()).flatMap((x) => x.list);
+        refreshPosts();
+      });
+    });
+    state.replies = state.replies.filter((r) => ids.has(r.post_id));
+  }
   function postListHtml() {
     if (!state.posts.length) return `
       <div class="empty big">
@@ -1569,7 +1589,8 @@
       const mine = p.author === state.userId;
       const tagged = p.to.includes(state.userId);
       const needsMe = tagged && !repliedBy(p, state.userId);
-      const replies = state.replies.filter((r) => r.post_id === p.id);
+      const replies = state.replies.filter((r) => r.post_id === p.id).sort((a, b) => a.created_at - b.created_at);
+      const open = isPublicPost(p);
       const author = member(p.author);
       return `
         <article class="post ${needsMe ? 'needs' : ''}">
@@ -1580,17 +1601,18 @@
             ${needsMe ? '<span class="flag">等你回覆</span>' : ''}
           </header>
           <p class="post-text">${esc(p.text)}</p>
-          <div class="post-to">給
+          <div class="post-to">${open ? '<span class="who all">全家都看得到</span>' : `給
             ${p.to.map((id) => `<span class="who ${repliedBy(p, id) ? 'done' : ''}" style="--who:${esc(colorOf(id))}">${esc(nameOf(id))}${repliedBy(p, id) ? ' ✓' : ''}</span>`).join('')}
+            <small class="only">只有你們看得到</small>`}
           </div>
           ${replies.map((r) => `
             <div class="reply" style="--who:${esc(colorOf(r.author))}">
               <b>${esc(nameOf(r.author))}</b><span>${esc(r.text)}</span><time>${stamp(r.created_at)}${r.edited_at ? '・已編輯' : ''}</time>
               ${r.author === state.userId ? `<button class="link-btn reply-edit" data-act="edit-reply" data-id="${esc(r.id)}">編輯</button>` : ''}
             </div>`).join('')}
-          ${tagged ? `
+          ${canReply(p) ? `
             <form class="reply-form" data-post="${esc(p.id)}">
-              <input id="reply-${esc(p.id)}" name="text" type="text" placeholder="回覆${esc(nameOf(p.author))}" value="${esc(state.postDrafts[p.id] || '')}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="回覆">
+              <input id="reply-${esc(p.id)}" name="text" type="text" placeholder="${mine ? '補充或回覆' : '回覆' + esc(nameOf(p.author))}" value="${esc(state.postDrafts[p.id] || '')}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="回覆">
               <button type="submit" class="send sm" aria-label="送出回覆">${ICON.send}</button>
             </form>` : ''}
           ${mine ? `<div class="post-acts"><button class="link-btn" data-act="edit-post" data-id="${esc(p.id)}">編輯</button><button class="link-btn del" data-act="del-post" data-id="${esc(p.id)}">刪除</button></div>` : ''}
@@ -1605,7 +1627,7 @@
       <header class="plain-head"><h1>投票</h1><p>全家都看得到誰選了什麼</p></header>
       <div id="poll-list">${pollListHtml()}</div>`;
     return sw + `
-      <header class="plain-head"><h1>我有話要說</h1><p>被標註的人才能回覆</p></header>
+      <header class="plain-head"><h1>我有話要說</h1><p>有標註：只有被標註的人看得到；沒標註：全家都看得到</p></header>
       <div id="post-list">${postListHtml()}</div>`;
   }
 
@@ -4112,15 +4134,17 @@
   function openPostSheet(post) {
     const others = state.members.filter((m) => m.id !== state.userId);
     const p = post || { text: '', to: [] };
+    // 全家的發話已經有其他人回覆過：不能再改成只給特定的人（不然回覆過的人會看不到）
+    const lockAudience = !!(post && isPublicPost(post) && state.replies.some((r) => r.post_id === post.id && r.author !== state.userId));
     showSheet('post-form', {
       title: post ? '編輯我說的話' : '我有話要說', submit: post ? '儲存' : '送出', focus: true,
       body: `
       <input type="hidden" name="item_id" value="${esc(p.id || '')}">
       <textarea class="title-input" name="text" rows="4" maxlength="2000" placeholder="想說什麼？">${esc(p.text)}</textarea>
-      <fieldset class="people">
-        <legend>要給誰？<small>只有被選到的人可以回覆</small></legend>
+      <fieldset class="people" ${lockAudience ? 'disabled' : ''}>
+        <legend>要給誰？<small>不選＝全家都看得到；選了只有被選的人看得到、可以回覆</small></legend>
         ${others.map((m) => {
-          const done = post && repliedBy(post, m.id);
+          const done = post && !isPublicPost(post) && repliedBy(post, m.id);
           return `
           <label style="--who:${esc(m.color)}">
             <input type="checkbox" name="to" value="${esc(m.id)}" ${p.to.includes(m.id) ? 'checked' : ''} ${done ? 'disabled' : ''}>
@@ -4128,7 +4152,8 @@
           </label>`;
         }).join('')}
       </fieldset>
-      ${post ? '<p class="hint">已經回覆的人不能拿掉。新加進來的人會收到通知。</p>' : ''}`
+      ${lockAudience ? '<p class="hint">這則是給全家的，而且已經有人回覆，所以只能改內容。</p>'
+        : post ? '<p class="hint">已經回覆的人不能拿掉。新加進來的人會收到通知。</p>' : ''}`
     });
   }
   function openReplyEditSheet(r) {
@@ -4713,14 +4738,14 @@
       read: (f, form) => ({ id: f.item_id.value || null, text: f.text.value.trim(), to: checkedValues(form, 'to') }),
       check(p) {
         const old = p.id && findById(state.posts, p.id);
-        const kept = old ? old.to.filter((id) => repliedBy(old, id)).length : 0;
-        return !p.text ? '請寫下想說的話' : !p.to.length && !kept ? '請選擇要給誰' : null;
+        return !p.text ? '請寫下想說的話' : null;
       },
       save(x) {
         if (!x.id) return Api.addPost(x);
         const old = findById(state.posts, x.id);
+        if (old && document.querySelector('#post-form fieldset.people[disabled]')) return Api.editPost(x.id, { text: x.text, to: old.to });   // 名單鎖住：只改內容
         // 停用的勾選框（已經回覆的人）讀不到，要自己補回去
-        const keep = old ? old.to.filter((id) => repliedBy(old, id)) : [];
+        const keep = old && !isPublicPost(old) ? old.to.filter((id) => repliedBy(old, id)) : [];
         return Api.editPost(x.id, { text: x.text, to: Array.from(new Set(keep.concat(x.to))) });
       },
       after: () => { const s = scroller(); if (s) s.scrollTop = 0; }

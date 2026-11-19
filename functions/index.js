@@ -83,16 +83,19 @@ exports.onChatMessage = onDocumentCreated('messages/{id}', async (event) => {
 exports.onPost = onDocumentCreated('posts/{id}', async (event) => {
   const p = event.data.data();
   const names = await memberNames();
-  const to = (p.to || []).filter((uid) => uid !== p.author);
-  await notify(to, (names[p.author] || '家人') + '有話要對你說', clip(p.text), 'post-' + event.params.id);
+  const open = p.public === true || !(p.to || []).length;     // 沒標註人：給全家
+  const to = (open ? Object.keys(names) : p.to || []).filter((uid) => uid !== p.author);
+  await notify(to, (names[p.author] || '家人') + (open ? '對全家說' : '有話要對你說'), clip(p.text), 'post-' + event.params.id);
 });
 
 // 發話被編輯、加了新的人：通知新加進來的人
 exports.onPostEdit = onDocumentUpdated('posts/{id}', async (event) => {
   const before = event.data.before.data(), after = event.data.after.data();
-  const added = (after.to || []).filter((uid) => !(before.to || []).includes(uid) && uid !== after.author);
-  if (!added.length) return;
   const names = await memberNames();
+  const audience = (p) => (p.public === true || !(p.to || []).length ? Object.keys(names) : p.to || []);
+  const was = audience(before);
+  const added = audience(after).filter((uid) => !was.includes(uid) && uid !== after.author);
+  if (!added.length) return;
   await notify(added, (names[after.author] || '家人') + '有話要對你說', clip(after.text), 'post-' + event.params.id);
 });
 
