@@ -387,6 +387,21 @@
 
     // 通用讀寫用的示範資料
     const seedDocs = () => ({
+      study_items: [
+        { id: 'st1', kid: 'm3', sub: '數學', title: '第三章 例題', note: '課本 p.38–44', date: day(-2), minutes: 40, done: true, spent: 42, exam_id: '', created_by: 'm3', created_at: ago(4000) },
+        { id: 'st2', kid: 'm3', sub: '英文', title: 'Unit 5 課文', note: '唸三遍', date: day(-2), minutes: 30, done: true, spent: 30, exam_id: '', created_by: 'm3', created_at: ago(4000) },
+        { id: 'st3', kid: 'm3', sub: '國文', title: '第六課 注釋', note: '', date: day(-1), minutes: 30, done: true, spent: 25, exam_id: '', created_by: 'm3', created_at: ago(3000) },
+        { id: 'st4', kid: 'm3', sub: '自然', title: '第四章 實驗', note: '整理步驟', date: day(-1), minutes: 30, done: false, spent: 0, exam_id: '', created_by: 'm3', created_at: ago(3000) },
+        { id: 'st5', kid: 'm3', sub: '數學', title: '第三章 習題', note: '課本 p.45–52', date: day(0), minutes: 30, done: true, spent: 34, exam_id: '', created_by: 'm3', created_at: ago(900) },
+        { id: 'st6', kid: 'm3', sub: '英文', title: 'Unit 5 單字', note: '20 個，唸三遍再默寫', date: day(0), minutes: 20, done: false, spent: 0, exam_id: '', created_by: 'm3', created_at: ago(900) },
+        { id: 'st7', kid: 'm3', sub: '自然', title: '第四章 重點筆記', note: '整理成一頁', date: day(0), minutes: 40, done: false, spent: 0, exam_id: '', created_by: 'm2', created_at: ago(800) },
+        { id: 'st8', kid: 'm3', sub: '社會', title: '第五課 地圖', note: '', date: day(1), minutes: 30, done: false, spent: 0, exam_id: '', created_by: 'm3', created_at: ago(700) },
+        { id: 'st9', kid: 'm4', sub: '數學', title: '分數乘法練習', note: '習作 p.20', date: day(-1), minutes: 30, done: false, spent: 0, exam_id: '', created_by: 'm4', created_at: ago(3000) },
+        { id: 'st10', kid: 'm4', sub: '英文', title: '字母拼讀', note: '', date: day(0), minutes: 20, done: false, spent: 0, exam_id: '', created_by: 'm4', created_at: ago(900) }
+      ],
+      study_cheers: [
+        { id: 'sc1', kid: 'm3', from: 'm2', kind: 'like', text: '數學習題都寫完了，很棒！', date: day(0), created_at: ago(30) }
+      ],
       shopping: [
         { id: 'sh1', text: '倒垃圾', note: '垃圾車 19:30 到巷口', repeat: 'daily', done: false, who: 'm4', due: day(0), added_by: 'm2', done_by: null, created_at: ago(120) },
         { id: 'sh2', text: '繳第四台費用', star: true, done: false, who: 'm1', due: day(-1), added_by: 'm2', done_by: null, created_at: ago(100) },
@@ -491,6 +506,14 @@
           return { days, tips: ['示範提醒：交通票券先買好', '示範提醒：下雨改去室內景點'] };
         }
         if (op === 'butler') { const c = JSON.parse(args.context); return { answer: '（示範）你問的是「' + args.question + '」。\n' + (c.calendar_未來14天行程 ? '這次送出的紀錄有：行程 ' + c.calendar_未來14天行程.length + ' 筆、待辦 ' + c.todos_還沒做的待辦.length + ' 筆、成績 ' + Object.keys(c.scores_成績).join('、') + '。' : '這一題沒有附上家庭紀錄。') + '\n接上 Gemini 之後，這裡會是真正的回答。', sources: /考|成績/.test(args.question) ? ['scores'] : /零用錢/.test(args.question) ? ['ledger'] : c.calendar_未來14天行程 ? ['calendar', 'todos'] : [], queries: /天氣/.test(args.question) ? ['新竹 天氣'] : [], links: /天氣/.test(args.question) ? [{ url: 'https://www.cwa.gov.tw/', title: 'cwa.gov.tw' }] : [] }; }
+        if (op === 'study') {
+          const items = [];
+          for (let d = new Date(args.start_date + 'T00:00'), i = 0; day(d) < args.exam_date && i < 10; d.setDate(d.getDate() + 1), i++) {
+            items.push({ date: day(d), sub: args.subjects[i % 2 ? 2 : 1] || args.subjects[0], title: i % 2 ? '示範：單字複習' : '示範：例題練習', note: '錯的抄到訂正本', minutes: 30 });
+            if (i % 3 === 0) items.push({ date: day(d), sub: args.subjects[3] || args.subjects[0], title: '示範：重點整理', note: '', minutes: 20 });
+          }
+          return { items, tips: ['示範提醒：考前一天早點睡'] };
+        }
         if (op === 'journal') return { text: '（示範）今天' + (args.place ? '在' + args.place : '') + '玩得很開心！' + args.text.replace(/\n/g, '、') + '，每一件事都想記下來。\n\n接上 Gemini 之後，這裡會是一段完整的日記。' };
         if (op === 'analyze') return { text: '（示範）' + args.name + '的' + (args.kind === 'scores' ? '成績' : '零用錢') + '說明會出現在這裡。\n\n接上 Gemini 之後，這裡會是根據實際紀錄寫出的幾段文字。' };
         throw new Error('op');

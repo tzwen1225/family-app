@@ -1871,3 +1871,119 @@ fieldset.people[disabled] { opacity: .55; }
 html[data-style="big"] .mine-card .todo-title { font-size: 17px; }
 html[data-style="big"] .mine-card .todo-sub { font-size: 14px; }
 html[data-style="big"] .mine-card .todo-done { min-height: 38px; font-size: 15px; }
+
+/* ---------- 讀書計畫 ---------- */
+.st-chip { display: inline-flex; align-items: center; height: 21px; padding: 0 7px; border-radius: 6px; font-size: 12px; font-weight: 700; color: #fff; background: var(--sub); flex: none; letter-spacing: .02em; }
+.st-kids { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 6px 0 12px; }
+.st-kid { display: flex; flex-direction: column; align-items: stretch; gap: 4px; text-align: left; padding: 12px; border-radius: 16px; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); }
+.st-kid.sel { box-shadow: inset 0 0 0 2px var(--green); }
+.st-kid-head { display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.st-kid-num { font: 900 24px/1.1 var(--num); margin-top: 6px; }
+.st-kid-num small { font: 500 14px var(--text); color: var(--ink-2); }
+.st-kid-sub { font-size: 12px; color: var(--ink-2); }
+.st-kid-warn { font-size: 12px; font-weight: 700; color: var(--green); }
+.st-kid-warn.late { color: var(--c-exam); }
+.st-bar { display: block; height: 7px; border-radius: 99px; background: var(--track); overflow: hidden; margin: 4px 0 2px; }
+.st-bar i { display: block; height: 100%; background: var(--green); border-radius: 99px; transition: width .4s ease; }
+
+.st-exam { display: flex; align-items: center; gap: 14px; padding: 14px 14px 14px 16px; border-radius: 18px; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); margin: 6px 0 12px; }
+.st-exam.none { color: var(--ink-2); font-size: 13px; padding: 12px 16px; }
+.st-exam.none b { display: block; color: var(--ink); font-size: 15px; }
+.st-count { flex: none; width: 58px; text-align: center; color: var(--c-exam); display: flex; flex-direction: column; }
+.st-count b { font: 900 36px/1 var(--num); }
+.st-count small { font-size: 12px; font-weight: 700; }
+.st-exam-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.st-exam-main > b { font-size: 16px; }
+.st-exam-main > span { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-exam-main em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--green); }
+.st-exam-main em.soft { color: var(--ink-2); font-weight: 500; margin-top: 4px; }
+.st-ai { flex: none; align-self: center; }
+.st-switch { margin-bottom: 10px; }
+
+.st-week { display: flex; gap: 2px; padding: 8px 4px; border-radius: 18px; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); margin-bottom: 12px; }
+.st-day { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; border-radius: 12px; font-size: 12px; color: var(--ink-2); min-height: 56px; }
+.st-day svg { width: 34px; height: 34px; }
+.st-day .track { fill: none; stroke: var(--track); stroke-width: 3.5; }
+.st-day .bar { fill: none; stroke: var(--green); stroke-width: 3.5; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 16px 16px; transition: stroke-dasharray .4s ease; }
+.st-day text { font: 700 11px var(--num); fill: var(--ink); text-anchor: middle; }
+.st-day.today > span { color: var(--green); font-weight: 800; }
+.st-day.sel { background: color-mix(in srgb, var(--green) 12%, transparent); }
+.st-day.full .track { fill: color-mix(in srgb, var(--green) 14%, transparent); }
+
+.st-list { border-radius: 18px; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; margin-bottom: 12px; }
+.st-list.is-today { box-shadow: inset 0 0 0 2px var(--green); }
+.st-list h3 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 12px 14px 4px; font-size: 14px; font-weight: 800; color: var(--green); }
+.st-list h3 small { font-size: 12px; font-weight: 500; color: var(--ink-2); }
+.st-list h3 small:last-child { margin-left: auto; }
+.st-today { font-size: 11px; font-weight: 800; color: #fff; background: var(--green); border-radius: 99px; padding: 1px 8px; }
+.st-list .none { padding: 6px 14px 14px; font-size: 14px; color: var(--ink-2); }
+.st-row { display: flex; align-items: center; gap: 4px; padding: 2px 10px 2px 4px; position: relative; }
+.st-row + .st-row::before { content: ""; position: absolute; left: 52px; right: 0; top: 0; height: 1px; background: var(--line); }
+.st-check { flex: none; width: 46px; height: 50px; display: flex; align-items: center; justify-content: center; }
+.st-check svg { width: 26px; height: 26px; }
+.st-check circle { fill: var(--sheet); stroke: color-mix(in srgb, var(--ink) 28%, var(--sheet)); stroke-width: 2; transition: fill .2s, stroke .2s; }
+.st-check path { fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
+.st-row.done .st-check circle { fill: var(--green); stroke: var(--green); }
+.st-row.done .st-check path { opacity: 1; }
+.st-check.pop svg { animation: st-pop .35s ease; }
+@keyframes st-pop { 50% { transform: scale(1.25); } }
+.st-check:disabled { opacity: .7; }
+.st-main { flex: 1; min-width: 0; text-align: left; padding: 9px 0; display: flex; flex-direction: column; gap: 3px; }
+.st-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.st-title b { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-row.done .st-title b { color: var(--ink-2); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink) 35%, transparent); }
+.st-meta { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.st-min { flex: none; font-size: 13px; color: var(--ink-2); padding: 0 4px; }
+.st-time { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 10px 0 12px; border-radius: 99px; font-size: 13px; font-weight: 700; color: var(--sub); background: color-mix(in srgb, var(--sub) 12%, var(--sheet)); }
+.st-time svg { width: 14px; height: 14px; fill: currentColor; }
+.st-run { flex: none; min-height: 34px; padding: 0 12px; border-radius: 99px; font: 700 13px var(--num); color: #fff; background: var(--green); animation: st-breathe 2s ease-in-out infinite; }
+@keyframes st-breathe { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--green) 20%, transparent); } }
+
+.st-weekhead { display: flex; align-items: center; gap: 8px; margin: 2px 0 10px; }
+.st-weekhead h2 { font: 800 20px var(--num); }
+.st-weekhead span { font-size: 13px; color: var(--ink-2); }
+.st-weekhead .icon-btn:first-of-type { margin-left: auto; }
+.st-sum { padding: 12px 14px; border-radius: 16px; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); margin-bottom: 12px; }
+.st-sum b { font-size: 14px; }
+.st-stack { display: flex; gap: 2px; height: 10px; border-radius: 99px; overflow: hidden; margin: 8px 0; }
+.st-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--ink-2); }
+.st-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+
+.st-cheers { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.st-cheer { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 16px; background: color-mix(in srgb, var(--c-exam) 10%, var(--sheet)); }
+.st-cheer p { flex: 1; font-size: 14px; line-height: 1.5; }
+.st-cheer small { display: block; font-size: 11px; color: var(--ink-2); }
+.st-cheer .link-btn { font-size: 12px; min-height: 28px; color: var(--ink-2); }
+.st-give { padding: 12px 14px; border-radius: 18px; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); margin-bottom: 12px; }
+.st-give h3 { font-size: 13px; font-weight: 800; color: var(--green); margin-bottom: 8px; }
+.st-give-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.st-give-btns button { min-height: 36px; padding: 0 13px; border-radius: 99px; font-size: 14px; background: var(--track); }
+.st-give-btns .st-like { background: color-mix(in srgb, var(--green) 14%, var(--sheet)); color: var(--green); font-weight: 700; }
+.st-cheer-form { margin-top: 10px; }
+
+.st-subs label span { min-width: 44px; justify-content: center; }
+.weekday-pick { display: flex; justify-content: space-between; margin: 4px 0 12px; }
+.weekday-pick label { position: relative; }
+.weekday-pick input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.weekday-pick span { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; font-weight: 700; background: var(--track); }
+.weekday-pick input:checked + span { background: var(--green); color: #fff; }
+.weekday-pick input:focus-visible + span { outline: 2px solid var(--green); outline-offset: 2px; }
+
+.st-timer { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 10px 0 18px; text-align: center; }
+.st-timer-sub { display: flex; align-items: center; gap: 8px; font-size: 18px; }
+.st-ring { position: relative; width: 230px; height: 230px; }
+.st-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.st-ring .track { fill: none; stroke: var(--track); stroke-width: 8; }
+.st-ring .bar { fill: none; stroke: var(--sub); stroke-width: 8; stroke-linecap: round; transition: stroke-dasharray 1s linear; }
+.st-ring > div { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.st-ring span { font: 800 52px/1 var(--num); font-variant-numeric: tabular-nums; }
+.st-ring small { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+.st-timer-btns { display: flex; gap: 10px; width: 100%; }
+.st-timer-btns .btn { flex: 1; }
+@media (prefers-reduced-motion: reduce) { .st-run, .st-check.pop svg { animation: none; } }
+html[data-theme="night"] .st-run, html[data-theme="night"] .weekday-pick input:checked + span, html[data-theme="night"] .st-today { color: #0E1412; }
+html[data-style="comic"] :is(.st-kid, .st-exam, .st-week, .st-list, .st-sum, .st-give) { border: 2.5px solid #111; border-radius: 6px; box-shadow: 4px 4px 0 #111; }
+html[data-style="tech"] .st-run { color: #04131A; }
+html[data-style="big"] .st-title b { font-size: 18px; }
+.sheet select { width: 100%; min-height: 46px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; font: 16px var(--text); color: var(--ink); background: var(--sheet); margin-top: 6px; }
+.st-timer .btn.primary { background: var(--green); border-color: var(--green); }

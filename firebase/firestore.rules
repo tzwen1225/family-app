@@ -275,6 +275,38 @@ service cloud.firestore {
     }
 
     // 考試成績：小朋友只看得到、只能改自己的；家長看得到全部，也可以幫忙登記
+    // 讀書計畫：小朋友只讀寫自己的；爸媽可以看、可以幫忙加，也可以給鼓勵
+    function validStudy() {
+      let d = request.resource.data;
+      return d.kid is string
+        && exists(/databases/$(database)/documents/members/$(d.kid))
+        && d.sub is string && d.sub.size() >= 1 && d.sub.size() <= 12
+        && d.title is string && d.title.size() >= 1 && d.title.size() <= 60
+        && d.get('note', '') is string && d.get('note', '').size() <= 200
+        && d.date is string && d.date.size() == 10
+        && d.minutes is number && d.minutes >= 5 && d.minutes <= 300
+        && d.done is bool
+        && d.get('spent', 0) is number && d.get('spent', 0) >= 0 && d.get('spent', 0) <= 1440;
+    }
+    match /study_items/{id} {
+      allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
+      allow create: if isFamily() && validStudy()
+        && (!isChild() || request.resource.data.kid == request.auth.uid);
+      allow update: if isFamily() && validStudy()
+        && (!isChild() || (resource.data.kid == request.auth.uid && request.resource.data.kid == request.auth.uid));
+      allow delete: if isFamily()
+        && (!isChild() || resource.data.kid == request.auth.uid);
+    }
+    match /study_cheers/{id} {
+      allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
+      allow create: if isFamily() && !isChild()
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.kid is string
+        && request.resource.data.text is string && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 100
+        && request.resource.data.created_at is number;
+      allow delete: if isFamily() && resource.data.from == request.auth.uid;
+    }
+
     match /scores/{id} {
       allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
       allow create: if isFamily() && validScore()

@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 22:25';
+  const VERSION = '2026-11-19 22:52';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -106,6 +106,8 @@
     butler: { msgs: [], busy: false },   // 家庭小管家的對話（不存檔，重新整理就清掉）
     butlerReady: Promise.resolve(),      // 小管家要用的紀錄（行程、成績、零用錢）讀完了沒
     msgReacts: [],                  // 聊天訊息的表情回應
+    studyItems: [], studyCheers: [],   // 讀書計畫和爸媽的鼓勵
+    studyKid: null, studyMode: 'day', studyDay: null,
     journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -318,7 +320,7 @@
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
-    else if (state.tab === 'notes') { if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'butler') state.butlerReady = Promise.all([loadScores(), loadLedger(), loadEvents()]).catch(() => {}); else if (state.notesView === 'album') loadAlbum(); else if (state.notesView === 'transit') loadTransit(); }
+    else if (state.tab === 'notes') { if (state.notesView === 'study' && !state.studyDay) state.studyDay = today(); if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'butler') state.butlerReady = Promise.all([loadScores(), loadLedger(), loadEvents()]).catch(() => {}); else if (state.notesView === 'album') loadAlbum(); else if (state.notesView === 'transit') loadTransit(); }
   }
 
   // ---------- 啟動 ----------
@@ -400,6 +402,24 @@
     saveCache();
   }
 
+  function onStudyItems(list) { state.studyItems = list; refreshStudy(); }
+  function onStudyCheers(list) { state.studyCheers = list; refreshStudy(); }
+  let studyDirty = false;
+  function refreshStudy() {
+    refreshTodos();
+    if (state.tab !== 'notes') return;
+    if (state.notesView === 'hub' && !$sheet.innerHTML) return render();
+    if (state.notesView !== 'study') return;
+    // 正在打鼓勵的話或開著表單時先不重畫，關掉再畫
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.st-give');
+    if (typing || $sheet.innerHTML) { studyDirty = true; return; }
+    studyDirty = false;
+    const sc = scroller(), y = sc ? sc.scrollTop : 0;
+    render();
+    if (sc && scroller()) scroller().scrollTop = y;
+  }
+  document.addEventListener('focusout', (ev) => { if (studyDirty && ev.target.closest && ev.target.closest('.st-give')) setTimeout(refreshStudy, 0); });
+
   function startWatching() {
     stopWatching();
     stopWatchers = [
@@ -421,6 +441,9 @@
       Api.watchWhere('birthday_cards', 'to', state.userId, (list) => { bdayTo = list; state.bdayCards = bdayTo.concat(bdayFrom); drawBday(); }),
       Api.watchWhere('birthday_cards', 'from', state.userId, (list) => { bdayFrom = list; state.bdayCards = bdayTo.concat(bdayFrom); drawBday(); }),
       Api.watchList('journal_reacts', (list) => { state.journalReacts = list; refreshTravel(); }),
+      ...(amChild()
+        ? [Api.watchWhere('study_items', 'kid', state.userId, onStudyItems), Api.watchWhere('study_cheers', 'kid', state.userId, onStudyCheers)]
+        : [Api.watchList('study_items', onStudyItems), Api.watchList('study_cheers', onStudyCheers)]),
       Api.watchList('message_reacts', (list) => { state.msgReacts = list; if (state.tab === 'chat') refreshChat(false); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       // 資料卡：家長看全部；小朋友只讀得到自己新增的（安全規則也是這樣擋）
@@ -522,6 +545,7 @@
     if (state.notesView === 'transit') return '';
     if (state.notesView === 'shop') return '';                       // 待辦直接在上方輸入
     if (state.notesView === 'cards') return '新增資料卡';
+    if (state.notesView === 'study') { const k = member(studyKid()); return !k ? '' : k.id === state.userId ? '新增讀書項目' : '幫' + k.display_name + '加讀書項目'; }
     if (state.notesView === 'scores') return kids().length ? '新增成績' : '';
     return kids().length ? '新增一筆零用錢紀錄' : '';
   }
@@ -603,6 +627,17 @@
             </button>
             <button class="todo-done reply" data-act="tab" data-tab="chat">去看</button>
           </div>`));
+    if (amChild()) {
+      const list = studyOf(state.userId, today()), left = list.filter((x) => !x.done);
+      if (left.length) items.push(`
+          <div class="todo">
+            <button class="todo-main" data-act="open-study">
+              <span class="todo-title">今天的讀書計畫 ${list.length - left.length}／${list.length}</span>
+              <span class="todo-sub">還沒讀：${esc(left.slice(0, 3).map((x) => x.sub + ' ' + x.title).join('、'))}</span>
+            </button>
+            <button class="todo-done" data-act="open-study">去讀書</button>
+          </div>`);
+    }
     return items;
   }
   function mineHtml() {
@@ -3385,8 +3420,388 @@
 
   // ---------- 雜記 ----------
   // 鍾家生活：先看到所有功能的清單，點進去才是各個功能；每個功能左上角可以回到清單
+  // ---------- 讀書計畫 ----------
+  // 每一項是 study_items 的一筆：{ kid, sub 科目, title, note, date, minutes 預計分鐘, done, spent 實際分鐘, exam_id, series, created_by }
+  // 每週重複的在新增時就展開成好幾筆（同一個 series），每一天各自打勾。
+  // 爸媽的鼓勵是 study_cheers：{ kid, from, kind: like|text, text, date }
+  const STUDY_DEFAULT_SUBJECTS = ['國文', '數學', '英文', '自然', '社會'];
+  const STUDY_COLORS = { 國文: '#C2410C', 數學: '#2F6FDE', 英文: '#8A4FD0', 自然: '#1F8A5F', 社會: '#8A5A1F', 理化: '#0E7C86', 生物: '#3F8F3A', 地理: '#9C6B2F', 歷史: '#A1442E', 公民: '#5B6BB0', 作文: '#B4466B' };
+  const STUDY_PALETTE = ['#2F6FDE', '#C2410C', '#8A4FD0', '#1F8A5F', '#8A5A1F', '#0E7C86', '#B4466B', '#5B6BB0'];
+  const STUDY_MINUTES = [20, 30, 45, 60, 90];
+  const STUDY_CHEERS = ['今天很認真', '加油，快完成了', '早點睡', '休息一下再繼續'];
+  const studySubjects = () => {
+    const custom = state.subjects.map((x) => x.label);
+    return custom.length ? custom : STUDY_DEFAULT_SUBJECTS;
+  };
+  function studyColor(sub) {
+    if (STUDY_COLORS[sub]) return STUDY_COLORS[sub];
+    let h = 0;
+    for (const ch of String(sub)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return STUDY_PALETTE[h % STUDY_PALETTE.length];
+  }
+  const studyChip = (sub) => `<span class="st-chip" style="--sub:${esc(studyColor(sub))}">${esc(sub)}</span>`;
+  const weekStartOf = (d) => addDays(d, -((parse(d).getDay() + 6) % 7));   // 一週從星期一開始
+  const studyKid = () => (amChild() ? state.userId : (member(state.studyKid) && state.studyKid) || (kids()[0] || {}).id || null);
+  const studyOf = (kid, date) => state.studyItems.filter((x) => x.kid === kid && (!date || x.date === date))
+    .sort((a, b) => (a.done - b.done) || (a.created_at || 0) - (b.created_at || 0));
+  const minText = (m) => (m >= 60 ? Math.floor(m / 60) + ' 小時' + (m % 60 ? ' ' + (m % 60) + ' 分' : '') : m + ' 分鐘');
+  // 這位小朋友接下來的考試（行事曆裡類型是「考試」、標註了他或沒標註人）
+  function studyExams(kid) {
+    const seen = new Set();
+    return state.upcoming.filter((e) => e.category === 'exam' && e.event_date >= today()
+      && (!e.member_ids || !e.member_ids.length || e.member_ids.includes(kid)))
+      .filter((e) => { const k = (e.series ? e.series.id : e.id) + e.event_date; if (seen.has(k)) return false; seen.add(k); return true; })
+      .sort((a, b) => a.event_date.localeCompare(b.event_date));
+  }
+  // 連續幾天：從今天（今天還沒讀完就從昨天）往回數，每天都有排而且全部打勾
+  function studyStreak(kid) {
+    let n = 0, d = today();
+    const day = (x) => studyOf(kid, x);
+    if (day(d).some((x) => !x.done) || !day(d).length) d = addDays(d, -1);
+    for (let i = 0; i < 60; i++, d = addDays(d, -1)) {
+      const list = day(d);
+      if (!list.length) { if (i === 0) continue; break; }
+      if (list.some((x) => !x.done)) break;
+      n++;
+    }
+    return n;
+  }
+  function studyWeekStats(kid, start) {
+    const end = addDays(start, 6);
+    const list = state.studyItems.filter((x) => x.kid === kid && x.date >= start && x.date <= end);
+    const done = list.filter((x) => x.done);
+    const missed = [];
+    for (let d = start; d < today() && d <= end; d = addDays(d, 1)) {
+      if (list.some((x) => x.date === d && !x.done)) missed.push('週' + WEEKDAYS[parse(d).getDay()]);
+    }
+    return { total: list.length, done: done.length, minutes: done.reduce((n, x) => n + (Number(x.spent) || Number(x.minutes) || 0), 0), missed };
+  }
+
+  // ---- 專心計時：存在手機上，離開 App 也繼續算 ----
+  const TIMER_KEY = 'family-study-timer';
+  let studyTimer = null;
+  try { studyTimer = JSON.parse(localStorage.getItem(TIMER_KEY)); } catch (e) { /* 沒有 */ }
+  let timerWake = null;
+  const timerSec = () => (studyTimer ? Math.max(0, Math.floor((Date.now() - studyTimer.start) / 1000)) : 0);
+  const mmss = (sec) => pad(Math.floor(sec / 60)) + ':' + pad(sec % 60);
+  function startStudyTimer(id) {
+    studyTimer = { id, start: Date.now() };
+    try { localStorage.setItem(TIMER_KEY, JSON.stringify(studyTimer)); } catch (e) { /* 存不了 */ }
+    render();            // 那一項換成「專心中」
+    openTimerSheet();
+  }
+  function clearStudyTimer() {
+    studyTimer = null;
+    try { localStorage.removeItem(TIMER_KEY); } catch (e) { /* 沒關係 */ }
+    if (timerWake) { timerWake.release().catch(() => {}); timerWake = null; }
+  }
+  function openTimerSheet() {
+    const x = studyTimer && findById(state.studyItems, studyTimer.id);
+    if (!x) { clearStudyTimer(); return; }
+    showSheet('study-timer', {
+      title: '專心計時', readonly: true,
+      body: `
+      <div class="st-timer" style="--sub:${esc(studyColor(x.sub))}">
+        <div class="st-timer-sub">${studyChip(x.sub)}<b>${esc(x.title)}</b></div>
+        <div class="st-ring">
+          <svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="52" class="track"/><circle cx="60" cy="60" r="52" class="bar" id="st-ring-bar" pathLength="100" stroke-dasharray="0 100"/></svg>
+          <div><span id="st-clock" role="timer" aria-live="off">${mmss(timerSec())}</span><small>目標 ${x.minutes} 分鐘</small></div>
+        </div>
+        <p class="hint" id="st-timer-hint">手機可以放著，離開 App 也會繼續算。</p>
+        <div class="st-timer-btns">
+          <button type="button" class="btn primary" data-act="study-timer-done">讀完了</button>
+          <button type="button" class="btn" data-act="study-timer-stop">先停下來</button>
+        </div>
+        <button type="button" class="link-btn" data-act="study-timer-cancel">不要記錄，取消計時</button>
+      </div>`
+    });
+    if (navigator.wakeLock && !timerWake) navigator.wakeLock.request('screen').then((w) => { timerWake = w; }).catch(() => {});
+    tickTimer();
+  }
+  function tickTimer() {
+    const el = document.getElementById('st-clock');
+    const x = studyTimer && findById(state.studyItems, studyTimer.id);
+    if (el && x) {
+      const sec = timerSec();
+      el.textContent = mmss(sec);
+      const bar = document.getElementById('st-ring-bar');
+      if (bar) bar.setAttribute('stroke-dasharray', Math.min(100, sec / 60 / x.minutes * 100).toFixed(1) + ' 100');
+      if (sec >= x.minutes * 60) { const h = document.getElementById('st-timer-hint'); if (h) h.textContent = '已經達到目標時間了，讀完就按「讀完了」。'; }
+    }
+    document.querySelectorAll('[data-timer]').forEach((pill) => { pill.textContent = '專心中 ' + mmss(timerSec()); });
+  }
+  setInterval(() => { if (studyTimer) tickTimer(); }, 1000);
+  async function finishStudyTimer(markDone) {
+    const x = studyTimer && findById(state.studyItems, studyTimer.id);
+    const mins = Math.max(1, Math.round(timerSec() / 60));
+    clearStudyTimer(); closeSheet();
+    if (!x) return;
+    try {
+      await Api.updateDoc('study_items', x.id, { spent: Math.min(1440, (Number(x.spent) || 0) + mins), ...(markDone ? { done: true, done_at: Date.now() } : {}) });
+      toast(markDone ? '記下了 ' + mins + ' 分鐘，完成！' : '記下了 ' + mins + ' 分鐘');
+    } catch (e) { console.error(e); toast('沒有記錄成功，請再試一次'); }
+  }
+
+  // ---- 畫面 ----
+  function studyRowHtml(x, canEdit, canTime) {
+    const running = studyTimer && studyTimer.id === x.id;
+    const meta = [x.note ? esc(x.note) : '', x.spent ? '讀了 ' + x.spent + ' 分' : ''].filter(Boolean).join('・');
+    return `
+      <div class="st-row ${x.done ? 'done' : ''}" style="--sub:${esc(studyColor(x.sub))}">
+        <button class="st-check" data-act="study-done" data-id="${esc(x.id)}" aria-pressed="${!!x.done}" aria-label="${esc(x.title)}，${x.done ? '已完成，按一下取消' : '按一下完成'}" ${canEdit ? '' : 'disabled'}>
+          <svg viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="11.5"/><path d="M8 13.5l3.2 3.2L18 9.8"/></svg>
+        </button>
+        <${canEdit ? `button class="st-main" data-act="study-edit" data-id="${esc(x.id)}"` : 'div class="st-main"'}>
+          <span class="st-title">${studyChip(x.sub)}<b>${esc(x.title)}</b></span>
+          ${meta ? `<span class="st-meta">${meta}</span>` : ''}
+        </${canEdit ? 'button' : 'div'}>
+        ${running ? `<button class="st-run" data-act="study-timer-open" data-timer>專心中 ${mmss(timerSec())}</button>`
+          : canTime && !x.done ? `<button class="st-time" data-act="study-timer" data-id="${esc(x.id)}" aria-label="開始專心計時">${x.minutes} 分<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10-6.500z"/></svg></button>`
+            : `<span class="st-min">${x.minutes} 分</span>`}
+      </div>`;
+  }
+  function studyRings(kid, start) {
+    const r = 13, c = 2 * Math.PI * r;
+    let html = '';
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(start, i), list = studyOf(kid, d);
+      const p = list.length ? list.filter((x) => x.done).length / list.length : 0;
+      const isSel = d === state.studyDay, isToday = d === today();
+      html += `
+        <button class="st-day ${isSel ? 'sel' : ''} ${isToday ? 'today' : ''} ${list.length && p === 1 ? 'full' : ''}" data-act="study-day" data-date="${d}" aria-pressed="${isSel}" aria-label="${shortDate(d)}，${list.length ? '完成 ' + Math.round(p * 100) + '%' : '沒有安排'}">
+          <span>${WEEKDAYS[parse(d).getDay()]}</span>
+          <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="${r}" class="track"/>${list.length ? `<circle cx="16" cy="16" r="${r}" class="bar" stroke-dasharray="${(c * p).toFixed(1)} ${c.toFixed(1)}"/>` : ''}<text x="16" y="20.500">${parse(d).getDate()}</text></svg>
+        </button>`;
+    }
+    return `<div class="st-week">${html}</div>`;
+  }
+  function studyExamCard(kid) {
+    const ex = studyExams(kid)[0];
+    if (!ex) return `
+      <section class="st-exam none">
+        <div><b>最近沒有考試</b><span>在行事曆加一個「考試」，這裡就會倒數。</span></div>
+      </section>`;
+    const left = daysBetween(today(), ex.event_date);
+    const linked = state.studyItems.filter((x) => x.kid === kid && x.exam_id === ex.id);
+    const p = linked.length ? Math.round(linked.filter((x) => x.done).length / linked.length * 100) : 0;
+    return `
+      <section class="st-exam" aria-label="考試倒數">
+        <div class="st-count"><small>${left === 0 ? '就是' : '還有'}</small><b>${left === 0 ? '今天' : left}</b><small>${left === 0 ? '' : '天'}</small></div>
+        <div class="st-exam-main">
+          <b>${esc(ex.title)}</b>
+          <span>${shortDate(ex.event_date)}${ex.note ? '・' + esc(ex.note) : ''}</span>
+          ${linked.length ? `<div class="st-bar"><i style="width:${p}%"></i></div><em>準備 ${p}%（${linked.filter((x) => x.done).length}／${linked.length} 項）</em>`
+            : '<em class="soft">還沒有為這次考試排計畫</em>'}
+        </div>
+        ${left > 0 ? `<button class="ai-btn st-ai" data-act="study-ai" data-exam="${esc(ex.id)}">AI 排計畫</button>` : ''}
+      </section>`;
+  }
+  function studyKidCards() {
+    const start = weekStartOf(today());
+    return `<div class="st-kids">${kids().map((k) => {
+      const s = studyWeekStats(k.id, start), sel = k.id === studyKid();
+      const t = studyOf(k.id, today());
+      return `
+        <button class="st-kid ${sel ? 'sel' : ''}" data-act="study-kid" data-id="${esc(k.id)}" aria-pressed="${sel}">
+          <span class="st-kid-head">${avatarHtml(k, 'sm')}<b>${esc(k.display_name)}</b></span>
+          <span class="st-kid-num">${s.done}<small> / ${s.total} 項</small></span>
+          <span class="st-bar"><i style="width:${s.total ? Math.round(s.done / s.total * 100) : 0}%"></i></span>
+          <span class="st-kid-sub">這週讀了 ${minText(s.minutes)}・連續 ${studyStreak(k.id)} 天</span>
+          <span class="st-kid-warn ${s.missed.length ? 'late' : ''}">${s.missed.length ? s.missed.slice(-2).join('、') + '沒有打勾' : t.length ? '今天 ' + t.filter((x) => x.done).length + '／' + t.length : '今天沒有安排'}</span>
+        </button>`;
+    }).join('')}</div>`;
+  }
+  function studyCheersHtml(kid) {
+    const list = state.studyCheers.filter((c) => c.kid === kid && c.date >= addDays(today(), -6)).sort((a, b) => b.created_at - a.created_at).slice(0, 3);
+    if (!list.length) return '';
+    return `<section class="st-cheers" aria-label="爸媽的鼓勵">${list.map((c) => {
+      const m = member(c.from);
+      return `<div class="st-cheer">${m ? avatarHtml(m, 'sm') : ''}<p><b>${esc(nameOf(c.from))}${c.kind === 'like' ? '按了讚' : ''}</b>${c.kind === 'like' && c.text === '讚' ? '' : '：' + esc(c.text)}<small>${stamp(c.created_at)}</small></p>
+        ${c.from === state.userId ? `<button class="link-btn" data-act="study-cheer-del" data-id="${esc(c.id)}" aria-label="收回這則鼓勵">收回</button>` : ''}</div>`;
+    }).join('')}</section>`;
+  }
+  function viewStudy() {
+    const kid = studyKid();
+    const child = amChild();
+    if (!kid) return `<header class="plain-head"><h1>讀書計畫</h1></header><div class="empty big"><p>家裡還沒有設定小朋友。到「設定 → 家人」把小朋友的帳號標成小朋友，這裡就能用了。</p></div>`;
+    const k = member(kid);
+    const canTime = kid === state.userId;
+    const day = state.studyDay || today();
+    const start = weekStartOf(day);
+    let html = `
+      <header class="plain-head"><h1>讀書計畫</h1><p>${child ? '只有你和爸媽看得到' : '小朋友的讀書進度'}</p></header>
+      ${child ? '' : studyKidCards()}
+      ${studyExamCard(kid)}
+      <div class="switcher st-switch" role="group" aria-label="檢視">
+        <button class="${state.studyMode !== 'week' ? 'on' : ''}" data-act="study-mode" data-mode="day" aria-pressed="${state.studyMode !== 'week'}">每天</button>
+        <button class="${state.studyMode === 'week' ? 'on' : ''}" data-act="study-mode" data-mode="week" aria-pressed="${state.studyMode === 'week'}">這週</button>
+      </div>`;
+    if (state.studyMode === 'week') {
+      const list = state.studyItems.filter((x) => x.kid === kid && x.date >= start && x.date <= addDays(start, 6));
+      const by = {};
+      list.forEach((x) => { by[x.sub] = (by[x.sub] || 0) + (Number(x.minutes) || 0); });
+      const total = Object.values(by).reduce((a, b) => a + b, 0);
+      html += `
+        <div class="st-weekhead">
+          <h2>${shortDate(start).replace(/（.*/, '')} – ${shortDate(addDays(start, 6)).replace(/（.*/, '')}</h2>
+          <span>完成 ${list.filter((x) => x.done).length}／${list.length}</span>
+          <button class="icon-btn" data-act="study-week" data-step="-7" aria-label="上一週">‹</button>
+          <button class="icon-btn" data-act="study-week" data-step="7" aria-label="下一週">›</button>
+        </div>
+        ${total ? `
+        <section class="st-sum">
+          <b>這週安排 ${minText(total)}</b>
+          <div class="st-stack">${Object.keys(by).map((s) => `<i style="flex:${by[s]};background:${esc(studyColor(s))}" title="${esc(s)}"></i>`).join('')}</div>
+          <div class="st-legend">${Object.keys(by).map((s) => `<span><i style="background:${esc(studyColor(s))}"></i>${esc(s)} ${by[s]} 分</span>`).join('')}</div>
+        </section>` : ''}`;
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(start, i), items = studyOf(kid, d);
+        if (!items.length) continue;
+        html += `
+          <section class="st-list ${d === today() ? 'is-today' : ''}">
+            <h3>${shortDate(d)}${d === today() ? '<span class="st-today">今天</span>' : ''}<small>${items.reduce((n, x) => n + (Number(x.minutes) || 0), 0)} 分鐘</small></h3>
+            ${items.map((x) => studyRowHtml(x, true, canTime && d === today())).join('')}
+          </section>`;
+      }
+      if (!list.length) html += `<div class="empty"><p>這週還沒有安排。按下面的「新增讀書項目」，或請 AI 排到考試前。</p></div>`;
+    } else {
+      const items = studyOf(kid, day);
+      const left = items.filter((x) => !x.done).reduce((n, x) => n + (Number(x.minutes) || 0), 0);
+      const rel = day === today() ? '今天' : day === addDays(today(), 1) ? '明天' : day === addDays(today(), -1) ? '昨天' : '';
+      html += studyRings(kid, start) + `
+        <section class="st-list">
+          <h3>${rel ? rel + ' ' : ''}${shortDate(day)}<small>${items.length ? '完成 ' + items.filter((x) => x.done).length + '／' + items.length + (left ? '・還要約 ' + minText(left) : '・全部完成 🎉') : ''}</small></h3>
+          ${items.length ? items.map((x) => studyRowHtml(x, true, canTime && day === today())).join('')
+            : `<p class="none">${day < today() ? '這天沒有安排。' : '這天還沒有安排。按下面的「新增讀書項目」。'}</p>`}
+        </section>`;
+    }
+    html += studyCheersHtml(kid);
+    if (!child) html += `
+      <section class="st-give" aria-label="給${esc(k.display_name)}鼓勵">
+        <h3>給${esc(k.display_name)}鼓勵</h3>
+        <div class="st-give-btns">
+          <button class="st-like" data-act="study-cheer" data-kind="like" data-text="讚">👍 按讚</button>
+          ${STUDY_CHEERS.map((t) => `<button data-act="study-cheer" data-kind="text" data-text="${esc(t)}">${esc(t)}</button>`).join('')}
+        </div>
+        <form class="reply-form st-cheer-form" id="study-cheer-form">
+          <input name="text" type="text" maxlength="100" placeholder="留一句話給${esc(k.display_name)}" autocomplete="off" enterkeyhint="send" aria-label="留一句話">
+          <button type="submit" class="send sm" aria-label="送出">${ICON.send}</button>
+        </form>
+      </section>`;
+    return html;
+  }
+  function studyHubNote() {
+    const t = today();
+    if (amChild()) {
+      const list = studyOf(state.userId, t), ex = studyExams(state.userId)[0];
+      const a = list.length ? `今天 ${list.filter((x) => x.done).length}／${list.length} 項` : '今天還沒有安排';
+      return ex ? `${a}　<em>${esc(ex.title)}還有 ${daysBetween(t, ex.event_date)} 天</em>` : a;
+    }
+    const parts = kids().map((k) => { const l = studyOf(k.id, t); return l.length ? esc(k.display_name) + ' ' + l.filter((x) => x.done).length + '／' + l.length : ''; }).filter(Boolean);
+    return parts.length ? '今天：' + parts.join('、') : '小朋友的讀書計畫和進度';
+  }
+
+  // ---- 新增、編輯 ----
+  function openStudySheet(item) {
+    const kid = item ? item.kid : studyKid();
+    if (!kid) return;
+    const k = member(kid);
+    const x = item || { sub: studySubjects()[0], title: '', note: '', minutes: 30, date: state.studyDay && state.studyDay >= today() ? state.studyDay : today(), exam_id: '' };
+    const exams = studyExams(kid);
+    const subs = Array.from(new Set(studySubjects().concat(x.sub ? [x.sub] : [])));
+    const wd = parse(x.date).getDay();
+    showSheet('study-form', {
+      title: item ? '編輯讀書項目' : (kid === state.userId ? '新增讀書項目' : '幫' + k.display_name + '加讀書項目'), focus: !item,
+      footer: item ? DELETE_BTN : '',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(x.id || '')}">
+      <input type="hidden" name="kid" value="${esc(kid)}">
+      <fieldset class="seg st-subs">
+        <legend>科目</legend>
+        ${subs.map((s) => `<label style="--cat:${esc(studyColor(s))}"><input type="radio" name="sub" value="${esc(s)}" ${x.sub === s ? 'checked' : ''}><span>${esc(s)}</span></label>`).join('')}
+      </fieldset>
+      <label>要讀什麼<input class="title-input" name="title" value="${esc(x.title)}" maxlength="60" placeholder="例如：第四章 例題" autocomplete="off"></label>
+      <label>範圍或方法（可不填）<input name="note" value="${esc(x.note || '')}" maxlength="200" placeholder="例如：課本 p.53–60，錯的抄到訂正本" autocomplete="off"></label>
+      <fieldset class="seg">
+        <legend>大約要多久</legend>
+        ${Array.from(new Set(STUDY_MINUTES.concat([Number(x.minutes) || 30]))).sort((a, b) => a - b).map((m) => `<label style="--cat:var(--green)"><input type="radio" name="minutes" value="${m}" ${Number(x.minutes) === m ? 'checked' : ''}><span>${m} 分</span></label>`).join('')}
+      </fieldset>
+      <div class="row two">
+        <label>哪一天<input type="date" name="date" value="${esc(x.date)}"></label>
+        <label>為了哪一次考試
+          <select name="exam_id">
+            <option value="">不是為了考試</option>
+            ${exams.map((e) => `<option value="${esc(e.id)}" ${x.exam_id === e.id || (!item && exams[0] === e) ? 'selected' : ''}>${esc(e.title)} ${shortDate(e.event_date).replace(/（.*/, '')}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      ${item ? '' : `
+      <label class="switch"><span>每週重複</span><input type="checkbox" name="repeat"></label>
+      <div id="st-repeat" hidden>
+        <div class="weekday-pick">${WEEKDAYS.map((w, i) => `<label><input type="checkbox" name="wd" value="${i}" ${i === wd ? 'checked' : ''}><span>${w}</span></label>`).join('')}</div>
+        <label>重複到哪一天<input type="date" name="until" value="${esc(exams[0] ? addDays(exams[0].event_date, -1) : addDays(x.date, 27))}"></label>
+        <p class="hint">會在這段期間的每一個勾選的星期各排一項，每一天各自打勾。</p>
+      </div>`}
+      ${kid !== state.userId ? `<p class="hint">${esc(k.display_name)}會在讀書計畫看到這一項。</p>` : ''}`
+    });
+  }
+  // 「每週重複」打開時才顯示星期和結束日期
+  document.addEventListener('change', (ev) => {
+    if (ev.target.name === 'repeat' && ev.target.closest('#study-form')) { const r = document.getElementById('st-repeat'); if (r) r.hidden = !ev.target.checked; }
+  });
+
+  // ---- AI 排計畫 ----
+  let studyDraft = null;
+  async function sendStudyCheer(kind, text) {
+    const kid = studyKid();
+    if (!kid || amChild()) return;
+    try {
+      await Api.addDoc('study_cheers', { kid, from: state.userId, kind, text, date: today(), created_at: Date.now() });
+      toast(kind === 'like' ? '已按讚，' + nameOf(kid) + '會收到通知' : '已送出');
+    } catch (e) { console.error(e); toast('沒有送出，請確認已經執行過最新的 deploy.bat'); }
+  }
+  function openStudyAiSheet(examId) {
+    const kid = studyKid(), k = member(kid);
+    const exams = studyExams(kid);
+    const ex = exams.find((e) => e.id === examId) || exams[0];
+    if (!ex) return toast('先在行事曆加一個「考試」');
+    showSheet('study-ai-form', {
+      title: '請 AI 排讀書計畫', submit: '開始排',
+      body: `
+      <input type="hidden" name="exam_id" value="${esc(ex.id)}">
+      <p class="hint">${esc(k.display_name)}・${esc(ex.title)} ${shortDate(ex.event_date)}・從今天排到考試前一天（${daysBetween(today(), ex.event_date)} 天）</p>
+      <label>各科考試範圍<textarea name="range" rows="5" maxlength="1500" placeholder="國文：第五、六課&#10;數學：第三、四章&#10;英文：Unit 4–6&#10;自然：第四章">${esc(ex.note || '')}</textarea></label>
+      <fieldset class="seg">
+        <legend>每天大約可以讀多久</legend>
+        ${[30, 60, 90, 120].map((m) => `<label style="--cat:var(--green)"><input type="radio" name="minutes" value="${m}" ${m === 60 ? 'checked' : ''}><span>${minText(m)}</span></label>`).join('')}
+      </fieldset>
+      <p class="hint">會把考試名稱、日期、範圍和科目送到 Google Gemini。排出來的是草稿，你勾選要的再加進計畫，之後都可以改。</p>`
+    });
+  }
+  function openStudyDraftSheet() {
+    if (!studyDraft) return;
+    const by = {};
+    studyDraft.items.forEach((x, i) => { (by[x.date] = by[x.date] || []).push([x, i]); });
+    showSheet('study-draft-form', {
+      title: 'AI 排的讀書計畫', submit: '加入計畫',
+      body: `
+      <p class="hint">共 ${studyDraft.items.length} 項，勾選的會加進計畫。</p>
+      ${Object.keys(by).sort().map((d) => `
+        <h3 class="ai-day">${shortDate(d)}<span>${by[d].reduce((n, [x]) => n + x.minutes, 0)} 分鐘</span></h3>
+        <div class="call-pick">
+          ${by[d].map(([x, i]) => `
+          <label class="call-pick-row ai-pick">
+            <span class="plan-main"><span class="plan-title">${studyChip(x.sub)} ${esc(x.title)}</span>${x.note ? `<span class="plan-note">${esc(x.note)}・${x.minutes} 分</span>` : `<span class="plan-note">${x.minutes} 分</span>`}</span>
+            <input type="checkbox" name="pick" value="${i}" checked><span class="check" aria-hidden="true"></span>
+          </label>`).join('')}
+        </div>`).join('')}
+      ${studyDraft.tips.length ? `<h3 class="ai-day">小提醒</h3><ul class="ai-tips">${studyDraft.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}`
+    });
+  }
+
   const HUB = [
     ['butler', '家庭小管家', '#1F6B52', '<path d="M12 4l1.800 4.700L18.500 10.500l-4.700 1.800L12 17l-1.800-4.700L5.500 10.500l4.700-1.800z"/><path d="M18.500 15.500l.700 1.800 1.800.700-1.800.700-.700 1.800-.700-1.800-1.800-.700 1.800-.700z"/>'],
+    ['study', '讀書計畫', '#2F6FDE', '<path d="M4 5.500C6.500 4.500 9 4.500 12 6.500c3-2 5.500-2 8-1v13c-2.500-1-5-1-8 1-3-2-5.500-2-8-1z"/><path d="M12 6.500v13"/>'],
     ['ledger', '零用錢', '#34A853', '<path d="M4 8.500A2.500 2.500 0 0 1 6.500 6H17a2 2 0 0 1 2 2v1"/><rect x="4" y="9" width="16" height="10" rx="2.500"/><circle cx="15.500" cy="14" r="1.300" fill="#fff" stroke="none"/>'],
     ['scores', '成績', '#F29D0B', '<path d="M5 19V11M10 19V5M15 19v-6M20 19V8"/>'],
     ['notes', '旅遊', '#0E9AA7', '<path d="M3.500 12.500l17-7.500-6 15-3-6z"/><path d="M11.500 14l3-3"/>'],
@@ -3401,6 +3816,7 @@
       return n ? `<em>${n} 筆費用${amChild() ? '等爸媽給' : '還沒給'}</em>` : amChild() ? '記支出、跟爸媽申請費用' : '小朋友的記帳本';
     }
     if (id === 'butler') return '什麼都可以問，也查得到家裡的紀錄';
+    if (id === 'study') return studyHubNote();
     if (id === 'scores') return amChild() ? '只有你和爸媽看得到' : '考試成績紀錄';
     if (id === 'notes') {
       const next = state.trips.filter((t) => t.end_date >= today()).sort((x, y) => x.start_date.localeCompare(y.start_date))[0];
@@ -3427,7 +3843,7 @@
       </nav>`;
   }
   function viewNotes() {
-    const views = { butler: viewButler, ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, transit: viewTransit, shop: viewShop, cards: viewCards };
+    const views = { study: viewStudy, butler: viewButler, ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, transit: viewTransit, shop: viewShop, cards: viewCards };
     const view = views[state.notesView];
     if (!view) return viewHub();
     // 旅程裡面、公車路線裡面已經有自己的「返回」，就不再多放一個
@@ -3729,6 +4145,7 @@
     pendingPhotos = [];
     $sheet.innerHTML = '';
     document.body.classList.remove('sheet-open');
+    if (studyDirty) setTimeout(refreshStudy, 0);     // 表單開著時讀書計畫有變動：關掉後補畫
   }
 
   const DELETE_BTN = '<button type="button" class="btn danger" data-act="delete">刪除</button>';
@@ -4737,10 +5154,7 @@
     'post-form': {
       done: '已送出',
       read: (f, form) => ({ id: f.item_id.value || null, text: f.text.value.trim(), to: checkedValues(form, 'to') }),
-      check(p) {
-        const old = p.id && findById(state.posts, p.id);
-        return !p.text ? '請寫下想說的話' : null;
-      },
+      check: (p) => (!p.text ? '請寫下想說的話' : null),
       save(x) {
         if (!x.id) return Api.addPost(x);
         const old = findById(state.posts, x.id);
@@ -4750,6 +5164,70 @@
         return Api.editPost(x.id, { text: x.text, to: Array.from(new Set(keep.concat(x.to))) });
       },
       after: () => { const s = scroller(); if (s) s.scrollTop = 0; }
+    },
+    'study-form': {
+      read: (f, form) => ({
+        id: f.item_id.value || null, kid: f.kid.value, sub: (form.querySelector('input[name="sub"]:checked') || {}).value || '',
+        title: f.title.value.trim(), note: f.note.value.trim(), minutes: Number((form.querySelector('input[name="minutes"]:checked') || {}).value || 30),
+        date: f.date.value, exam_id: f.exam_id.value,
+        repeat: !!(f.repeat && f.repeat.checked), wd: checkedValues(form, 'wd').map(Number), until: f.until ? f.until.value : ''
+      }),
+      check(x) {
+        if (!x.sub) return '請選一個科目';
+        if (!x.title) return '請寫下要讀什麼';
+        if (!x.date) return '請選日期';
+        if (x.repeat) {
+          if (!x.wd.length) return '請勾選每週哪幾天';
+          if (!x.until || x.until < x.date) return '「重複到哪一天」要在開始日期之後';
+          if (daysBetween(x.date, x.until) > 120) return '重複最多排四個月';
+        }
+        return null;
+      },
+      async save(x) {
+        const ex = x.exam_id ? studyExams(x.kid).find((e) => e.id === x.exam_id) : null;
+        const data = { kid: x.kid, sub: x.sub, title: x.title, note: x.note, minutes: x.minutes, exam_id: x.exam_id, exam_date: ex ? ex.event_date : '' };
+        if (x.id) return Api.updateDoc('study_items', x.id, { ...data, date: x.date });
+        const dates = [];
+        if (x.repeat) { for (let d = x.date; d <= x.until; d = addDays(d, 1)) if (x.wd.includes(parse(d).getDay())) dates.push(d); }
+        else dates.push(x.date);
+        if (!dates.length) { const e = new Error('none'); e.friendly = '這段期間沒有勾選的星期，請再確認一次'; throw e; }
+        const series = dates.length > 1 ? 's' + Date.now() : '';
+        for (const d of dates) await Api.addDoc('study_items', { ...data, date: d, done: false, spent: 0, series, created_by: state.userId, created_at: Date.now() });
+        state.studyDay = dates[0];
+        if (dates.length > 1) toast('排了 ' + dates.length + ' 天');
+      },
+      remove: (id) => { if (studyTimer && studyTimer.id === id) clearStudyTimer(); return Api.deleteDoc('study_items', id); },
+      after() { render(); }
+    },
+    'study-ai-form': {
+      read: (f, form) => ({ exam_id: f.exam_id.value, range: f.range.value.trim(), minutes: Number((form.querySelector('input[name="minutes"]:checked') || {}).value || 60) }),
+      check: (x) => (!x.range ? '請寫下各科的考試範圍' : null),
+      async save(x) {
+        const kid = studyKid(), ex = studyExams(kid).find((e) => e.id === x.exam_id);
+        if (!ex) { const e = new Error('none'); e.friendly = '找不到這次考試，請重新整理再試'; throw e; }
+        const btn = document.querySelector('#study-ai-form button[type=submit]');
+        if (btn) btn.textContent = '排計畫中…';
+        try {
+          const r = await askAi('study', { exam: ex.title, exam_date: ex.event_date, start_date: today(), subjects: studySubjects(), range: x.range, minutes: x.minutes, grade: '國中' });
+          studyDraft = { kid, exam: ex, items: r.items, tips: r.tips || [] };
+        } finally { if (btn) btn.textContent = '開始排'; }
+      },
+      done: '草稿排好了',
+      after() { openStudyDraftSheet(); }
+    },
+    'study-draft-form': {
+      read: () => ({ picks: Array.from(document.querySelectorAll('#study-draft-form input[name="pick"]:checked')).map((i) => Number(i.value)) }),
+      check: (x) => (!studyDraft ? '草稿不見了，請重新排一次' : !x.picks.length ? '請至少勾選一項' : null),
+      async save(x) {
+        const d = studyDraft;
+        for (const i of x.picks) {
+          const it = d.items[i];
+          await Api.addDoc('study_items', { kid: d.kid, sub: it.sub, title: it.title, note: it.note, minutes: it.minutes, date: it.date, exam_id: d.exam.id, exam_date: d.exam.event_date, done: false, spent: 0, series: '', created_by: state.userId, created_at: Date.now(), by_ai: true });
+        }
+        studyDraft = null;
+      },
+      done: '已加入計畫',
+      after() { state.studyMode = 'week'; state.studyDay = today(); render(); }
     },
     'reply-edit-form': {
       done: '已儲存',
@@ -4887,6 +5365,7 @@
     else if (act === 'new') {
       if (state.tab === 'notes' && state.notesView === 'ledger') { if (kids().length) openLedgerSheet(null); }
       else if (state.tab === 'notes' && state.notesView === 'cards') openCardSheet(null);
+      else if (state.tab === 'notes' && state.notesView === 'study') openStudySheet(null);
       else if (state.tab === 'notes' && state.notesView === 'scores') { if (kids().length) openScoreSheet(null); }
       else if (state.tab === 'notes' && state.notesView === 'album') openAlbumSheet();
       else if (state.tab === 'notes' && state.notesView === 'notes') {
@@ -4939,6 +5418,33 @@
     else if (act === 'pick-mention') pickMention(el.dataset.name);
     else if (act === 'goto-msg') gotoMessage(el.dataset.id);
     else if (act === 'del-post') onDeletePost(el);
+    else if (act === 'open-study') { state.tab = 'notes'; state.notesView = 'study'; state.studyDay = today(); state.studyMode = 'day'; render(); scroller().scrollTop = 0; }
+    else if (act === 'study-kid') { state.studyKid = el.dataset.id; render(); }
+    else if (act === 'study-mode') { state.studyMode = el.dataset.mode; render(); }
+    else if (act === 'study-day') { state.studyDay = el.dataset.date; render(); }
+    else if (act === 'study-week') { state.studyDay = addDays(state.studyDay || today(), Number(el.dataset.step)); render(); }
+    else if (act === 'study-edit') { const x = findById(state.studyItems, el.dataset.id); if (x) openStudySheet(x); }
+    else if (act === 'study-ai') openStudyAiSheet(el.dataset.exam);
+    else if (act === 'study-done') {
+      const x = findById(state.studyItems, el.dataset.id);
+      if (x) {
+        if (!x.done && studyTimer && studyTimer.id === x.id) { finishStudyTimer(true); return; }
+        el.classList.add('pop');
+        Api.updateDoc('study_items', x.id, x.done ? { done: false } : { done: true, done_at: Date.now() })
+          .then(() => { if (!x.done && studyOf(x.kid, x.date).every((y) => y.id === x.id || y.done)) toast('這天的全部完成了，很棒！'); })
+          .catch((e) => { console.error(e); toast('沒有成功，請再試一次'); });
+      }
+    }
+    else if (act === 'study-timer') {
+      if (studyTimer && findById(state.studyItems, studyTimer.id)) { toast('先結束正在計時的那一項'); openTimerSheet(); }
+      else startStudyTimer(el.dataset.id);
+    }
+    else if (act === 'study-timer-open') openTimerSheet();
+    else if (act === 'study-timer-done') finishStudyTimer(true);
+    else if (act === 'study-timer-stop') finishStudyTimer(false);
+    else if (act === 'study-timer-cancel') { clearStudyTimer(); closeSheet(); render(); }
+    else if (act === 'study-cheer') sendStudyCheer(el.dataset.kind, el.dataset.text);
+    else if (act === 'study-cheer-del') Api.deleteDoc('study_cheers', el.dataset.id).catch(() => toast('沒有成功，請再試一次'));
     else if (act === 'edit-post') { const p = findById(state.posts, el.dataset.id); if (p) openPostSheet(p); }
     else if (act === 'edit-reply') { const r = findById(state.replies, el.dataset.id); if (r) openReplyEditSheet(r); }
     else if (act === 'close') closeSheet();
@@ -5112,6 +5618,7 @@
     else if (id === 'call-form') onCallForm(form);
     else if (id === 'transit-search-form') onTransitSearch(form);
     else if (id === 'album-comment-form') onPhotoComment(form);
+    else if (form.id === 'study-cheer-form') { const i = form.elements.text, t = i.value.trim(); if (t) { i.value = ''; i.blur(); sendStudyCheer('text', t); } }
     else if (form.classList.contains('reply-form')) onReply(form);
     else if (form.classList.contains('opt-add')) onAddOption(form);
     else if (FORMS[id]) onSave(form);
@@ -5832,6 +6339,7 @@
     if (tab === 'ledger') { state.notesView = 'ledger'; state.ledgerDay = null; tab = 'notes'; }
     if (tab === 'polls') { state.postsView = 'polls'; tab = 'posts'; }
     if (tab === 'todos') { state.notesView = 'shop'; tab = 'notes'; }
+    if (tab === 'study') { state.notesView = 'study'; state.studyDay = today(); tab = 'notes'; }
     if (!TABS.some(([id]) => id === tab)) return;
     state.tab = tab;
     state.chatSearch = false; state.chatQuery = ''; state.menuMsg = null;
