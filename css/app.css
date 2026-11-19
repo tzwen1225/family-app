@@ -1827,3 +1827,9 @@ html[data-style="comic"] :is(.bt-ask, .bt-a, .ai-box) { border: 2.5px solid #111
 button.wx { text-align: right; min-height: 44px; }
 .wx-tip { color: var(--green) !important; font-weight: 600; }
 .wx.busy { opacity: .45; }
+
+/* 聊天按鈕：未讀訊息的件數 */
+.tab[data-count]::after {
+  content: attr(data-count); top: 3px; left: calc(50% + 4px); width: auto; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+  border-radius: 99px; background: var(--red); color: #fff; font: 700 11px/18px var(--num, inherit); text-align: center; box-shadow: 0 0 0 2px var(--sheet);
+}

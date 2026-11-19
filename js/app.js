@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 09:20';
+  const VERSION = '2026-11-19 09:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -525,6 +525,9 @@
   }
 
   const hasUnread = () => state.messages.some((m) => m.sender !== state.userId && m.sent_at > state.lastRead);
+  // 我還沒讀的聊天訊息有幾則（收回的不算），顯示在下面「聊天」的按鈕上
+  const unreadCount = () => state.messages.filter((m) => m.sender !== state.userId && !m.recalled && m.sent_at > state.lastRead).length;
+  const countText = (id) => { const n = id === 'chat' ? unreadCount() : 0; return n > 99 ? '99+' : n ? String(n) : ''; };
   const repliedBy = (post, uid) => state.replies.some((r) => r.post_id === post.id && r.author === uid);
   const waitingForMe = () => state.posts.some((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId));
   // 還開著、而我還沒投的投票
@@ -647,7 +650,11 @@
   function refreshBadges() {
     TABS.forEach(([id]) => {
       const el = document.querySelector('.tab[data-tab="' + id + '"]');
-      if (el) el.classList.toggle('unread', badge(id));
+      if (!el) return;
+      el.classList.toggle('unread', badge(id));
+      const n = countText(id);
+      if (n) { el.dataset.count = n; el.setAttribute('aria-label', el.textContent.trim() + '，' + n + ' 則未讀'); }
+      else { delete el.dataset.count; el.removeAttribute('aria-label'); }
     });
   }
 
@@ -691,7 +698,7 @@
       ${fabLabel() ? `<div class="addbar"><button class="fab" data-act="new" aria-label="${fabLabel()}"><span class="fab-plus" aria-hidden="true">${ICON.plus}</span>${fabLabel()}</button></div>` : ''}
       <nav class="tabbar" aria-label="主選單">
         ${TABS.map(([id, label]) => `
-          <button class="tab ${state.tab === id ? 'on' : ''} ${badge(id) ? 'unread' : ''}" style="--tab-c:${TAB_COLOR[id]}" data-act="tab" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ''}>
+          <button class="tab ${state.tab === id ? 'on' : ''} ${badge(id) ? 'unread' : ''}" style="--tab-c:${TAB_COLOR[id]}" data-act="tab" data-tab="${id}" ${countText(id) ? `data-count="${countText(id)}" aria-label="${label}，${countText(id)} 則未讀"` : ''} ${state.tab === id ? 'aria-current="page"' : ''}>
             ${state.tab === id ? ICON_ON[id] : ICON[id]}<span>${label}</span>
           </button>`).join('')}
       </nav>`;
