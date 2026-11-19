@@ -1837,3 +1837,4 @@ button.wx { text-align: right; min-height: 44px; }
 /* 點兩下不要放大畫面（兩指縮放照片還是可以） */
 *, *::before, *::after { touch-action: manipulation; }
 .sheet-head { touch-action: none; }
+.del-left.admin { color: var(--green); }

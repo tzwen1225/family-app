@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 21:30';
+  const VERSION = '2026-11-19 21:50';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -3415,8 +3415,8 @@
   // 每位小朋友一本。家長可以記「給零用錢」和支出，也能修改任何一筆；
   // 小朋友只看得到自己的帳本，只能新增、修改、刪除自己的支出。
   const canEditLedger = (e) => !amChild() || (e.kid === state.userId && e.type === 'expense' && !e.by_parent);
-  // 零用錢紀錄新增後 24 小時內可以改、可以刪，之後就鎖住（家長也一樣）。沒有記下新增時間的舊紀錄一律算鎖住。
-  const LEDGER_LOCK_MS = 24 * 3600000;
+  // 零用錢紀錄新增後 1 小時內可以改、可以刪，之後就鎖住。只有管理員不受限制。沒有記下新增時間的舊紀錄一律算鎖住（管理員除外）。
+  const LEDGER_LOCK_MS = 3600000;
   function createdMs(e) {
     const c = e && e.created_at;
     if (typeof c === 'number') return c;
@@ -3424,11 +3424,20 @@
     if (c && typeof c.seconds === 'number') return c.seconds * 1000;
     return 0;
   }
-  const ledgerLeftMs = (e) => createdMs(e) + LEDGER_LOCK_MS - Date.now();
+  const ledgerLeftMs = (e) => (isAdmin() ? Infinity : createdMs(e) + LEDGER_LOCK_MS - Date.now());
   function leftText(ms) {
     const min = Math.max(1, Math.ceil(ms / 60000));
     return min >= 60 ? Math.floor(min / 60) + ' 小時' + (min % 60 ? ' ' + (min % 60) + ' 分' : '') : min + ' 分鐘';
   }
+
+  setInterval(() => {
+    const el = document.getElementById('del-left');
+    if (!el || !el.dataset.until) return;
+    const left = Number(el.dataset.until) - Date.now();
+    if (left > 0) { el.textContent = '還有 ' + leftText(left) + '可以修改或刪除'; return; }
+    const f = document.getElementById('ledger-form'), e = f && findById(state.ledger, f.elements.item_id.value);
+    if (e) openLedgerSheet(e);   // 時間到：換成鎖住的畫面
+  }, 15000);
 
   function viewLedger() {
     const list = kids();
@@ -4185,7 +4194,7 @@
       return showSheet('ledger-locked', {
         title: kid.display_name + '的零用錢', readonly: true,
         body: `
-        <p class="lock-note">新增超過 24 小時，這筆紀錄已經鎖住，不能修改或刪除。</p>
+        <p class="lock-note">新增超過 1 小時，這筆紀錄已經鎖住，不能修改或刪除。需要更正請找管理員。</p>
         <dl class="lock-list">
           <dt>種類</dt><dd>${entry.by_parent ? '父母支出' : entry.type === 'income' ? '收入' : '支出'}</dd>
           <dt>金額</dt><dd>${money(entry.amount)}</dd>
@@ -4196,7 +4205,8 @@
     }
     showSheet('ledger-form', {
       title: kid.display_name + '的零用錢', focus: !entry,
-      footer: entry ? `<div class="del-row">${DELETE_BTN}<span class="del-left">還有 ${leftText(left)}可以修改或刪除</span></div>` : '<p class="hint">新增後 24 小時內可以修改或刪除，之後就會鎖住。</p>',
+      footer: entry ? `<div class="del-row">${DELETE_BTN}<span class="del-left${left === Infinity ? ' admin' : ''}" id="del-left" data-until="${left === Infinity ? '' : Date.now() + left}">${left === Infinity ? '管理員可以隨時修改或刪除' : '還有 ' + leftText(left) + '可以修改或刪除'}</span></div>`
+        : `<p class="hint">${isAdmin() ? '你是管理員，之後隨時可以修改或刪除。' : '新增後 1 小時內可以修改或刪除，之後就會鎖住。'}</p>`,
       body: `
       <input type="hidden" name="item_id" value="${esc(e.id || '')}">
       <input type="hidden" name="kid" value="${esc(kid.id)}">
@@ -4317,7 +4327,7 @@
       save(e) {
         if (e.type === 'request') return Api.saveRequest({ kid: e.kid, title: e.note, amount: e.amount, need_date: e.date, status: 'pending' });
         const old = e.id && findById(state.ledger, e.id);
-        if (old && ledgerLeftMs(old) <= 0) { const err = new Error('locked'); err.friendly = '這筆紀錄已經超過 24 小時，不能修改了。'; throw err; }
+        if (old && ledgerLeftMs(old) <= 0) { const err = new Error('locked'); err.friendly = '這筆紀錄已經超過 1 小時，不能修改了。'; throw err; }
         return Api.saveLedger({ ...e, note: e.note || '零用錢' });
       },
       remove: (id) => { const old = findById(state.ledger, id); if (old && ledgerLeftMs(old) <= 0) throw new Error('locked'); return Api.deleteLedger(id); },
@@ -4353,7 +4363,7 @@
         if (given && !wasGiven) return giveRequest(next, r.given_amount);  // 還沒給 → 已給：記一筆收入
         if (!given && wasGiven) {                                          // 已給 → 取消：把那筆收入刪掉
           const paid = old.ledger_id && findById(state.ledger, old.ledger_id);
-          if (paid && ledgerLeftMs(paid) <= 0) { const err = new Error('locked'); err.friendly = '這筆錢記到零用錢已經超過 24 小時，不能取消「已經給了」。'; throw err; }
+          if (paid && ledgerLeftMs(paid) <= 0) { const err = new Error('locked'); err.friendly = '這筆錢記到零用錢已經超過 1 小時，不能取消「已經給了」。'; throw err; }
           if (old.ledger_id) await Api.deleteLedger(old.ledger_id).catch((e) => console.warn(e));
           await Api.saveRequest({ ...next, status: 'pending' });
           return loadLedger();
