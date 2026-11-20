@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-20 10:52';
+  const VERSION = '2026-11-20 11:00';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -108,7 +108,7 @@
     msgReacts: [],                  // 聊天訊息的表情回應
     studyItems: [], studyCheers: [],   // 讀書計畫和爸媽的鼓勵
     studyKid: null, studyMode: 'day', studyDay: null,
-    videos: [], videoViews: [], videoLimits: [], videoMode: 'list', videoCat: '',   // 影片
+    videoReady: null, videos: [], videoViews: [], videoLimits: [], videoMode: 'list', videoCat: '',   // 影片
     journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -321,7 +321,7 @@
 
   function loadTab() {
     if (state.tab === 'cal') loadEvents();
-    else if (state.tab === 'notes') { if (state.notesView === 'study' && !state.studyDay) state.studyDay = today(); if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'butler') state.butlerReady = Promise.all([loadScores(), loadLedger(), loadEvents()]).catch(() => {}); else if (state.notesView === 'album') loadAlbum(); else if (state.notesView === 'transit') loadTransit(); }
+    else if (state.tab === 'notes') { if (state.notesView === 'study' && !state.studyDay) state.studyDay = today(); if (state.notesView === 'video') checkVideoReady(); if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'butler') state.butlerReady = Promise.all([loadScores(), loadLedger(), loadEvents()]).catch(() => {}); else if (state.notesView === 'album') loadAlbum(); else if (state.notesView === 'transit') loadTransit(); }
   }
 
   // ---------- 啟動 ----------
@@ -3854,6 +3854,7 @@
     const child = amChild();
     const pending = state.videos.filter((v) => v.status === 'pending');
     let html = `<header class="plain-head"><h1>影片</h1><p>${child ? '爸媽挑給你看的' : '挑給小朋友看的 YouTube 影片'}</p></header>`;
+    if (state.videoReady === false) html += `<p class="vd-warn">${isAdmin() ? '影片功能還沒開通：資料庫還不認得它，所以加了也存不進去、看不到。請用最新的 family-app.zip 執行一次 deploy.bat，完成後重新打開 App。' : '影片功能還沒開通，請跟管理員說。'}</p>`;
     if (!child) html += `
       <div class="switcher st-switch" role="group" aria-label="檢視">
         <button class="${state.videoMode !== 'manage' ? 'on' : ''}" data-act="vd-mode" data-mode="list" aria-pressed="${state.videoMode !== 'manage'}">影片清單</button>
@@ -3911,6 +3912,11 @@
     }
     return html;
   }
+  // 資料庫還不認得「影片」（還沒用新的 ZIP 執行 deploy.bat）時，讀取會被擋：在頁面上直接講清楚
+  async function checkVideoReady() {
+    try { await Api.listDocs('video_limits'); if (state.videoReady !== true) { state.videoReady = true; if (state.notesView === 'video') render(); } }
+    catch (e) { console.warn('影片還沒開通', e); state.videoReady = false; if (state.tab === 'notes' && state.notesView === 'video') render(); }
+  }
   function videoHubNote() {
     if (amChild()) {
       const n = myVideos().filter((v) => !seenVideo(v, state.userId)).length;
@@ -3924,6 +3930,7 @@
   // ---- 加影片、申請想看 ----
   let videoDraft = null, videoLookupTimer = null;
   function openVideoSheet(v) {
+    if (!v && state.videoReady === false) return toast('影片功能還沒開通，請先執行 deploy.bat');
     const child = amChild();
     videoDraft = v ? { yt_id: v.yt_id, title: v.title, channel: v.channel || '', ok: true } : null;
     const x = v || { to: kids().map((k) => k.id), cat: '學習', note: '' };
@@ -3960,7 +3967,7 @@
     if (d.error) return `<p class="form-error">${esc(d.error)}</p>`;
     return `
       <div class="vd-preview">${thumbHtml(d, 'sm')}
-        <span>${d.manual ? '' : `<b>${esc(d.title)}</b><small>${esc(d.channel)}</small>`}<em>${d.manual ? '查不到標題，請自己填' : '✓ 可以在 App 裡播放'}</em></span>
+        <span>${d.manual ? '' : `<b>${esc(d.title)}</b><small>${esc(d.channel)}</small>`}<em>${d.manual ? '連結沒問題。查不到標題，請在下面自己填' : '✓ 可以在 App 裡播放'}</em></span>
       </div>
       ${d.manual ? '<label>影片標題<input name="manual_title" maxlength="200" autocomplete="off"></label>' : ''}`;
   }
@@ -3975,7 +3982,7 @@
     const mine = videoDraft = { yt_id: id, loading: true };
     draw();
     try {
-      const r = await Api.videoInfo(id);
+      const r = await Promise.race([Api.videoInfo(id), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 8000))]);
       if (videoDraft !== mine) return;
       videoDraft = r.ok ? { yt_id: id, title: r.title, channel: r.channel, ok: true }
         : { error: r.reason === 'no-embed' ? '這部影片的作者不允許在其他地方播放，不能加進來。' : '找不到這部影片，可能已經被刪除或設成不公開。' };
@@ -5566,8 +5573,15 @@
         const d = videoDraft;
         if (x.id) return Api.updateDoc('videos', x.id, { to: x.to, cat: x.cat, note: x.note });
         const base = { yt_id: d.yt_id, title: (d.manual ? x.manual : d.title).slice(0, 200), channel: d.channel || '', duration: 0, added_by: state.userId, created_at: Date.now() };
-        if (amChild()) await Api.addDoc('videos', { ...base, cat: '', note: '', reason: x.reason, to: [state.userId], status: 'pending', requested_by: state.userId });
-        else await Api.addDoc('videos', { ...base, cat: x.cat, note: x.note, to: x.to, status: 'ok', notify: x.notify });
+        try {
+          if (amChild()) await Api.addDoc('videos', { ...base, cat: '', note: '', reason: x.reason, to: [state.userId], status: 'pending', requested_by: state.userId });
+          else await Api.addDoc('videos', { ...base, cat: x.cat, note: x.note, to: x.to, status: 'ok', notify: x.notify });
+        } catch (e) {
+          console.error(e);
+          e.friendly = /permission/i.test(String(e.code || e.message)) ? '存不進去：影片功能還沒開通，請用最新的 ZIP 執行 deploy.bat。' : '沒有成功，請確認網路後再試一次。';
+          throw e;
+        }
+        state.videoMode = 'list'; state.videoCat = '';
       },
       remove: (id) => Api.deleteDoc('videos', id),
       done: '已儲存',

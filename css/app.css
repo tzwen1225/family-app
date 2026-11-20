@@ -2086,3 +2086,5 @@ html[data-style="big"] .st-title b { font-size: 18px; }
 body.video-open { overflow: hidden; }
 html[data-style="comic"] :is(.vd-card, .vd-quota, .vp-more) { border: 2.5px solid #111; border-radius: 6px; box-shadow: 4px 4px 0 #111; }
 .vd-req-btns .btn.primary { background: var(--green); border-color: var(--green); color: #fff; }
+.vd-warn { padding: 12px 14px; border-radius: 14px; background: var(--danger-soft); border: 1px solid var(--danger-line); color: var(--danger); font-size: 14px; line-height: 1.6; margin: 6px 0 12px; }
+#vd-preview .hint[role="status"] { padding: 12px; border-radius: 12px; background: var(--track); text-align: center; }
