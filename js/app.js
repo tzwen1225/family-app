@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-20 13:21';
+  const VERSION = '2026-11-20 14:22';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -4031,7 +4031,9 @@
   function drawPlayer() {
     const v = vp && findById(state.videos, vp.id);
     if (!v) return closePlayer();
-    const others = myVideos().filter((x) => x.id !== v.id).slice(0, 4);
+    // 其他也標給同一個小朋友的影片（小朋友看到的是標給自己的），只列標題
+    const who = vp.kid ? [vp.kid] : (v.to || []);
+    const others = myVideos().filter((x) => x.id !== v.id && (!who.length || (x.to || []).some((k) => who.includes(k)))).slice(0, 40);
     $video.innerHTML = `
       <div class="vp" role="dialog" aria-modal="true" aria-label="${esc(v.title)}">
         <div class="vp-top"><button class="vp-back" data-act="vp-close">‹ 影片</button><span id="vp-left">${vp.kid ? vLeftText(videoLeft(vp.kid)) : ''}</span></div>
@@ -4057,7 +4059,7 @@
           <h2>${esc(v.title)}</h2>
           ${v.note ? `<p class="vd-note big"><b>${esc(nameOf(v.added_by))}說</b>：${esc(v.note)}</p>` : ''}
           ${v.status === 'pending' ? `<p class="hint">這是${esc(nameOf(v.requested_by))}申請想看的影片，看過再決定要不要同意。</p>` : ''}
-          ${others.length ? `<section class="vp-more"><h3>${vp.kid ? '爸媽挑的其他影片' : '清單裡的其他影片'}</h3>${others.map((x) => `<button data-act="vd-open" data-id="${esc(x.id)}">${thumbHtml(x, 'sm')}<span><b>${esc(x.title)}</b><small>${esc(x.channel || '')}</small></span></button>`).join('')}</section>` : ''}
+          ${others.length ? `<section class="vp-more"><h3>${vp.kid ? '爸媽挑的其他影片' : who.length ? '也標給' + esc(who.map(nameOf).join('、')) + '的其他影片' : '清單裡的其他影片'}（${others.length}）</h3><ul>${others.map((x) => `<li><button data-act="vd-open" data-id="${esc(x.id)}"><i aria-hidden="true">▶</i><span>${esc(x.title)}</span></button></li>`).join('')}</ul></section>` : ''}
           <p class="hint">影片開頭或中間可能會有 YouTube 的廣告，這個 App 擋不掉。</p>
         </div>
       </div>`;
