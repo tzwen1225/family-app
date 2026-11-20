@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-20 11:00';
+  const VERSION = '2026-11-20 11:10';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -4031,6 +4031,7 @@
     $video.innerHTML = `
       <div class="vp" role="dialog" aria-modal="true" aria-label="${esc(v.title)}">
         <div class="vp-top"><button class="vp-back" data-act="vp-close">‹ 影片</button><span id="vp-left">${vp.kid ? vLeftText(videoLeft(vp.kid)) : ''}</span></div>
+        <div class="vp-screen" id="vp-screen">
         <div class="vp-stage" id="vp-stage">
           <div id="vp-frame"></div>
           <div class="vp-guard top" aria-hidden="true"></div><div class="vp-guard bottom" aria-hidden="true"></div>
@@ -4043,8 +4044,10 @@
           <button data-act="vp-seek" data-step="10" aria-label="快轉 10 秒">+10</button>
           <input type="range" id="vp-bar" min="0" max="1000" value="0" aria-label="播放進度">
           <span id="vp-time">0:00</span>
+          <button data-act="vp-big" id="vp-big" aria-label="放大到全螢幕"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
         </div>
         <p class="vp-hint" id="vp-hint" hidden></p>
+        </div>
         <div class="vp-body">
           <div class="vp-meta">${videoChip(v.cat)}<small>${esc(v.channel || '')}</small></div>
           <h2>${esc(v.title)}</h2>
@@ -4096,6 +4099,13 @@
       flushView(false);
     } else if (s === 0) finishPlayer();
   }
+  // 全螢幕：iPhone 不讓網頁 App 真的進全螢幕，所以自己把播放區放大到整個畫面；手機直拿時轉成橫的。擋板照樣蓋著。
+  function setBig(on) {
+    const sc = vpEl('vp-screen'), b = vpEl('vp-big');
+    if (!sc) return;
+    sc.classList.toggle('big', on);
+    if (b) b.setAttribute('aria-label', on ? '離開全螢幕' : '放大到全螢幕');
+  }
   function togglePlayer() {
     if (!vp || !vp.player) return;
     try {
@@ -4115,6 +4125,7 @@
     const stage = vpEl('vp-stage'), ctrl = vpEl('vp-ctrl');
     if (stage) stage.innerHTML = html;
     if (ctrl) ctrl.hidden = true;
+    setBig(false);
     vpHint('');
     if (vp) vp.mode = 'done';
   }
@@ -5863,6 +5874,7 @@
     else if (act === 'vp-start') startPlayer();
     else if (act === 'vp-toggle') togglePlayer();
     else if (act === 'vp-close') closePlayer();
+    else if (act === 'vp-big') { const sc = vpEl('vp-screen'); setBig(!(sc && sc.classList.contains('big'))); }
     else if (act === 'vp-seek') { if (vp && vp.player) { try { vp.lastT = -1; vp.player.seekTo(Math.max(0, vp.player.getCurrentTime() + Number(el.dataset.step)), true); } catch (e) { /* 沒關係 */ } } }
     else if (act === 'vp-unlock') {
       // 廣告的「略過」按鈕在播放器裡面：把擋板拿開 8 秒讓人按，再蓋回去

@@ -2088,3 +2088,12 @@ html[data-style="comic"] :is(.vd-card, .vd-quota, .vp-more) { border: 2.5px soli
 .vd-req-btns .btn.primary { background: var(--green); border-color: var(--green); color: #fff; }
 .vd-warn { padding: 12px 14px; border-radius: 14px; background: var(--danger-soft); border: 1px solid var(--danger-line); color: var(--danger); font-size: 14px; line-height: 1.6; margin: 6px 0 12px; }
 #vd-preview .hint[role="status"] { padding: 12px; border-radius: 12px; background: var(--track); text-align: center; }
+/* 影片全螢幕：播放區放大到整個畫面，直拿時轉 90 度 */
+.vp-ctrl button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+.vp-screen.big { position: fixed; z-index: 5; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh; background: #000; display: flex; flex-direction: column; }
+.vp-screen.big .vp-stage { flex: 1; aspect-ratio: auto; min-height: 0; }
+.vp-screen.big .vp-ctrl { padding-bottom: calc(8px + var(--safe-b)); }
+@media (orientation: portrait) {
+  .vp-screen.big { width: 100vh; width: 100dvh; height: 100vw; transform-origin: top left; transform: rotate(90deg) translateY(-100%); }
+  .vp-screen.big .vp-ctrl { padding: 8px calc(12px + var(--safe-b)) 10px calc(12px + var(--safe-t)); }
+}
