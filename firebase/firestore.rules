@@ -297,6 +297,48 @@ service cloud.firestore {
       allow delete: if isFamily()
         && (!isChild() || resource.data.kid == request.auth.uid);
     }
+    // 影片：爸媽挑好的 YouTube 影片。小朋友只看得到給自己的；小朋友可以申請「想看」（pending），爸媽同意才變成 ok
+    function validVideo() {
+      let d = request.resource.data;
+      return d.yt_id is string && d.yt_id.size() == 11
+        && d.title is string && d.title.size() >= 1 && d.title.size() <= 200
+        && d.get('channel', '') is string && d.get('channel', '').size() <= 100
+        && d.get('note', '') is string && d.get('note', '').size() <= 200
+        && d.get('reason', '') is string && d.get('reason', '').size() <= 200
+        && d.cat is string && d.cat.size() <= 12
+        && d.to is list && d.to.size() >= 1 && d.to.size() <= 10
+        && d.status in ['ok', 'pending', 'rejected'];
+    }
+    match /videos/{id} {
+      allow read: if isFamily() && (!isChild() || request.auth.uid in resource.data.to);
+      allow create: if isFamily() && validVideo()
+        && (!isChild() || (request.resource.data.status == 'pending'
+          && request.resource.data.requested_by == request.auth.uid
+          && request.resource.data.to == [request.auth.uid]));
+      // 小朋友只能補上影片長度（第一次播放時才知道）
+      allow update: if isFamily() && validVideo()
+        && (!isChild() || (request.auth.uid in resource.data.to
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['duration'])));
+      allow delete: if isFamily()
+        && (!isChild() || (resource.data.status != 'ok' && resource.data.get('requested_by', '') == request.auth.uid));
+    }
+    // 觀看紀錄：每個小朋友每部影片每天一筆（文件 id 是「影片id_UID_日期」），只有自己能寫，爸媽看得到
+    match /video_views/{id} {
+      allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
+      allow create, update: if isFamily()
+        && request.resource.data.kid == request.auth.uid
+        && request.resource.data.video_id is string && request.resource.data.date is string
+        && id == request.resource.data.video_id + '_' + request.auth.uid + '_' + request.resource.data.date
+        && request.resource.data.seconds is number && request.resource.data.seconds >= 0 && request.resource.data.seconds <= 86400;
+      allow delete: if isFamily() && !isChild();
+    }
+    // 每天可以看多久（文件 id 是小朋友的 UID；minutes 是 0 代表不限制），只有爸媽能改
+    match /video_limits/{id} {
+      allow read: if isFamily();
+      allow write: if isFamily() && !isChild()
+        && request.resource.data.minutes is number && request.resource.data.minutes >= 0 && request.resource.data.minutes <= 600;
+    }
+
     match /study_cheers/{id} {
       allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
       allow create: if isFamily() && !isChild()

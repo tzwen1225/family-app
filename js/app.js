@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-19 22:52';
+  const VERSION = '2026-11-20 10:52';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -108,6 +108,7 @@
     msgReacts: [],                  // 聊天訊息的表情回應
     studyItems: [], studyCheers: [],   // 讀書計畫和爸媽的鼓勵
     studyKid: null, studyMode: 'day', studyDay: null,
+    videos: [], videoViews: [], videoLimits: [], videoMode: 'list', videoCat: '',   // 影片
     journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -444,6 +445,10 @@
       ...(amChild()
         ? [Api.watchWhere('study_items', 'kid', state.userId, onStudyItems), Api.watchWhere('study_cheers', 'kid', state.userId, onStudyCheers)]
         : [Api.watchList('study_items', onStudyItems), Api.watchList('study_cheers', onStudyCheers)]),
+      ...(amChild()
+        ? [Api.watchHas('videos', 'to', state.userId, (l) => { state.videos = l; onVideoData(); }), Api.watchWhere('video_views', 'kid', state.userId, (l) => { state.videoViews = l; onVideoData(); })]
+        : [Api.watchList('videos', (l) => { state.videos = l; onVideoData(); }), Api.watchList('video_views', (l) => { state.videoViews = l; onVideoData(); })]),
+      Api.watchList('video_limits', (l) => { state.videoLimits = l; onVideoData(); }),
       Api.watchList('message_reacts', (list) => { state.msgReacts = list; if (state.tab === 'chat') refreshChat(false); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       // 資料卡：家長看全部；小朋友只讀得到自己新增的（安全規則也是這樣擋）
@@ -545,6 +550,7 @@
     if (state.notesView === 'transit') return '';
     if (state.notesView === 'shop') return '';                       // 待辦直接在上方輸入
     if (state.notesView === 'cards') return '新增資料卡';
+    if (state.notesView === 'video') return amChild() ? '我想看這部' : state.videoMode === 'manage' ? '' : '加一部影片';
     if (state.notesView === 'study') { const k = member(studyKid()); return !k ? '' : k.id === state.userId ? '新增讀書項目' : '幫' + k.display_name + '加讀書項目'; }
     if (state.notesView === 'scores') return kids().length ? '新增成績' : '';
     return kids().length ? '新增一筆零用錢紀錄' : '';
@@ -3799,9 +3805,385 @@
     });
   }
 
+  // ---------- 影片 ----------
+  // 爸媽挑好的 YouTube 影片，在 App 裡用嵌入播放器看，不開 YouTube App。
+  //   videos        { yt_id, title, channel, duration 秒, cat, note, to[] 給誰看, status ok|pending|rejected, requested_by, reason, added_by, notify }
+  //   video_views   {影片id_UID_日期}：{ video_id, kid, date, seconds, finished, title }，只記小朋友的
+  //   video_limits  {小朋友UID}：{ minutes }，每天可以看多久；0 是不限制，沒設定過是 60
+  // 播放時整個播放器蓋一層透明的擋板，點不到 YouTube 的標題、標誌和片尾推薦；播完由 App 自己換成「看完了」。
+  const VIDEO_CATS = { 學習: '#2F6FDE', 英文: '#8A4FD0', 科學: '#1F8A5F', 放鬆: '#C2410C' };
+  const videoChip = (c) => (c ? `<span class="st-chip" style="--sub:${esc(VIDEO_CATS[c] || '#5C6A64')}">${esc(c)}</span>` : '');
+  const parseYouTube = (url) => {
+    const s = String(url || '').trim();
+    const m = /(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/.exec(s);
+    return m ? m[1] : /^[\w-]{11}$/.test(s) ? s : null;
+  };
+  const ytThumb = (id) => 'https://i.ytimg.com/vi/' + encodeURIComponent(id) + '/hqdefault.jpg';
+  const durText = (sec) => (sec > 0 ? Math.floor(sec / 60) + ':' + pad(Math.floor(sec % 60)) : '');
+  const videoLimit = (kid) => { const l = findById(state.videoLimits, kid); return l ? Number(l.minutes) || 0 : 60; };
+  let vp = null;   // 正在播放的影片（播放畫面開著時才有）
+  function watchedToday(kid) {
+    const key = vp && vp.kid === kid ? vp.viewId : null;
+    return state.videoViews.filter((v) => v.kid === kid && v.date === today() && v.id !== key).reduce((n, v) => n + (Number(v.seconds) || 0), 0)
+      + (key ? vp.base + vp.acc : 0);
+  }
+  const videoLeft = (kid) => (videoLimit(kid) === 0 ? Infinity : Math.max(0, videoLimit(kid) * 60 - watchedToday(kid)));
+  const vLeftText = (sec) => (sec === Infinity ? '' : '今天還可以看 ' + Math.ceil(sec / 60) + ' 分鐘');
+  const myVideos = () => state.videos.filter((v) => v.status === 'ok' && (!amChild() || v.to.includes(state.userId))).sort((a, b) => b.created_at - a.created_at);
+  const seenVideo = (v, kid) => state.videoViews.some((x) => x.video_id === v.id && x.kid === kid);
+  const doneVideo = (v, kid) => state.videoViews.some((x) => x.video_id === v.id && x.kid === kid && x.finished);
+
+  function thumbHtml(v, cls) {
+    return `<span class="vd-thumb ${cls || ''}"><img src="${esc(ytThumb(v.yt_id))}" alt="" loading="lazy"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.500v13l10.500-6.500z"/></svg></i>${v.duration ? `<b>${durText(v.duration)}</b>` : ''}</span>`;
+  }
+  function videoCardHtml(v) {
+    const child = amChild();
+    const isNew = child && !seenVideo(v, state.userId), done = child && doneVideo(v, state.userId);
+    return `
+      <article class="vd-card">
+        <button class="vd-play" data-act="vd-open" data-id="${esc(v.id)}" aria-label="播放：${esc(v.title)}">${thumbHtml(v)}</button>
+        <${child ? 'div' : `button data-act="vd-edit" data-id="${esc(v.id)}"`} class="vd-info">
+          <span class="vd-tags">${videoChip(v.cat)}${isNew ? '<em class="new">新</em>' : ''}${done ? '<em class="seen">✓ 看過了</em>' : ''}${child ? '' : `<small>給 ${esc(v.to.map(nameOf).join('、'))}</small>`}</span>
+          <b>${esc(v.title)}</b>
+          <small>${esc(v.channel || '')}${v.duration ? '・' + Math.max(1, Math.round(v.duration / 60)) + ' 分鐘' : ''}</small>
+          ${v.note ? `<span class="vd-note"><b>${esc(nameOf(v.added_by))}</b>：${esc(v.note)}</span>` : ''}
+        </${child ? 'div' : 'button'}>
+      </article>`;
+  }
+  function viewVideo() {
+    const child = amChild();
+    const pending = state.videos.filter((v) => v.status === 'pending');
+    let html = `<header class="plain-head"><h1>影片</h1><p>${child ? '爸媽挑給你看的' : '挑給小朋友看的 YouTube 影片'}</p></header>`;
+    if (!child) html += `
+      <div class="switcher st-switch" role="group" aria-label="檢視">
+        <button class="${state.videoMode !== 'manage' ? 'on' : ''}" data-act="vd-mode" data-mode="list" aria-pressed="${state.videoMode !== 'manage'}">影片清單</button>
+        <button class="${state.videoMode === 'manage' ? 'on' : ''}" data-act="vd-mode" data-mode="manage" aria-pressed="${state.videoMode === 'manage'}">管理${pending.length ? `<span class="badge">${pending.length}</span>` : ''}</button>
+      </div>`;
+    if (!child && state.videoMode === 'manage') {
+      const views = state.videoViews.filter((x) => x.date === today()).sort((a, b) => (b.at || 0) - (a.at || 0));
+      return html + `
+        <section class="st-list vd-reqs">
+          <h3>想看的申請</h3>
+          ${pending.length ? pending.map((v) => `
+            <div class="vd-req">
+              <button class="vd-req-main" data-act="vd-open" data-id="${esc(v.id)}" aria-label="先看看：${esc(v.title)}">${thumbHtml(v, 'sm')}
+                <span><small><b>${esc(nameOf(v.requested_by))}</b> 想看</small><b>${esc(v.title)}</b><small>${esc(v.channel || '')}</small></span></button>
+              ${v.reason ? `<p>「${esc(v.reason)}」</p>` : ''}
+              <div class="vd-req-btns"><button class="btn" data-act="vd-review" data-id="${esc(v.id)}" data-status="rejected">先不要</button><button class="btn primary" data-act="vd-review" data-id="${esc(v.id)}" data-status="ok">可以看</button></div>
+            </div>`).join('') : '<p class="none">目前沒有申請。點縮圖可以先自己看過再決定。</p>'}
+        </section>
+        <section class="st-list">
+          <h3>今天看了什麼</h3>
+          ${views.length ? views.map((x) => `<div class="vd-log"><b>${esc(nameOf(x.kid))}</b><span>${esc(x.title || (findById(state.videos, x.video_id) || {}).title || '影片')}</span><small>${Math.max(1, Math.round(x.seconds / 60))} 分・${clock(x.at || Date.now())}</small><em class="${x.finished ? 'ok' : ''}">${x.finished ? '看完' : '看一部分'}</em></div>`).join('')
+            : '<p class="none">今天還沒有人看影片。</p>'}
+        </section>
+        <section class="st-list vd-limits">
+          <h3>每天可以看多久</h3>
+          ${kids().map((k) => `
+            <div class="vd-limit"><b>${esc(k.display_name)}</b><small>今天看了 ${Math.round(watchedToday(k.id) / 60)} 分</small>
+              <button class="icon-btn" data-act="vd-limit" data-kid="${esc(k.id)}" data-step="-10" aria-label="減少 10 分鐘">−</button>
+              <span>${videoLimit(k.id) ? videoLimit(k.id) + ' 分' : '不限制'}</span>
+              <button class="icon-btn" data-act="vd-limit" data-kid="${esc(k.id)}" data-step="10" aria-label="增加 10 分鐘">+</button></div>`).join('')}
+          <p class="hint">減到 0 就是不限制。時間到了，播放中的影片會自動停下來。</p>
+        </section>`;
+    }
+    const list = myVideos();
+    const cats = Array.from(new Set(list.map((v) => v.cat).filter(Boolean)));
+    const shown = list.filter((v) => !state.videoCat || v.cat === state.videoCat);
+    if (child && videoLimit(state.userId)) {
+      const used = watchedToday(state.userId), lim = videoLimit(state.userId) * 60;
+      html += `
+        <section class="vd-quota">
+          <div><b>${used >= lim ? '今天的時間用完了，明天再看' : `今天還可以看 <em>${Math.ceil((lim - used) / 60)}</em> 分鐘`}</b><span class="st-bar"><i style="width:${Math.min(100, Math.round(used / lim * 100))}%"></i></span></div>
+          <small>已看 ${Math.round(used / 60)}／${videoLimit(state.userId)} 分</small>
+        </section>`;
+    }
+    if (cats.length > 1) html += `<div class="vd-cats" role="group" aria-label="分類">${[''].concat(cats).map((c) => `<button class="${(state.videoCat || '') === c ? 'on' : ''}" data-act="vd-cat" data-cat="${esc(c)}" aria-pressed="${(state.videoCat || '') === c}">${esc(c || '全部')}</button>`).join('')}</div>`;
+    html += shown.length ? `<div class="vd-grid">${shown.map(videoCardHtml).join('')}</div>`
+      : `<div class="empty big"><p>${child ? '爸媽還沒有挑影片。看到想看的，可以按下面的「我想看這部」。' : '還沒有影片。按下面的「加一部影片」，貼上 YouTube 連結。'}</p></div>`;
+    if (child) {
+      const mine = state.videos.filter((v) => v.requested_by === state.userId && v.status !== 'ok');
+      if (mine.length) html += `
+        <section class="st-list">
+          <h3>我想看的</h3>
+          ${mine.map((v) => `<div class="vd-log"><span>${esc(v.title)}</span><em class="${v.status === 'pending' ? '' : 'no'}">${v.status === 'pending' ? '等爸媽看看' : '爸媽說先不要'}</em><button class="link-btn" data-act="vd-req-del" data-id="${esc(v.id)}">${v.status === 'pending' ? '取消' : '知道了'}</button></div>`).join('')}
+        </section>`;
+    }
+    return html;
+  }
+  function videoHubNote() {
+    if (amChild()) {
+      const n = myVideos().filter((v) => !seenVideo(v, state.userId)).length;
+      const left = videoLeft(state.userId);
+      return (n ? `<em>${n} 部新影片</em>　` : '') + (left === Infinity ? '爸媽挑給你看的影片' : left ? '今天還可以看 ' + Math.ceil(left / 60) + ' 分鐘' : '今天的時間用完了');
+    }
+    const p = state.videos.filter((v) => v.status === 'pending').length;
+    return p ? `<em>${p} 個想看的申請</em>` : state.videos.length ? state.videos.filter((v) => v.status === 'ok').length + ' 部影片' : '挑 YouTube 影片給小朋友在這裡看';
+  }
+
+  // ---- 加影片、申請想看 ----
+  let videoDraft = null, videoLookupTimer = null;
+  function openVideoSheet(v) {
+    const child = amChild();
+    videoDraft = v ? { yt_id: v.yt_id, title: v.title, channel: v.channel || '', ok: true } : null;
+    const x = v || { to: kids().map((k) => k.id), cat: '學習', note: '' };
+    showSheet('video-form', {
+      title: v ? '編輯影片' : child ? '我想看這部' : '加一部影片', submit: v ? '儲存' : child ? '送給爸媽' : '加入', focus: !v,
+      footer: v ? DELETE_BTN : '',
+      body: `
+      <input type="hidden" name="item_id" value="${esc(x.id || '')}">
+      ${v ? '' : `
+      <label>YouTube 連結
+        <span class="vd-url"><input type="url" name="yt_url" placeholder="貼上 YouTube 的分享連結" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url">
+        <button type="button" class="btn small" data-act="vd-paste">貼上</button></span>
+      </label>`}
+      <div id="vd-preview">${videoDraft ? videoPreviewHtml() : '<p class="hint">在 YouTube 按「分享 → 複製連結」，再貼到上面。</p>'}</div>
+      ${child ? `
+      <label>為什麼想看（可不填）<input name="reason" maxlength="200" placeholder="例如：同學推薦的科學實驗" autocomplete="off"></label>
+      <p class="hint">爸媽同意之後，這部影片才會出現在你的清單。</p>` : `
+      <fieldset class="people">
+        <legend>給誰看</legend>
+        ${kids().map((k) => `<label style="--who:${esc(k.color)}"><input type="checkbox" name="to" value="${esc(k.id)}" ${x.to.includes(k.id) ? 'checked' : ''}><span>${esc(k.display_name)}</span></label>`).join('')}
+      </fieldset>
+      <fieldset class="seg">
+        <legend>分類</legend>
+        ${Object.keys(VIDEO_CATS).map((c) => `<label style="--cat:${VIDEO_CATS[c]}"><input type="radio" name="cat" value="${c}" ${x.cat === c ? 'checked' : ''}><span>${c}</span></label>`).join('')}
+      </fieldset>
+      <label>想跟他們說的話（可不填）<input name="note" value="${esc(x.note || '')}" maxlength="200" placeholder="例如：看完跟我說你學到什麼" autocomplete="off"></label>
+      ${v ? '' : '<label class="switch"><span>加入後通知他們</span><input type="checkbox" name="notify" checked></label>'}`}`
+    });
+  }
+  function videoPreviewHtml() {
+    const d = videoDraft;
+    if (!d) return '';
+    if (d.loading) return '<p class="hint" role="status">正在查這部影片…</p>';
+    if (d.error) return `<p class="form-error">${esc(d.error)}</p>`;
+    return `
+      <div class="vd-preview">${thumbHtml(d, 'sm')}
+        <span>${d.manual ? '' : `<b>${esc(d.title)}</b><small>${esc(d.channel)}</small>`}<em>${d.manual ? '查不到標題，請自己填' : '✓ 可以在 App 裡播放'}</em></span>
+      </div>
+      ${d.manual ? '<label>影片標題<input name="manual_title" maxlength="200" autocomplete="off"></label>' : ''}`;
+  }
+  async function lookupVideo() {
+    const form = document.getElementById('video-form'), box = document.getElementById('vd-preview');
+    if (!form || !box || !form.elements.yt_url) return;
+    const id = parseYouTube(form.elements.yt_url.value);
+    const draw = () => { const b = document.getElementById('vd-preview'); if (b) b.innerHTML = videoPreviewHtml(); };
+    if (!id) { videoDraft = form.elements.yt_url.value.trim() ? { error: '這不像 YouTube 的影片連結，請再複製一次。' } : null; box.innerHTML = videoDraft ? videoPreviewHtml() : ''; return; }
+    if (videoDraft && videoDraft.yt_id === id && !videoDraft.error) return;
+    if (state.videos.some((v) => v.yt_id === id && v.status !== 'rejected')) { videoDraft = { error: '這部影片已經在清單或申請裡了。' }; return draw(); }
+    const mine = videoDraft = { yt_id: id, loading: true };
+    draw();
+    try {
+      const r = await Api.videoInfo(id);
+      if (videoDraft !== mine) return;
+      videoDraft = r.ok ? { yt_id: id, title: r.title, channel: r.channel, ok: true }
+        : { error: r.reason === 'no-embed' ? '這部影片的作者不允許在其他地方播放，不能加進來。' : '找不到這部影片，可能已經被刪除或設成不公開。' };
+    } catch (e) {
+      console.error(e);
+      if (videoDraft !== mine) return;
+      videoDraft = { yt_id: id, title: '', channel: '', ok: true, manual: true };
+    }
+    draw();
+  }
+
+  // ---- 播放 ----
+  const $video = document.createElement('div');
+  $video.id = 'video-root'; $video.hidden = true;
+  document.body.appendChild($video);
+  let ytLoading = null;
+  function loadYT() {
+    if (window.YT && window.YT.Player) return Promise.resolve();
+    if (!ytLoading) ytLoading = new Promise((resolve, reject) => {
+      const fail = () => { ytLoading = null; reject(new Error('youtube')); };
+      window.onYouTubeIframeAPIReady = () => resolve();
+      const s = document.createElement('script');
+      s.src = 'https://www.youtube.com/iframe_api'; s.onerror = fail;
+      document.head.appendChild(s);
+      setTimeout(() => { if (!(window.YT && window.YT.Player)) fail(); }, 12000);
+    });
+    return ytLoading;
+  }
+  function openPlayer(id) {
+    const v = findById(state.videos, id);
+    if (!v) return;
+    const kid = amChild() ? state.userId : null;
+    if (kid && videoLeft(kid) <= 0) return toast('今天看影片的時間用完了，明天再看');
+    closeSheet();
+    const viewId = kid ? v.id + '_' + kid + '_' + today() : null;
+    const old = viewId && findById(state.videoViews, viewId);
+    vp = { id: v.id, kid, viewId, base: old ? Number(old.seconds) || 0 : 0, acc: 0, saved: 0, lastT: -1, stuck: 0, mode: 'poster', player: null, started: false, finished: !!(old && old.finished) };
+    $video.hidden = false;
+    document.body.classList.add('video-open');
+    drawPlayer();
+  }
+  function drawPlayer() {
+    const v = vp && findById(state.videos, vp.id);
+    if (!v) return closePlayer();
+    const others = myVideos().filter((x) => x.id !== v.id).slice(0, 4);
+    $video.innerHTML = `
+      <div class="vp" role="dialog" aria-modal="true" aria-label="${esc(v.title)}">
+        <div class="vp-top"><button class="vp-back" data-act="vp-close">‹ 影片</button><span id="vp-left">${vp.kid ? vLeftText(videoLeft(vp.kid)) : ''}</span></div>
+        <div class="vp-stage" id="vp-stage">
+          <div id="vp-frame"></div>
+          <div class="vp-guard top" aria-hidden="true"></div><div class="vp-guard bottom" aria-hidden="true"></div>
+          <button class="vp-cover" id="vp-cover" data-act="vp-toggle" aria-label="暫停" hidden></button>
+          <button class="vp-poster" id="vp-poster" data-act="vp-start" aria-label="開始播放"><img src="${esc(ytThumb(v.yt_id))}" alt=""><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.500v13l10.500-6.500z"/></svg></i></button>
+        </div>
+        <div class="vp-ctrl" id="vp-ctrl" hidden>
+          <button data-act="vp-seek" data-step="-10" aria-label="倒退 10 秒">−10</button>
+          <button class="main" data-act="vp-toggle" id="vp-pp" aria-label="暫停">❚❚</button>
+          <button data-act="vp-seek" data-step="10" aria-label="快轉 10 秒">+10</button>
+          <input type="range" id="vp-bar" min="0" max="1000" value="0" aria-label="播放進度">
+          <span id="vp-time">0:00</span>
+        </div>
+        <p class="vp-hint" id="vp-hint" hidden></p>
+        <div class="vp-body">
+          <div class="vp-meta">${videoChip(v.cat)}<small>${esc(v.channel || '')}</small></div>
+          <h2>${esc(v.title)}</h2>
+          ${v.note ? `<p class="vd-note big"><b>${esc(nameOf(v.added_by))}說</b>：${esc(v.note)}</p>` : ''}
+          ${v.status === 'pending' ? `<p class="hint">這是${esc(nameOf(v.requested_by))}申請想看的影片，看過再決定要不要同意。</p>` : ''}
+          ${others.length ? `<section class="vp-more"><h3>${vp.kid ? '爸媽挑的其他影片' : '清單裡的其他影片'}</h3>${others.map((x) => `<button data-act="vd-open" data-id="${esc(x.id)}">${thumbHtml(x, 'sm')}<span><b>${esc(x.title)}</b><small>${esc(x.channel || '')}</small></span></button>`).join('')}</section>` : ''}
+          <p class="hint">影片開頭或中間可能會有 YouTube 的廣告，這個 App 擋不掉。</p>
+        </div>
+      </div>`;
+  }
+  const vpEl = (id) => document.getElementById(id);
+  function vpHint(text, btn) {
+    const el = vpEl('vp-hint');
+    if (!el) return;
+    el.hidden = !text;
+    el.innerHTML = text ? esc(text) + (btn ? ` <button class="link-btn" data-act="vp-unlock">${esc(btn)}</button>` : '') : '';
+  }
+  async function startPlayer() {
+    const v = vp && findById(state.videos, vp.id);
+    if (!v || vp.player) return;
+    const mine = vp;
+    const poster = vpEl('vp-poster');
+    if (poster) poster.classList.add('loading');
+    try { await loadYT(); }
+    catch (e) { if (vp === mine) { if (poster) poster.classList.remove('loading'); vpHint('播放器載入不了，請確認網路後再按一次。'); } return; }
+    if (vp !== mine || !vpEl('vp-frame')) return;
+    vp.player = new window.YT.Player('vp-frame', {
+      videoId: v.yt_id, host: 'https://www.youtube-nocookie.com', width: '100%', height: '100%',
+      playerVars: { autoplay: 1, playsinline: 1, controls: 0, rel: 0, fs: 0, modestbranding: 1, iv_load_policy: 3, disablekb: 1, origin: location.origin },
+      events: {
+        onReady: () => { if (vp !== mine) return; const p = vpEl('vp-poster'); if (p) p.hidden = true; vpHint('如果沒有自動開始，點一下影片中間的播放鍵。'); try { vp.player.playVideo(); } catch (e) { /* 等使用者自己點 */ } },
+        onStateChange: (ev) => { if (vp === mine) onPlayerState(ev.data); },
+        onError: (ev) => { if (vp !== mine) return; showStage(`<div class="vp-msg"><b>這部影片不能在這裡播放</b><span>${[101, 150].includes(ev.data) ? '作者不允許在其他地方播放。' : '影片可能已經被刪除或設成不公開。'}</span></div>`); }
+      }
+    });
+  }
+  function onPlayerState(s) {
+    const cover = vpEl('vp-cover'), ctrl = vpEl('vp-ctrl'), pp = vpEl('vp-pp');
+    if (s === 1) {              // 播放中：整個蓋住，點到的都是我們自己的暫停
+      vp.started = true; vp.mode = 'playing'; vp.stuck = 0;
+      if (cover) { cover.hidden = false; cover.className = 'vp-cover'; cover.setAttribute('aria-label', '暫停'); }
+      if (ctrl) ctrl.hidden = false;
+      if (pp) { pp.textContent = '❚❚'; pp.setAttribute('aria-label', '暫停'); }
+      vpHint('');
+    } else if (s === 2 && vp.started) {   // 暫停：蓋上不透明的一層，看不到 YouTube 暫停時的推薦影片
+      vp.mode = 'paused';
+      if (cover) { cover.hidden = false; cover.className = 'vp-cover paused'; cover.setAttribute('aria-label', '繼續播放'); }
+      if (pp) { pp.textContent = '▶'; pp.setAttribute('aria-label', '繼續播放'); }
+      flushView(false);
+    } else if (s === 0) finishPlayer();
+  }
+  function togglePlayer() {
+    if (!vp || !vp.player) return;
+    try {
+      if (vp.mode === 'playing') return vp.player.pauseVideo();
+      vp.player.playVideo();
+      // 有些手機不讓 App 代按播放：等一下還沒開始，就把擋板拿開，讓人直接點影片中間
+      const mine = vp;
+      setTimeout(() => {
+        if (vp !== mine || vp.mode === 'playing') return;
+        const cover = vpEl('vp-cover'); if (cover) cover.hidden = true;
+        vpHint('點一下影片中間的播放鍵繼續。');
+      }, 1500);
+    } catch (e) { console.warn(e); }
+  }
+  function showStage(html) {
+    if (vp && vp.player) { try { vp.player.destroy(); } catch (e) { /* 已經沒了 */ } vp.player = null; }
+    const stage = vpEl('vp-stage'), ctrl = vpEl('vp-ctrl');
+    if (stage) stage.innerHTML = html;
+    if (ctrl) ctrl.hidden = true;
+    vpHint('');
+    if (vp) vp.mode = 'done';
+  }
+  function finishPlayer() {
+    const v = vp && findById(state.videos, vp.id);
+    if (!v) return;
+    vp.finished = true;
+    flushView(true);
+    showStage(`
+      <div class="vp-msg done"><svg viewBox="0 0 54 54" aria-hidden="true"><circle cx="27" cy="27" r="25"/><path d="M17 28l7 7 13-15"/></svg><b>看完了！</b>
+        <div class="vp-msg-btns"><button class="btn" data-act="vd-open" data-id="${esc(v.id)}">再看一次</button><button class="btn primary" data-act="vp-close">回到清單</button></div>
+      </div>`);
+    if (vp.kid && v.note) {
+      const body = $video.querySelector('.vp-body');
+      if (body) body.insertAdjacentHTML('afterbegin', `
+        <form class="reply-form vp-answer" id="vp-answer">
+          <input name="text" type="text" maxlength="300" placeholder="回答${esc(nameOf(v.added_by))}（會傳到聊天室）" autocomplete="off" enterkeyhint="send" aria-label="回答">
+          <button type="submit" class="send sm" aria-label="送出">${ICON.send}</button>
+        </form>`);
+    }
+  }
+  // 把這次看的秒數記下來（只記小朋友的）
+  function flushView(finished) {
+    if (!vp || !vp.kid || (vp.acc === vp.saved && !finished)) return;
+    const v = findById(state.videos, vp.id);
+    vp.saved = vp.acc;
+    Api.setDoc('video_views', vp.viewId, { video_id: vp.id, kid: vp.kid, date: today(), seconds: Math.min(86400, Math.round(vp.base + vp.acc)), finished: !!(vp.finished || finished), title: v ? v.title.slice(0, 80) : '', at: Date.now() })
+      .catch((e) => console.warn('觀看紀錄沒存到', e));
+  }
+  function closePlayer() {
+    if (vp) { flushView(false); if (vp.player) { try { vp.player.destroy(); } catch (e) { /* 已經沒了 */ } } }
+    vp = null;
+    $video.innerHTML = ''; $video.hidden = true;
+    document.body.classList.remove('video-open');
+    if (state.tab === 'notes' && (state.notesView === 'video' || state.notesView === 'hub')) render();
+  }
+  // 每秒：算觀看時間、更新進度、檢查每天的上限、猜是不是卡在廣告
+  setInterval(() => {
+    if (!vp || !vp.player || typeof vp.player.getCurrentTime !== 'function') return;
+    let t = 0, dur = 0, s = -1;
+    try { t = vp.player.getCurrentTime() || 0; dur = vp.player.getDuration() || 0; s = vp.player.getPlayerState(); } catch (e) { return; }
+    if (s === 1 && t > vp.lastT && t - vp.lastT < 3) { if (vp.kid) vp.acc += 1; vp.stuck = 0; }
+    else if (s === 1 || s === 3 || (s === -1 && vp.started)) vp.stuck += 1;
+    vp.lastT = t;
+    const bar = vpEl('vp-bar'), time = vpEl('vp-time');
+    if (bar && dur && document.activeElement !== bar) bar.value = Math.round(t / dur * 1000);
+    if (time) time.textContent = durText(t) || '0:00';
+    const v = findById(state.videos, vp.id);
+    if (v && dur > 1 && !v.duration && !vp.durSaved) { vp.durSaved = true; Api.updateDoc('videos', v.id, { duration: Math.round(dur) }).catch(() => {}); }
+    if (vp.stuck === 8) vpHint('畫面停住了？可能是廣告。', '讓我按「略過廣告」');
+    if (vp.kid) {
+      if (vp.acc - vp.saved >= 20) flushView(false);
+      const left = videoLeft(vp.kid), el = vpEl('vp-left');
+      if (el) el.textContent = vLeftText(left);
+      if (left <= 0) {
+        try { vp.player.pauseVideo(); } catch (e) { /* 沒關係 */ }
+        flushView(false);
+        showStage('<div class="vp-msg"><b>今天的時間用完了</b><span>明天再繼續看。</span><div class="vp-msg-btns"><button class="btn primary" data-act="vp-close">回到清單</button></div></div>');
+      }
+    }
+  }, 1000);
+  document.addEventListener('visibilitychange', () => { if (document.hidden && vp && vp.player && vp.mode === 'playing') { try { vp.player.pauseVideo(); } catch (e) { /* 沒關係 */ } } });
+  document.addEventListener('input', (ev) => {
+    if (ev.target.id === 'vp-bar' && vp && vp.player) { try { const d = vp.player.getDuration() || 0; vp.lastT = -1; vp.player.seekTo(d * Number(ev.target.value) / 1000, true); } catch (e) { /* 沒關係 */ } }
+    if (ev.target.name === 'yt_url' && ev.target.closest('#video-form')) { clearTimeout(videoLookupTimer); videoLookupTimer = setTimeout(lookupVideo, 500); }
+  });
+  function onVideoData() {
+    refreshBadges();
+    if (state.tab !== 'notes' || $sheet.innerHTML) return;
+    if (state.notesView === 'video' || state.notesView === 'hub') { const sc = scroller(), y = sc ? sc.scrollTop : 0; render(); if (scroller()) scroller().scrollTop = y; }
+  }
+
   const HUB = [
     ['butler', '家庭小管家', '#1F6B52', '<path d="M12 4l1.800 4.700L18.500 10.500l-4.700 1.800L12 17l-1.800-4.700L5.500 10.500l4.700-1.800z"/><path d="M18.500 15.500l.700 1.800 1.800.700-1.800.700-.700 1.800-.700-1.800-1.800-.700 1.800-.700z"/>'],
     ['study', '讀書計畫', '#2F6FDE', '<path d="M4 5.500C6.500 4.500 9 4.500 12 6.500c3-2 5.500-2 8-1v13c-2.500-1-5-1-8 1-3-2-5.500-2-8-1z"/><path d="M12 6.500v13"/>'],
+    ['video', '影片', '#E0443E', '<rect x="3.500" y="5.500" width="17" height="13" rx="3"/><path d="M10 9.500v5l4.500-2.500z"/>'],
     ['ledger', '零用錢', '#34A853', '<path d="M4 8.500A2.500 2.500 0 0 1 6.500 6H17a2 2 0 0 1 2 2v1"/><rect x="4" y="9" width="16" height="10" rx="2.500"/><circle cx="15.500" cy="14" r="1.300" fill="#fff" stroke="none"/>'],
     ['scores', '成績', '#F29D0B', '<path d="M5 19V11M10 19V5M15 19v-6M20 19V8"/>'],
     ['notes', '旅遊', '#0E9AA7', '<path d="M3.500 12.500l17-7.500-6 15-3-6z"/><path d="M11.500 14l3-3"/>'],
@@ -3817,6 +4199,7 @@
     }
     if (id === 'butler') return '什麼都可以問，也查得到家裡的紀錄';
     if (id === 'study') return studyHubNote();
+    if (id === 'video') return videoHubNote();
     if (id === 'scores') return amChild() ? '只有你和爸媽看得到' : '考試成績紀錄';
     if (id === 'notes') {
       const next = state.trips.filter((t) => t.end_date >= today()).sort((x, y) => x.start_date.localeCompare(y.start_date))[0];
@@ -3843,7 +4226,7 @@
       </nav>`;
   }
   function viewNotes() {
-    const views = { study: viewStudy, butler: viewButler, ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, transit: viewTransit, shop: viewShop, cards: viewCards };
+    const views = { video: viewVideo, study: viewStudy, butler: viewButler, ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, transit: viewTransit, shop: viewShop, cards: viewCards };
     const view = views[state.notesView];
     if (!view) return viewHub();
     // 旅程裡面、公車路線裡面已經有自己的「返回」，就不再多放一個
@@ -5165,6 +5548,31 @@
       },
       after: () => { const s = scroller(); if (s) s.scrollTop = 0; }
     },
+    'video-form': {
+      read: (f, form) => ({
+        id: f.item_id.value || null, to: checkedValues(form, 'to'), cat: (form.querySelector('input[name="cat"]:checked') || {}).value || '',
+        note: f.note ? f.note.value.trim() : '', reason: f.reason ? f.reason.value.trim() : '', notify: f.notify ? f.notify.checked : true,
+        manual: f.manual_title ? f.manual_title.value.trim() : ''
+      }),
+      check(x) {
+        const d = videoDraft;
+        if (!d || d.loading) return d ? '還在查這部影片，等一下再按' : '請先貼上 YouTube 連結';
+        if (d.error || !d.ok) return d.error || '這部影片不能加入';
+        if (d.manual && !x.manual) return '請填影片標題';
+        if (!amChild() && !x.to.length) return '請選擇給誰看';
+        return null;
+      },
+      async save(x) {
+        const d = videoDraft;
+        if (x.id) return Api.updateDoc('videos', x.id, { to: x.to, cat: x.cat, note: x.note });
+        const base = { yt_id: d.yt_id, title: (d.manual ? x.manual : d.title).slice(0, 200), channel: d.channel || '', duration: 0, added_by: state.userId, created_at: Date.now() };
+        if (amChild()) await Api.addDoc('videos', { ...base, cat: '', note: '', reason: x.reason, to: [state.userId], status: 'pending', requested_by: state.userId });
+        else await Api.addDoc('videos', { ...base, cat: x.cat, note: x.note, to: x.to, status: 'ok', notify: x.notify });
+      },
+      remove: (id) => Api.deleteDoc('videos', id),
+      done: '已儲存',
+      after() { videoDraft = null; render(); }
+    },
     'study-form': {
       read: (f, form) => ({
         id: f.item_id.value || null, kid: f.kid.value, sub: (form.querySelector('input[name="sub"]:checked') || {}).value || '',
@@ -5366,6 +5774,7 @@
       if (state.tab === 'notes' && state.notesView === 'ledger') { if (kids().length) openLedgerSheet(null); }
       else if (state.tab === 'notes' && state.notesView === 'cards') openCardSheet(null);
       else if (state.tab === 'notes' && state.notesView === 'study') openStudySheet(null);
+      else if (state.tab === 'notes' && state.notesView === 'video') openVideoSheet(null);
       else if (state.tab === 'notes' && state.notesView === 'scores') { if (kids().length) openScoreSheet(null); }
       else if (state.tab === 'notes' && state.notesView === 'album') openAlbumSheet();
       else if (state.tab === 'notes' && state.notesView === 'notes') {
@@ -5418,6 +5827,36 @@
     else if (act === 'pick-mention') pickMention(el.dataset.name);
     else if (act === 'goto-msg') gotoMessage(el.dataset.id);
     else if (act === 'del-post') onDeletePost(el);
+    else if (act === 'vd-open') openPlayer(el.dataset.id);
+    else if (act === 'vd-edit') { const v = findById(state.videos, el.dataset.id); if (v) openVideoSheet(v); }
+    else if (act === 'vd-mode') { state.videoMode = el.dataset.mode; render(); }
+    else if (act === 'vd-cat') { state.videoCat = el.dataset.cat; render(); }
+    else if (act === 'vd-paste') {
+      const input = document.querySelector('#video-form input[name="yt_url"]');
+      if (input && navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then((t) => { input.value = t.trim(); lookupVideo(); }, () => toast('讀不到剪貼簿，請長按輸入框選「貼上」'));
+      else toast('請長按輸入框選「貼上」');
+    }
+    else if (act === 'vd-review') {
+      const v = findById(state.videos, el.dataset.id), ok = el.dataset.status === 'ok';
+      if (v) Api.updateDoc('videos', v.id, { status: el.dataset.status, cat: v.cat || (ok ? '放鬆' : '') })
+        .then(() => toast(ok ? '已同意，' + nameOf(v.requested_by) + '可以看了' : '已回覆先不要'), () => toast('沒有成功，請再試一次'));
+    }
+    else if (act === 'vd-req-del') Api.deleteDoc('videos', el.dataset.id).catch(() => toast('沒有成功，請再試一次'));
+    else if (act === 'vd-limit') {
+      const next = Math.min(600, Math.max(0, videoLimit(el.dataset.kid) + Number(el.dataset.step)));
+      Api.setDoc('video_limits', el.dataset.kid, { minutes: next, updated_by: state.userId, updated_at: Date.now() }).catch(() => toast('沒有成功，請確認已經執行過最新的 deploy.bat'));
+    }
+    else if (act === 'vp-start') startPlayer();
+    else if (act === 'vp-toggle') togglePlayer();
+    else if (act === 'vp-close') closePlayer();
+    else if (act === 'vp-seek') { if (vp && vp.player) { try { vp.lastT = -1; vp.player.seekTo(Math.max(0, vp.player.getCurrentTime() + Number(el.dataset.step)), true); } catch (e) { /* 沒關係 */ } } }
+    else if (act === 'vp-unlock') {
+      // 廣告的「略過」按鈕在播放器裡面：把擋板拿開 8 秒讓人按，再蓋回去
+      $video.querySelectorAll('.vp-cover, .vp-guard').forEach((x) => { x.style.display = 'none'; });
+      vpHint('可以按影片上的「略過廣告」了（8 秒後會再鎖起來）。');
+      const mine = vp;
+      setTimeout(() => { if (vp !== mine) return; $video.querySelectorAll('.vp-cover, .vp-guard').forEach((x) => { x.style.display = ''; }); vp.stuck = 0; vpHint(''); }, 8000);
+    }
     else if (act === 'open-study') { state.tab = 'notes'; state.notesView = 'study'; state.studyDay = today(); state.studyMode = 'day'; render(); scroller().scrollTop = 0; }
     else if (act === 'study-kid') { state.studyKid = el.dataset.id; render(); }
     else if (act === 'study-mode') { state.studyMode = el.dataset.mode; render(); }
@@ -5618,6 +6057,10 @@
     else if (id === 'call-form') onCallForm(form);
     else if (id === 'transit-search-form') onTransitSearch(form);
     else if (id === 'album-comment-form') onPhotoComment(form);
+    else if (form.id === 'vp-answer') {
+      const v = vp && findById(state.videos, vp.id), t = form.elements.text.value.trim();
+      if (v && t) Api.sendMessage('看完「' + v.title.slice(0, 40) + '」：' + t, { mentions: [v.added_by] }).then(() => { form.outerHTML = '<p class="hint">已經傳到聊天室了。</p>'; }, () => toast('沒有送出，請再試一次'));
+    }
     else if (form.id === 'study-cheer-form') { const i = form.elements.text, t = i.value.trim(); if (t) { i.value = ''; i.blur(); sendStudyCheer('text', t); } }
     else if (form.classList.contains('reply-form')) onReply(form);
     else if (form.classList.contains('opt-add')) onAddOption(form);
@@ -6339,6 +6782,7 @@
     if (tab === 'ledger') { state.notesView = 'ledger'; state.ledgerDay = null; tab = 'notes'; }
     if (tab === 'polls') { state.postsView = 'polls'; tab = 'posts'; }
     if (tab === 'todos') { state.notesView = 'shop'; tab = 'notes'; }
+    if (tab === 'video') { state.notesView = 'video'; if (!amChild() && state.videos.some((v) => v.status === 'pending')) state.videoMode = 'manage'; tab = 'notes'; }
     if (tab === 'study') { state.notesView = 'study'; state.studyDay = today(); tab = 'notes'; }
     if (!TABS.some(([id]) => id === tab)) return;
     state.tab = tab;
@@ -6388,7 +6832,7 @@
       if (!latest || latest === VERSION) return;
       if (sessionStorage.getItem('family-update-tried') === latest) return;
       const a = document.activeElement;
-      const busy = $sheet.innerHTML || state.draft || (a && /^(INPUT|TEXTAREA)$/.test(a.tagName));
+      const busy = vp || $sheet.innerHTML || state.draft || (a && /^(INPUT|TEXTAREA)$/.test(a.tagName));
       if (busy) return;
       sessionStorage.setItem('family-update-tried', latest);
       await refreshShell();

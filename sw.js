@@ -2,7 +2,7 @@
 // 策略：程式檔先用手機上存的那一份（馬上顯示），同時在背景向伺服器拿新的，存起來給下次用。
 // 有新版本時，App 會比對 version.txt，通知這裡把檔案全部換新，再重新載入。
 // 只處理本站的檔案，Firebase 的資料請求完全不經過這裡。
-const CACHE = 'family-shell-v118';
+const CACHE = 'family-shell-v119';
 const SHELL = [
   './', 'index.html', 'css/app.css',
   'js/config.js', 'js/holidays.js', 'js/api.js', 'js/app.js', 'vendor/firebase.js',
@@ -53,7 +53,7 @@ self.addEventListener('message', (e) => {
 // 通知要帶使用者去哪一頁：聊天訊息 → 聊天；「我有話要說」→ 我有話要說；費用申請 → 零用錢
 const tabFor = (tag) => {
   const t = String(tag || '');
-  return t.startsWith('event') || t.startsWith('bday') ? 'cal' : t.startsWith('poll') ? 'polls' : t.startsWith('post') ? 'posts' : t.startsWith('request') ? 'ledger' : t.startsWith('todo') ? 'todos' : t.startsWith('study') ? 'study' : 'chat';   // call-… 也開在聊天室，來電畫面會自己跳出來
+  return t.startsWith('event') || t.startsWith('bday') ? 'cal' : t.startsWith('poll') ? 'polls' : t.startsWith('post') ? 'posts' : t.startsWith('request') ? 'ledger' : t.startsWith('todo') ? 'todos' : t.startsWith('study') ? 'study' : t.startsWith('video') ? 'video' : 'chat';   // call-… 也開在聊天室，來電畫面會自己跳出來
 };
 
 self.addEventListener('push', (e) => {

@@ -533,6 +533,41 @@ exports.transit = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds
 // 沒設定時只回免費的 STUN，在同一個 Wi-Fi 或一般網路下多半還是連得上。
 let iceCache = { servers: null, until: 0 };
 const FREE_STUN = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+// ---------- 影片 ----------
+// 查 YouTube 影片的標題和頻道（用 YouTube 公開的 oEmbed），順便知道能不能嵌入播放
+exports.videoInfo = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds: 15, memory: '256MiB' }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'login');
+  const member = await db.doc('members/' + req.auth.uid).get();
+  if (!member.exists) throw new HttpsError('permission-denied', 'not-family');
+  const id = String((req.data || {}).id || '');
+  if (!/^[\w-]{11}$/.test(id)) throw new HttpsError('invalid-argument', 'id');
+  const res = await fetch('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=' + id));
+  if (res.status === 401 || res.status === 403) return { ok: false, reason: 'no-embed' };
+  if (res.status === 400 || res.status === 404) return { ok: false, reason: 'not-found' };
+  if (!res.ok) throw new HttpsError('unavailable', 'youtube-' + res.status);
+  const d = await res.json();
+  return { ok: true, title: String(d.title || '').slice(0, 200), channel: String(d.author_name || '').slice(0, 100) };
+});
+
+// 爸媽加了影片：通知要看的小朋友；小朋友申請想看：通知爸媽
+exports.onVideo = onDocumentCreated('videos/{id}', async (event) => {
+  const v = event.data.data();
+  const members = await db.collection('members').get();
+  const name = (uid) => { const m = members.docs.find((d) => d.id === uid); return m ? m.data().display_name || '家人' : '家人'; };
+  if (v.status === 'pending') {
+    const parents = members.docs.filter((d) => d.data().child !== true).map((d) => d.id);
+    await notify(parents, name(v.requested_by) + '想看一部影片', clip(v.title) + (v.reason ? '：' + clip(v.reason) : ''), 'video-' + event.params.id);
+  } else if (v.status === 'ok' && v.notify !== false) {
+    await notify((v.to || []).filter((uid) => uid !== v.added_by), name(v.added_by) + '挑了一部影片給你', clip(v.title) + (v.note ? '：' + clip(v.note) : ''), 'video-' + event.params.id);
+  }
+});
+// 爸媽回覆了「想看」的申請：通知申請的小朋友
+exports.onVideoReview = onDocumentUpdated('videos/{id}', async (event) => {
+  const before = event.data.before.data(), after = event.data.after.data();
+  if (before.status !== 'pending' || after.status === 'pending' || !after.requested_by) return;
+  await notify([after.requested_by], after.status === 'ok' ? '可以看了：' + clip(after.title) : '這部先不要看', after.status === 'ok' ? '爸媽同意了，打開 App 的「影片」就看得到。' : clip(after.title), 'video-' + event.params.id);
+});
+
 exports.callIce = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds: 15, memory: '256MiB' }, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', 'login');
   const member = await db.doc('members/' + req.auth.uid).get();

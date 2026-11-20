@@ -244,6 +244,13 @@
       watchList: (name, cb) => watch(name, col(name), cb),
       // 只看某個欄位等於某個值的（例如小朋友只讀自己新增的資料卡；安全規則要求查詢本身就帶這個條件）
       watchWhere: (name, field, value, cb) => watch(name, F.query(col(name), F.where(field, '==', value)), cb),
+      // 陣列欄位裡有這個值的（例如影片的「給誰看」）
+      watchHas: (name, field, value, cb) => watch(name, F.query(col(name), F.where(field, 'array-contains', value)), cb),
+      // 問雲端這個 YouTube 影片的標題、頻道，以及能不能嵌入播放
+      async videoInfo(id) {
+        const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'videoInfo');
+        return (await call({ id })).data;
+      },
       // 讀一次清單；filter 是 [欄位, 值]，只讀符合的（小朋友讀自己的資料時一定要帶，否則會被安全規則擋下）
       listDocs: (name, filter) => (filter ? list(name, F.where(filter[0], '==', filter[1])) : list(name)),
       async addDoc(name, data) { return (await F.addDoc(col(name), data)).id; },
@@ -399,6 +406,15 @@
         { id: 'st9', kid: 'm4', sub: '數學', title: '分數乘法練習', note: '習作 p.20', date: day(-1), minutes: 30, done: false, spent: 0, exam_id: '', created_by: 'm4', created_at: ago(3000) },
         { id: 'st10', kid: 'm4', sub: '英文', title: '字母拼讀', note: '', date: day(0), minutes: 20, done: false, spent: 0, exam_id: '', created_by: 'm4', created_at: ago(900) }
       ],
+      videos: [
+        { id: 'v1', yt_id: 'aaaaaaaaaa1', title: '光合作用是怎麼運作的？', channel: '示範科學頻道', duration: 492, cat: '科學', note: '自然第四章的補充，看完跟我說葉綠體在做什麼', to: ['m3', 'm4'], status: 'ok', added_by: 'm2', created_at: ago(200) },
+        { id: 'v2', yt_id: 'aaaaaaaaaa2', title: 'Unit 5 單字發音練習', channel: '示範英文頻道', duration: 725, cat: '英文', note: '跟著唸兩遍', to: ['m3'], status: 'ok', added_by: 'm1', created_at: ago(900) },
+        { id: 'v3', yt_id: 'aaaaaaaaaa3', title: '火山爆發小實驗', channel: '示範實驗頻道', duration: 920, cat: '科學', note: '', reason: '同學說這個實驗很酷', to: ['m4'], status: 'pending', requested_by: 'm4', added_by: 'm4', created_at: ago(60) }
+      ],
+      video_views: [
+        { id: 'v2_m3_' + day(0), video_id: 'v2', kid: 'm3', date: day(0), seconds: 360, finished: false, title: 'Unit 5 單字發音練習', at: ago(40) }
+      ],
+      video_limits: [{ id: 'm3', minutes: 60 }, { id: 'm4', minutes: 40 }],
       study_cheers: [
         { id: 'sc1', kid: 'm3', from: 'm2', kind: 'like', text: '數學習題都寫完了，很棒！', date: day(0), created_at: ago(30) }
       ],
@@ -620,6 +636,12 @@
         (gsubs[name] = gsubs[name] || []).push(cb);
         setTimeout(() => cb(G(name).slice()), 0);
         return () => { gsubs[name] = gsubs[name].filter((x) => x !== cb); };
+      },
+      watchHas(name, field, value, cb) { return this.watchList(name, (list) => cb(list.filter((x) => (x[field] || []).includes(value)))); },
+      async videoInfo(id) {
+        await new Promise((r) => setTimeout(r, 300));
+        if (/^x/.test(id)) return { ok: false, reason: 'no-embed' };
+        return { ok: true, title: '示範影片 ' + id.slice(0, 4), channel: '示範頻道' };
       },
       watchWhere(name, field, value, cb) {
         if (subs[name]) return watch(name)((list) => cb(list.filter((x) => x[field] === value)));   // 回覆、訊息這幾種是另外存的
