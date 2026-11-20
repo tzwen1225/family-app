@@ -415,6 +415,12 @@
         { id: 'v2_m3_' + day(0), video_id: 'v2', kid: 'm3', date: day(0), seconds: 360, finished: false, title: 'Unit 5 單字發音練習', at: ago(40) }
       ],
       video_limits: [{ id: 'm3', minutes: 60 }, { id: 'm4', minutes: 40 }],
+      checkins: [
+        { id: 'ci1', kid: 'm3', kind: 'school', text: '我到學校了', note: '', at: ago(300), date: day(0), lat: 24.80395, lng: 120.97148, acc: 18, place: '東區' },
+        { id: 'ci2', kid: 'm4', kind: 'bus', text: '我上車了', note: '今天坐 2 號公車', at: ago(55), date: day(0), lat: 24.80158, lng: 120.97166, acc: 25, place: '東區' },
+        { id: 'ci3', kid: 'm4', kind: 'school', text: '我到學校了', note: '', at: ago(310), date: day(0) }
+      ],
+      places: [{ id: 'pl1', name: '學校', lat: 24.8040, lng: 120.9715 }],
       study_cheers: [
         { id: 'sc1', kid: 'm3', from: 'm2', kind: 'like', text: '數學習題都寫完了，很棒！', date: day(0), created_at: ago(30) }
       ],

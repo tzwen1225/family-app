@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-20 14:35';
+  const VERSION = '2026-11-21 01:23';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -108,7 +108,8 @@
     msgReacts: [],                  // 聊天訊息的表情回應
     studyItems: [], studyCheers: [],   // 讀書計畫和爸媽的鼓勵
     studyKid: null, studyMode: 'day', studyDay: null,
-    videoReady: null, videos: [], videoViews: [], videoLimits: [], videoMode: 'list', videoCat: '', vdMonths: {},   // 影片
+    videoReady: null, videos: [], videoViews: [], videoLimits: [], videoMode: 'list', videoCat: '', vdMonths: {},
+    checkins: [], places: [], ciOpen: false, ciReady: null,   // 報平安   // 影片
     journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -324,6 +325,7 @@
   }
 
   function loadTab() {
+    if (state.ciReady === null && state.userId && me() && !amChild()) { state.ciReady = undefined; checkCiReady(); }
     if (state.tab === 'cal') loadEvents();
     else if (state.tab === 'notes') { if (state.notesView === 'study' && !state.studyDay) state.studyDay = today(); if (state.notesView === 'video') checkVideoReady(); if (state.notesView === 'ledger') loadLedger(); else if (state.notesView === 'notes') { if (state.showOldNotes) loadNotes(); } else if (state.notesView === 'scores') loadScores(); else if (state.notesView === 'butler') state.butlerReady = Promise.all([loadScores(), loadLedger(), loadEvents()]).catch(() => {}); else if (state.notesView === 'album') loadAlbum(); else if (state.notesView === 'transit') loadTransit(); }
   }
@@ -453,6 +455,8 @@
         ? [Api.watchHas('videos', 'to', state.userId, (l) => { state.videos = l; onVideoData(); }), Api.watchWhere('video_views', 'kid', state.userId, (l) => { state.videoViews = l; onVideoData(); })]
         : [Api.watchList('videos', (l) => { state.videos = l; onVideoData(); }), Api.watchList('video_views', (l) => { state.videoViews = l; onVideoData(); })]),
       Api.watchList('video_limits', (l) => { state.videoLimits = l; onVideoData(); }),
+      (amChild() ? (cb) => Api.watchWhere('checkins', 'kid', state.userId, cb) : (cb) => Api.watchList('checkins', cb))((l) => { state.checkins = l; drawCheckin(); }),
+      Api.watchList('places', (l) => { state.places = l; drawCheckin(); }),
       Api.watchList('message_reacts', (list) => { state.msgReacts = list; if (state.tab === 'chat') refreshChat(false); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       // 資料卡：家長看全部；小朋友只讀得到自己新增的（安全規則也是這樣擋）
@@ -1064,6 +1068,212 @@
     return `<div class="switcher" role="group" aria-label="檢視方式">${b('month', '月曆')}${b('list', '近期')}</div>`;
   }
 
+  // ---- 報平安 ----
+  // checkins/{id}：{ kid, kind, text, note, at, date, lat?, lng?, acc?, place? }
+  //   小朋友在首頁按一下就送出，只在按下的那一刻抓一次位置；爸媽收到通知，首頁看得到紀錄。
+  //   只有爸媽和小朋友本人讀得到；送出後 30 秒內可以收回；紀錄留 30 天（伺服器每天清）。
+  // places/{id}：{ name, lat, lng }　爸媽把某次報平安的位置記成「家」「學校」，之後在附近報平安就顯示這個名字
+  const CI_ICON = {
+    home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+    school: '<path d="M3 9l9-5 9 5-9 5z"/><path d="M7 11v5c3 2 7 2 10 0v-5"/>',
+    bus: '<rect x="4" y="4" width="16" height="13" rx="3"/><path d="M4 11h16"/><circle cx="8" cy="20" r="1.5"/><circle cx="16" cy="20" r="1.5"/>',
+    out: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>',
+    cram: '<path d="M4 5c3-1 6-1 8 1 2-2 5-2 8-1v14c-3-1-6-1-8 1-2-2-5-2-8-1z"/><path d="M12 6v14"/>',
+    custom: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+    pin: '<path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>'
+  };
+  const CI_KINDS = [
+    { id: 'home', text: '我到家囉', short: '到家', c: '#C4561B', bg: '#FDE9DC' },
+    { id: 'school', text: '我到學校了', short: '到學校', c: '#2456A8', bg: '#E1EBFA' },
+    { id: 'bus', text: '我上車了', short: '上車', c: '#1B7A4F', bg: '#DDF1E6' },
+    { id: 'out', text: '我下課了', short: '下課', c: '#6A47B0', bg: '#ECE4F8' },
+    { id: 'cram', text: '到補習班了', short: '到補習班', c: '#0B7373', bg: '#DAF1F0' },
+    { id: 'custom', text: '自己寫一句', short: '留言', c: '#4E5B55', bg: '#ECEFEA' }
+  ];
+  const CI_UNDO_MS = 30000, CI_KEEP_DAYS = 30, CI_NEAR_M = 150;
+  const ciKind = (id) => CI_KINDS.find((k) => k.id === id) || CI_KINDS[5];
+  const ciSvg = (name, cls) => `<svg class="${cls || ''}" viewBox="0 0 24 24" aria-hidden="true">${CI_ICON[name] || CI_ICON.custom}</svg>`;
+  const ciBadge = (k, cls) => `<i class="ci-badge ${cls || ''}" style="--c:${k.c};--bg:${k.bg}">${ciSvg(k.id)}</i>`;
+  const ciList = () => state.checkins.filter((c) => c.at > Date.now() - CI_KEEP_DAYS * 86400000).sort((a, b) => b.at - a.at);
+  const ciDate = (c) => ymd(new Date(c.at));     // 用送出的時間算日期，不靠手機當時填的 date
+  const ciWhen = (c, timeOnly) => (timeOnly || ciDate(c) === today() ? '' : ciDate(c) === addDays(today(), -1) ? '昨天 ' : shortDate(ciDate(c)) + ' ') + clock(c.at);
+  const ciMapUrl = (c) => 'https://www.google.com/maps?q=' + c.lat + ',' + c.lng;
+  const ciHasPos = (c) => typeof c.lat === 'number' && typeof c.lng === 'number';
+  function metersBetween(a, b) {
+    const R = 6371000, rad = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  // 離最近的「記住的地點」不到 150 公尺，就用那個名字
+  function ciNearPlace(pos) {
+    let best = null, bestD = CI_NEAR_M;
+    state.places.forEach((p) => { const d = metersBetween(pos, p); if (d <= bestD) { best = p; bestD = d; } });
+    return best;
+  }
+  const ciPlaceText = (c) => !ciHasPos(c) ? '沒有位置' : (ciNearPlace(c) || {}).name || c.place || '看地圖';
+  // 這個時間最可能要按哪一顆：先看自己過去同一個時段最常按的，沒有紀錄就用一般作息猜
+  function ciSuggest() {
+    const h = new Date().getHours(), count = {};
+    state.checkins.forEach((c) => { if (c.kid === state.userId && c.kind !== 'custom' && Math.abs(new Date(c.at).getHours() - h) <= 1) count[c.kind] = (count[c.kind] || 0) + 1; });
+    const top = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
+    if (top && count[top] >= 2) return top;
+    return h >= 6 && h < 9 ? 'school' : (h >= 11 && h < 13) || (h >= 15 && h < 17) ? 'out' : h >= 17 && h < 23 ? 'home' : '';
+  }
+  function ciKidHtml() {
+    const last = ciList().find((c) => c.kid === state.userId);
+    const lk = last && ciKind(last.kind);
+    const chip = last ? `<span class="ci-last" style="--c:${lk.c};--bg:${lk.bg}"><i>${ciSvg(lk.id)}</i>${esc(ciWhen(last))} ${esc(last.kind === 'custom' ? last.text.slice(0, 8) : lk.short)}</span>` : '<small>按一下，告訴爸媽你到了</small>';
+    if (!state.ciOpen) return `
+      <button class="ci-bar" data-act="ci-toggle" aria-expanded="false" aria-controls="ci-panel">
+        <i class="ci-badge solid">${ciSvg('pin')}</i><b>報平安</b>${chip}
+        <span class="ci-chev" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+      </button>`;
+    const hint = ciSuggest();
+    return `
+      <div class="ci-panel" id="ci-panel">
+        <button class="ci-head" data-act="ci-toggle" aria-expanded="true" aria-controls="ci-panel">
+          <i class="ci-badge solid">${ciSvg('pin')}</i><span><b>報平安</b><small>選一個，馬上告訴爸媽</small></span>
+          <em>收起<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></em>
+        </button>
+        <div class="ci-grid">
+          ${CI_KINDS.map((k) => `<button class="ci-tile ${k.id === hint ? 'hint' : ''}" style="--c:${k.c};--bg:${k.bg}" data-act="ci-send" data-kind="${k.id}">${ciBadge(k)}<span>${k.text}</span>${k.id === hint ? '<em>現在常用</em>' : ''}</button>`).join('')}
+        </div>
+        <p class="ci-foot">${ciSvg('pin')}會附上你現在的位置・按錯了 30 秒內可以收回</p>
+      </div>`;
+  }
+  function ciRowHtml(c, withKid, timeOnly) {
+    const k = ciKind(c.kind), m = member(c.kid);
+    return `
+      <button class="ci-row" data-act="ci-view" data-id="${esc(c.id)}">
+        ${withKid && m ? avatarHtml(m, 'sm') : ciBadge(k, 'sm')}
+        <span class="ci-row-main"><b>${withKid ? esc(nameOf(c.kid)) + '：' : ''}${esc(c.text)}</b>${c.note ? `<small class="ci-note">「${esc(c.note)}」</small>` : ''}
+          <small>${ciSvg('pin')}${esc(ciPlaceText(c))}</small></span>
+        <time>${esc(ciWhen(c, timeOnly))}</time>
+      </button>`;
+  }
+  function ciParentHtml() {
+    const list = ciList();
+    const latest = kids().map((k) => list.find((c) => c.kid === k.id)).filter(Boolean).sort((a, b) => b.at - a.at);
+    if (!kids().length) return '';
+    return `
+      <div class="ci-card">
+        <h2>${ciSvg('pin')}小朋友報平安${list.length ? `<button class="link-btn" data-act="ci-all">全部紀錄</button>` : ''}</h2>
+        ${latest.length ? latest.map((c) => ciRowHtml(c, true)).join('')
+          : `<p class="none">${state.ciReady === false ? (isAdmin() ? '報平安還沒開通：請用最新的 family-app.zip 執行一次 deploy.bat。' : '報平安還沒開通，請跟管理員說。') : '最近 30 天還沒有人報平安。小朋友的首頁有「報平安」按鈕。'}</p>`}
+      </div>`;
+  }
+  const ciHtml = () => (!state.userId || !me() ? '' : amChild() ? ciKidHtml() : ciParentHtml());
+  function drawCheckin() {
+    const el = document.getElementById('checkin');
+    if (!el) return;
+    const html = ciHtml();
+    if (el.innerHTML !== html) el.innerHTML = html;
+    el.hidden = !html;
+  }
+  // 抓一次現在的位置（最多等 10 秒）。回 { lat, lng, acc }、'denied' 或 null
+  const ciLocate = () => new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: Math.round(pos.coords.latitude * 1e5) / 1e5, lng: Math.round(pos.coords.longitude * 1e5) / 1e5, acc: Math.round(pos.coords.accuracy || 0) }),
+      (err) => resolve(err && err.code === 1 ? 'denied' : null),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+  });
+  const ciMapHtml = (c) => `
+    <div class="ci-map"><iframe title="地圖" loading="lazy" referrerpolicy="no-referrer" src="https://maps.google.com/maps?q=${c.lat},${c.lng}&z=16&hl=zh-TW&output=embed"></iframe></div>
+    <p class="ci-where">${ciSvg('pin')}<span>${esc((ciNearPlace(c) || {}).name || c.place || '地圖上的位置')}</span>${c.acc ? `<small>誤差約 ${c.acc > 999 ? Math.round(c.acc / 100) / 10 + ' 公里' : c.acc + ' 公尺'}</small>` : ''}<a href="${esc(ciMapUrl(c))}" target="_blank" rel="noopener">用 Google 地圖打開</a></p>`;
+  let ciBusy = false, ciSent = null, ciTimer = null;
+  function ciSheetHead(k, text, sub, done) {
+    return `<div class="ci-sent-head">${ciBadge(k, 'lg' + (done ? ' done' : ''))}<div><h2>${esc(text)}</h2><p>${sub}</p></div></div>`;
+  }
+  async function sendCheckin(kindId, custom) {
+    if (ciBusy || !amChild()) return;
+    ciBusy = true;
+    const k = ciKind(kindId), text = (custom || k.text).slice(0, 40);
+    showSheet('ci-sent-form', { title: '報平安', submit: '完成', body: `<div id="ci-sent">${ciSheetHead(k, '正在告訴爸媽：' + text, '正在取得你現在的位置…')}<div class="ci-wait" aria-hidden="true"><i></i></div></div>` });
+    const btn = $sheet.querySelector('button[type=submit]');
+    if (btn) btn.disabled = true;
+    try {
+      const pos = await ciLocate();
+      const data = { kid: state.userId, kind: k.id, text, note: '', at: Date.now(), date: today() };
+      if (pos && typeof pos === 'object') {
+        Object.assign(data, pos);
+        const near = ciNearPlace(pos);
+        data.place = near ? near.name : (await wxPlaceName(Math.round(pos.lat * 100) / 100, Math.round(pos.lng * 100) / 100)) || '';   // 查地區名只送出大約的位置（約 1 公里）
+      }
+      const id = await Api.addDoc('checkins', data);
+      ciSent = { ...data, id, denied: pos === 'denied' };
+      state.ciOpen = false;
+      if (!findById(state.checkins, id)) state.checkins.push({ ...data, id });
+      Api.sendMessage('【報平安】' + text, { checkin: id }).catch((e) => console.warn('報平安沒有傳到聊天室', e));
+      drawCheckin();
+      drawCiSent();
+      clearInterval(ciTimer);
+      ciTimer = setInterval(() => {
+        const b = document.getElementById('ci-undo');
+        if (!ciSent || !b) return clearInterval(ciTimer);
+        const left = Math.ceil((ciSent.at + CI_UNDO_MS - Date.now()) / 1000);
+        if (left <= 0) { b.remove(); clearInterval(ciTimer); } else b.textContent = '按錯了，收回（' + left + ' 秒）';
+      }, 500);
+    } catch (e) {
+      console.error(e);
+      const el = document.getElementById('ci-sent');
+      const denied = /permission|denied/i.test(String((e && (e.code || e.message)) || ''));
+      if (el) el.innerHTML = ciSheetHead(k, '沒有傳出去', denied ? '報平安還沒開通，請跟爸爸說要重新部署一次。' : '請確認網路後，關掉這個視窗再按一次。');
+    } finally { ciBusy = false; if (btn) btn.disabled = false; }
+  }
+  function drawCiSent() {
+    const el = document.getElementById('ci-sent'), c = ciSent;
+    if (!el || !c) return;
+    const k = ciKind(c.kind), parents = state.members.filter((m) => !m.child).map((m) => m.display_name).join('、');
+    el.innerHTML = ciSheetHead(k, '已告訴爸媽：' + c.text, clock(c.at) + '・' + esc(parents) + '會收到通知', true)
+      + (ciHasPos(c) ? ciMapHtml(c) : `<p class="ci-nopos">${c.denied ? '這次沒有附上位置：還沒允許取得位置。到 iPhone「設定 → 隱私權與安全性 → 定位服務」打開後，下次就會附上。' : '這次抓不到位置，所以沒有附上。爸媽還是會收到通知。'}</p>`)
+      + `<label>想多說一句（可以不寫）<input name="note" class="title-input" maxlength="100" placeholder="例如：在便利商店買東西" autocomplete="off"></label>
+         <button type="button" class="btn ci-undo" id="ci-undo" data-act="ci-undo">按錯了，收回（${Math.ceil(CI_UNDO_MS / 1000)} 秒）</button>`;
+  }
+  async function undoCheckin() {
+    const c = ciSent;
+    if (!c || Date.now() - c.at > CI_UNDO_MS + 5000) return toast('已經超過 30 秒，不能收回了');
+    try {
+      await Api.deleteDoc('checkins', c.id);
+      const m = state.messages.find((x) => x.checkin === c.id && !x.recalled);
+      if (m) Api.recallMessage(m.id, false).catch(() => {});
+      state.checkins = state.checkins.filter((x) => x.id !== c.id);
+      ciSent = null; clearInterval(ciTimer);
+      closeSheet(); drawCheckin();
+      toast('已收回，爸媽會知道你收回了');
+    } catch (e) { console.error(e); toast('沒有收回成功'); }
+  }
+  // 爸媽：看一筆（地圖、把這裡記成常去的地點）；小朋友也可以看自己的
+  function openCheckin(id) {
+    const c = findById(state.checkins, id);
+    if (!c) return;
+    const k = ciKind(c.kind), near = ciHasPos(c) && ciNearPlace(c);
+    const canSave = !amChild() && ciHasPos(c);
+    showSheet('ci-view-form', {
+      title: nameOf(c.kid) + '的報平安', readonly: !canSave, submit: '記住地點',
+      body: `<input type="hidden" name="item_id" value="${esc(c.id)}">
+        ${ciSheetHead(k, c.text, esc(ciWhen(c)) + (c.note ? '・「' + esc(c.note) + '」' : ''))}
+        ${ciHasPos(c) ? ciMapHtml(c) : '<p class="ci-nopos">這一筆沒有附上位置（當時抓不到，或還沒允許取得位置）。</p>'}
+        ${canSave ? `<label>${near ? '這裡已經記成「' + esc(near.name) + '」，可以改名字' : '把這個位置記下來（之後在附近報平安會顯示這個名字）'}
+          <input name="place" class="title-input" maxlength="12" value="${near ? esc(near.name) : ''}" placeholder="例如：家、學校、補習班" autocomplete="off"></label>
+          ${state.places.length ? `<div class="ci-places"><small>已經記住的地點</small>${state.places.map((p) => `<span>${esc(p.name)}<button type="button" data-act="ci-place-del" data-id="${esc(p.id)}" aria-label="刪除地點：${esc(p.name)}">×</button></span>`).join('')}</div>` : ''}` : ''}`
+    });
+  }
+  function openCheckinAll() {
+    const list = ciList(), days = [];
+    list.forEach((c) => { const day = ciDate(c); let d = days.find((x) => x.date === day); if (!d) days.push(d = { date: day, items: [] }); d.items.push(c); });
+    showSheet('ci-all-form', {
+      title: '報平安紀錄', readonly: true,
+      body: (days.length ? days.map((d) => `<section class="ci-day"><h3>${d.date === today() ? '今天' : d.date === addDays(today(), -1) ? '昨天' : shortDate(d.date) + '（' + WEEKDAYS[parse(d.date).getDay()] + '）'}</h3>${d.items.map((c) => ciRowHtml(c, true, true)).join('')}</section>`).join('') : '<p class="none">還沒有紀錄。</p>')
+        + '<p class="hint">只保留最近 30 天。位置只在小朋友按下報平安的那一刻記一次，不會持續追蹤。</p>'
+    });
+  }
+  async function checkCiReady() {
+    try { await Api.listDocs('places'); state.ciReady = true; } catch (e) { console.warn('報平安還沒開通', e); state.ciReady = false; }
+    drawCheckin();
+  }
+
   function viewCalendar() {
     const hour = new Date().getHours(), now = parse(today());
     const hello = hour < 5 ? '夜深了' : hour < 11 ? '早安' : hour < 18 ? '午安' : '晚安';
@@ -1073,6 +1283,7 @@
         <header class="hello"><div><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></div><button class="wx" id="wx" data-act="wx-tap" aria-label="今天天氣，點一下更新或改用我的位置">${weatherHtml()}</button></header>
         <section class="presence home-pres" id="presence" aria-label="家人上線狀態">${presenceHtml(true)}</section>
       </div>`
+      + `<section class="checkin" id="checkin" aria-label="報平安" ${ciHtml() ? '' : 'hidden'}>${ciHtml()}</section>`
       + `<section class="bday" id="bday" aria-label="生日" ${bdayHtml() ? '' : 'hidden'}>${bdayHtml()}</section>`
       + `<section class="today-card mine-card" id="mine" aria-label="我的今天">${mineHtml()}</section>`
       + `<section class="home-polls" id="home-polls" aria-label="投票" ${homePollsHtml() ? '' : 'hidden'}>${homePollsHtml()}</section>`
@@ -5570,6 +5781,30 @@
       },
       after() { state.pollHistory = false; refreshPolls(); const sc = scroller(); if (sc) sc.scrollTop = 0; }
     },
+    'ci-sent-form': {
+      read: (f) => ({ note: f.note ? f.note.value.trim() : '' }),
+      check: () => null,
+      async save(d) {
+        const c = ciSent;
+        if (!c || !d.note) return;
+        await Api.updateDoc('checkins', c.id, { note: d.note });
+        Api.sendMessage('【報平安】' + c.text + '：' + d.note, { checkin: c.id }).catch(() => {});
+      },
+      done: '爸媽收到了',
+      after() { ciSent = null; clearInterval(ciTimer); drawCheckin(); }
+    },
+    'ci-view-form': {
+      read: (f) => ({ id: f.item_id.value, name: f.place ? f.place.value.trim() : '' }),
+      check: (d) => (!d.name ? '請輸入地點的名字，例如：家' : null),
+      async save(d) {
+        const c = findById(state.checkins, d.id);
+        if (!c || !ciHasPos(c)) throw new Error('no-position');
+        const near = ciNearPlace(c);
+        if (near) await Api.updateDoc('places', near.id, { name: d.name });
+        else await Api.addDoc('places', { name: d.name, lat: c.lat, lng: c.lng });
+      },
+      done: '已記住這個地點'
+    },
     'card-form': {
       read: (f) => ({ id: f.item_id.value || null, title: f.title.value.trim(), member: amChild() ? state.userId : f.member.value, body: f.body.value.trim() }),
       check(c) {
@@ -5917,6 +6152,15 @@
     else if (act === 'vd-edit') { const v = findById(state.videos, el.dataset.id); if (v) openVideoSheet(v); }
     else if (act === 'vd-mode') { state.videoMode = el.dataset.mode; render(); }
     else if (act === 'vd-cat') { state.videoCat = el.dataset.cat; render(); }
+    else if (act === 'ci-toggle') { state.ciOpen = !state.ciOpen; drawCheckin(); }
+    else if (act === 'ci-send') {
+      if (el.dataset.kind === 'custom') showSheet('ci-custom-form', { title: '自己寫一句', submit: '傳給爸媽', focus: true, body: '<label>要跟爸媽說什麼？<input name="text" class="title-input" maxlength="40" placeholder="例如：我到阿嬤家了" autocomplete="off"></label><p class="hint">送出時會附上你現在的位置。</p>' });
+      else sendCheckin(el.dataset.kind);
+    }
+    else if (act === 'ci-undo') undoCheckin();
+    else if (act === 'ci-view') openCheckin(el.dataset.id);
+    else if (act === 'ci-all') openCheckinAll();
+    else if (act === 'ci-place-del') { Api.deleteDoc('places', el.dataset.id).then(() => { el.parentNode.remove(); toast('已刪除地點'); }, () => toast('沒有刪除成功')); }
     else if (act === 'vd-month') {
       const k = el.dataset.key;
       state.vdMonths[k] = el.getAttribute('aria-expanded') !== 'true';
@@ -6147,6 +6391,7 @@
     if (id === 'login-form') onLogin(form);
     else if (id === 'chat-form') onSend(form);
     else if (id === 'butler-form') sendButler(form);
+    else if (id === 'ci-custom-form') { const t = form.elements.text.value.trim(); if (!t) return; closeSheet(); sendCheckin('custom', t); }
     else if (id === 'shop-form') onShopAdd(form);
     else if (id === 'pack-form') onPackAdd(form);
     else if (id === 'call-form') onCallForm(form);

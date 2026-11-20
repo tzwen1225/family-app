@@ -13,7 +13,7 @@
 //
 // 部署：在專案資料夾執行 firebase deploy --only functions
 
-const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const logger = require('firebase-functions/logger');
@@ -67,6 +67,7 @@ async function notify(uids, title, body, tag) {
 
 exports.onChatMessage = onDocumentCreated('messages/{id}', async (event) => {
   const m = event.data.data();
+  if (m.checkin) return;     // 報平安順便貼到聊天室的那一則：爸媽已經有報平安的通知了，不再多跳一次
   const names = await memberNames();
   const others = Object.keys(names).filter((uid) => uid !== m.sender);
   const who = names[m.sender] || '家人', body = m.image_id ? '傳了一張照片' : clip(m.text);
@@ -275,11 +276,53 @@ exports.onStudyCheer = onDocumentCreated('study_cheers/{id}', async (event) => {
   await notify([c.kid], (names[c.from] || '爸媽') + (c.kind === 'like' ? '給你按讚' : '給你留言'), c.kind === 'like' && c.text === '讚' ? '你的讀書計畫被按讚了，繼續加油！' : clip(c.text), 'study-' + c.kid);
 });
 
+// ---- 報平安 ----
+async function checkinPeople(kid) {
+  const members = await db.collection('members').get();
+  return {
+    parents: members.docs.filter((d) => d.data().child !== true).map((d) => d.id),
+    name: (members.docs.find((d) => d.id === kid) || { data: () => ({}) }).data().display_name || '小朋友'
+  };
+}
+const hasPos = (c) => typeof c.lat === 'number' && typeof c.lng === 'number';
+// 小朋友按了報平安：通知爸媽
+exports.onCheckin = onDocumentCreated('checkins/{id}', async (event) => {
+  const c = event.data.data();
+  const { parents, name } = await checkinPeople(c.kid);
+  const where = hasPos(c) ? (c.place ? '在「' + clip(c.place) + '」附近' : '有附上位置') + '・點開看地圖' : '這次沒有附上位置';
+  await notify(parents, name + '：' + clip(c.text), where, 'checkin-' + c.kid);
+});
+// 補了一句話：再通知一次
+exports.onCheckinNote = onDocumentUpdated('checkins/{id}', async (event) => {
+  const before = event.data.before.data(), after = event.data.after.data();
+  if (!after.note || after.note === before.note) return;
+  const { parents, name } = await checkinPeople(after.kid);
+  await notify(parents, name + '：' + clip(after.text), '「' + clip(after.note) + '」', 'checkin-' + after.kid);
+});
+// 剛送出就被刪掉 = 小朋友收回了：告訴爸媽（30 天後自動清掉的不通知）
+exports.onCheckinUndo = onDocumentDeleted('checkins/{id}', async (event) => {
+  const c = event.data.data();
+  if (!c || !(Date.now() - c.at < 5 * 60000)) return;
+  const { parents, name } = await checkinPeople(c.kid);
+  await notify(parents, name + '收回了報平安', '剛剛的「' + clip(c.text) + '」是按錯的', 'checkin-' + c.kid);
+});
+// 只留 30 天：每次最多清 200 筆
+async function cleanCheckins(now) {
+  const old = await db.collection('checkins').where('at', '<', now - 30 * 86400000).limit(200).get();
+  if (!old.docs.length) return 0;
+  const batch = db.batch();
+  old.docs.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+  return old.size;
+}
+exports._cleanCheckins = cleanCheckins;   // 給測試用
+
 exports.remindEvents = onSchedule({ schedule: 'every 5 minutes', timeZone: 'Asia/Taipei', region: 'asia-east1', maxInstances: 1, timeoutSeconds: 60 },
   async () => {
     const n = await remindEvents(Date.now()); if (n) logger.info('行程提醒：' + n + ' 則');
     await greetBirthdays(Date.now()).catch((e) => logger.error('生日提醒失敗', e));
     await remindStudy(Date.now()).catch((e) => logger.error('讀書提醒失敗', e));
+    await cleanCheckins(Date.now()).catch((e) => logger.error('清報平安紀錄失敗', e));
   });
 exports._remindEvents = remindEvents;   // 給測試用
 

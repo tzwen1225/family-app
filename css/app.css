@@ -2122,3 +2122,81 @@ html[data-style="comic"] :is(.vd-card, .vd-quota, .vp-more) { border: 2.5px soli
   .vp-screen.big { width: 100vh; width: 100dvh; height: 100vw; transform-origin: top left; transform: rotate(90deg) translateY(-100%); }
   .vp-screen.big .vp-ctrl { padding: 8px calc(12px + var(--safe-b)) 10px calc(12px + var(--safe-t)); }
 }
+
+/* ---- 報平安 ---- */
+.checkin { margin: 0 0 12px; }
+.checkin svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ci-badge { flex: none; width: 36px; height: 36px; border-radius: 12px; background: var(--bg); color: var(--c); display: flex; align-items: center; justify-content: center; }
+.ci-badge svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ci-badge.solid { width: 32px; height: 32px; border-radius: 11px; background: var(--green); color: #fff; }
+.ci-badge.solid svg { width: 18px; height: 18px; }
+.ci-badge.sm { width: 32px; height: 32px; border-radius: 10px; }
+.ci-badge.sm svg { width: 17px; height: 17px; }
+.ci-badge.lg { position: relative; width: 52px; height: 52px; border-radius: 17px; }
+.ci-badge.lg svg { width: 27px; height: 27px; }
+.ci-badge.lg.done::after { content: ''; position: absolute; right: -5px; bottom: -5px; width: 22px; height: 22px; border-radius: 50%; box-shadow: 0 0 0 3px var(--sheet);
+  background: #1F8A5F url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.500l4.500 4.500L19 7.500'/%3E%3C/svg%3E") center / 13px no-repeat; }
+/* 合起來：一條 */
+.ci-bar { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 54px; padding: 0 10px; border-radius: 18px; text-align: left; color: var(--ink);
+  background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); }
+.ci-bar b, .ci-head b { font-size: 16px; }
+.ci-bar small { font-size: 12px; color: var(--ink-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-last { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px 0 4px; border-radius: 13px; background: var(--bg); color: var(--c); font-size: 12px; font-weight: 700; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci-last i { flex: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; }
+.ci-last svg { width: 12px; height: 12px; }
+.ci-chev { margin-left: auto; flex: none; width: 30px; height: 30px; border-radius: 50%; background: color-mix(in srgb, var(--green) 12%, transparent); color: var(--green); display: flex; align-items: center; justify-content: center; }
+.ci-chev svg { width: 16px; height: 16px; stroke-width: 2.6; }
+/* 展開：選要傳哪一句 */
+.ci-panel { padding: 4px 12px 14px; border-radius: 22px; background: color-mix(in srgb, var(--green) 5%, var(--sheet)); box-shadow: inset 0 0 0 1px var(--line), 0 6px 18px color-mix(in srgb, var(--green) 10%, transparent); animation: ci-in .18s ease-out; }
+@keyframes ci-in { from { opacity: 0; transform: translateY(-4px); } }
+.ci-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; text-align: left; color: var(--ink); }
+.ci-head > span { display: flex; flex-direction: column; }
+.ci-head small { font-size: 12px; color: var(--ink-2); }
+.ci-head em { margin-left: auto; font-style: normal; display: inline-flex; align-items: center; gap: 2px; height: 30px; padding: 0 10px; border-radius: 15px; font-size: 13px; font-weight: 700; color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.ci-head em svg { width: 15px; height: 15px; stroke-width: 2.6; }
+.ci-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; margin-top: 10px; }
+.ci-tile { position: relative; display: flex; align-items: center; gap: 10px; min-height: 54px; padding: 0 10px 0 9px; border-radius: 16px; text-align: left; font-size: 15px; font-weight: 700; color: var(--ink);
+  background: var(--sheet); box-shadow: 0 1px 3px rgba(23, 35, 31, .07), inset 0 0 0 1px var(--line); transition: transform .08s; }
+.ci-tile:active { transform: scale(.97); }
+.ci-tile.hint { box-shadow: 0 1px 3px rgba(23, 35, 31, .07), inset 0 0 0 2px var(--c); }
+.ci-tile > em { position: absolute; top: -9px; right: 10px; height: 18px; padding: 0 7px; border-radius: 9px; background: var(--c); color: #fff; font-style: normal; font-size: 11px; font-weight: 700; display: flex; align-items: center; }
+.ci-foot { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 12px; color: var(--ink-2); }
+.ci-foot svg { flex: none; width: 14px; height: 14px; }
+/* 爸媽首頁的卡片、紀錄 */
+.ci-card { padding: 4px 6px 6px; border-radius: 18px; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); }
+.ci-card h2 { display: flex; align-items: center; gap: 6px; padding: 8px 8px 2px; font-size: 13px; font-weight: 600; color: var(--green); }
+.ci-card h2 svg { width: 15px; height: 15px; }
+.ci-card h2 .link-btn { margin-left: auto; font-size: 13px; }
+.ci-card .none { padding: 6px 8px 10px; font-size: 14px; color: var(--ink-2); }
+.ci-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border-radius: 12px; text-align: left; color: var(--ink); }
+.ci-row + .ci-row { box-shadow: 0 -1px 0 var(--line); border-radius: 0 0 12px 12px; }
+.ci-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ci-row-main b { font-size: 15px; overflow-wrap: anywhere; }
+.ci-row-main small { display: flex; align-items: center; gap: 3px; font-size: 12px; color: var(--ink-2); }
+.ci-row-main small.ci-note { color: var(--ink); font-size: 13px; }
+.ci-row-main small svg { flex: none; width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
+.ci-row time { flex: none; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ci-day h3 { font-size: 13px; color: var(--green); margin: 10px 8px 2px; }
+/* 送出後、看一筆 */
+.ci-sent-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.ci-sent-head h2 { font-size: 19px; line-height: 1.35; overflow-wrap: anywhere; }
+.ci-sent-head p { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.ci-map { height: 180px; border-radius: 14px; overflow: hidden; background: var(--line); }
+.ci-map iframe { width: 100%; height: 100%; border: 0; display: block; }
+.ci-where { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 8px 0 14px; font-size: 14px; }
+.ci-where svg { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--ink-2); stroke-width: 2; }
+.ci-where small { font-size: 12px; color: var(--ink-2); }
+.ci-where a { margin-left: auto; font-size: 13px; color: var(--green); min-height: 28px; display: inline-flex; align-items: center; }
+.ci-nopos { padding: 10px 12px; margin-bottom: 14px; border-radius: 12px; background: color-mix(in srgb, var(--ink-2) 10%, transparent); font-size: 13px; line-height: 1.6; color: var(--ink-2); }
+.ci-undo { width: 100%; min-height: 46px; margin-top: 12px; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); font-weight: 700; }
+.ci-wait { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.ci-wait i { display: block; width: 40%; height: 100%; border-radius: 2px; background: var(--green); animation: ci-wait 1.1s ease-in-out infinite alternate; }
+@keyframes ci-wait { from { transform: translateX(-20%); } to { transform: translateX(170%); } }
+#ci-sent-form .sheet-head .link-btn:first-child { visibility: hidden; }
+.ci-places { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.ci-places small { width: 100%; font-size: 12px; color: var(--ink-2); }
+.ci-places span { display: inline-flex; align-items: center; height: 32px; padding-left: 12px; border-radius: 16px; background: color-mix(in srgb, var(--green) 10%, transparent); font-size: 14px; }
+.ci-places button { width: 32px; height: 32px; font-size: 17px; color: var(--ink-2); }
+html[data-style="comic"] :is(.ci-bar, .ci-panel, .ci-card, .ci-tile) { border: 2.5px solid #111; border-radius: 8px; box-shadow: 3px 3px 0 #111; }
+@media (max-width: 350px) { .ci-grid { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .ci-panel, .ci-wait i { animation: none; } .ci-tile { transition: none; } }

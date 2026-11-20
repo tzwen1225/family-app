@@ -332,6 +332,34 @@ service cloud.firestore {
         && request.resource.data.seconds is number && request.resource.data.seconds >= 0 && request.resource.data.seconds <= 86400;
       allow delete: if isFamily() && !isChild();
     }
+    // 報平安：小朋友只能用自己的名義送出，只有爸媽和本人讀得到。
+    // 送出後一小段時間內本人可以收回（刪除）、十分鐘內可以補一句話；伺服器會自動清掉 30 天前的。
+    match /checkins/{id} {
+      allow read: if isFamily() && (!isChild() || resource.data.kid == request.auth.uid);
+      allow create: if isFamily() && isChild()
+        && request.resource.data.kid == request.auth.uid
+        && request.resource.data.kind is string && request.resource.data.kind.size() <= 20
+        && request.resource.data.text is string && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 40
+        && request.resource.data.note is string && request.resource.data.note.size() <= 100
+        && request.resource.data.at is number && request.resource.data.date is string
+        && request.resource.data.get('lat', 0) is number && request.resource.data.get('lng', 0) is number
+        && request.resource.data.get('acc', 0) is number
+        && request.resource.data.get('place', '') is string && request.resource.data.get('place', '').size() <= 40;
+      allow update: if isFamily() && resource.data.kid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['note'])
+        && request.resource.data.note is string && request.resource.data.note.size() <= 100
+        && request.time.toMillis() < resource.data.at + 600000;
+      allow delete: if isFamily()
+        && (isAdmin() || (resource.data.kid == request.auth.uid && request.time.toMillis() < resource.data.at + 90000));
+    }
+    // 記住的地點（家、學校…）：全家讀得到（小朋友報平安時用來對名字），只有爸媽能改
+    match /places/{id} {
+      allow read: if isFamily();
+      allow create, update: if isFamily() && !isChild()
+        && request.resource.data.name is string && request.resource.data.name.size() >= 1 && request.resource.data.name.size() <= 12
+        && request.resource.data.lat is number && request.resource.data.lng is number;
+      allow delete: if isFamily() && !isChild();
+    }
     // 每天可以看多久（文件 id 是小朋友的 UID；minutes 是 0 代表不限制），只有爸媽能改
     match /video_limits/{id} {
       allow read: if isFamily();
