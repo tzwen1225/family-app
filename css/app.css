@@ -394,6 +394,10 @@ body.kb-open .fab { display: none; }
 .pres .avatar.online::after { box-shadow: 0 0 0 2px var(--paper); width: 9px; height: 9px; }
 .pres-name { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 .pres.on .pres-name { color: var(--ink); font-weight: 600; }
+/* 聊天室標題列：只有頭像 */
+.presence.chat-pres { flex-wrap: nowrap; gap: 6px; margin: 0 0 0 10px; padding: 0; min-width: 0; }
+.chat-top .plain-head h1 { white-space: nowrap; flex: none; }
+@media (max-width: 360px) { .presence.chat-pres { gap: 3px; margin-left: 6px; } }
 
 /* ---------- 聊天：搜尋與收回 ---------- */
 .plain-head.with-action { align-items: center; }

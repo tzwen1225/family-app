@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-20 12:33';
+  const VERSION = '2026-11-20 13:19';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -201,16 +201,20 @@
   function avatarHtml(m, cls) {
     return `<span class="avatar ${cls || ''} ${isOnline(m.id) ? 'online' : ''}" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>`;
   }
-  function presenceHtml() {
+  // short：聊天室標題列用，只有頭像不顯示名字
+  function presenceHtml(short) {
     return state.members.map((m) => `
-      <div class="pres ${isOnline(m.id) ? 'on' : ''}" aria-label="${esc(m.display_name)}：${statusText(m.id)}">
+      <div class="pres ${isOnline(m.id) ? 'on' : ''}" role="img" aria-label="${esc(m.display_name)}：${statusText(m.id)}" title="${esc(m.display_name)}：${statusText(m.id)}">
         ${avatarHtml(m, 'sm')}
-        <span class="pres-name">${esc(m.display_name)}</span>
+        ${short ? '' : `<span class="pres-name">${esc(m.display_name)}</span>`}
       </div>`).join('');
   }
   function refreshPresence() {
     const el = document.getElementById('presence');
+    const ch = document.getElementById('chat-presence');
+    if (ch) ch.innerHTML = presenceHtml(true);
     if (el) el.innerHTML = presenceHtml();
+    else if (ch) return;
     else if (state.tab === 'me' && !$sheet.innerHTML) render();
   }
 
@@ -1374,7 +1378,7 @@
     return `
       <div class="chat-top">
       <header class="plain-head with-action">
-        <h1>聊天</h1><p>全家 ${state.members.length} 個人</p>
+        <h1>聊天</h1><div class="presence chat-pres" id="chat-presence" aria-label="家人上線狀態">${presenceHtml(true)}</div>
         <button class="icon-btn call-start-btn" data-act="call-pick" aria-label="視訊通話">${CALL_ICON.video}</button>
         <button class="icon-btn ${state.chatSearch ? 'on' : ''}" data-act="chat-search" aria-label="${state.chatSearch ? '關閉搜尋' : '搜尋訊息'}" aria-pressed="${state.chatSearch}">${ICON.search}</button>
       </header>
