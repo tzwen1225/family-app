@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-20 13:19';
+  const VERSION = '2026-11-20 13:21';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -213,7 +213,7 @@
     const el = document.getElementById('presence');
     const ch = document.getElementById('chat-presence');
     if (ch) ch.innerHTML = presenceHtml(true);
-    if (el) el.innerHTML = presenceHtml();
+    if (el) el.innerHTML = presenceHtml(true);
     else if (ch) return;
     else if (state.tab === 'me' && !$sheet.innerHTML) render();
   }
@@ -1071,7 +1071,7 @@
     // 問候、天氣和家人狀態固定在最上面，往下滑也看得到
     return `<div class="home-top">
         <header class="hello"><div><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></div><button class="wx" id="wx" data-act="wx-tap" aria-label="今天天氣，點一下更新或改用我的位置">${weatherHtml()}</button></header>
-        <section class="presence" id="presence" aria-label="家人上線狀態">${presenceHtml()}</section>
+        <section class="presence home-pres" id="presence" aria-label="家人上線狀態">${presenceHtml(true)}</section>
       </div>`
       + `<section class="bday" id="bday" aria-label="生日" ${bdayHtml() ? '' : 'hidden'}>${bdayHtml()}</section>`
       + `<section class="today-card mine-card" id="mine" aria-label="我的今天">${mineHtml()}</section>`

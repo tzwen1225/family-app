@@ -1800,6 +1800,7 @@ html[data-style="comic"] :is(.bt-ask, .bt-a, .ai-box) { border: 2.5px solid #111
   border-bottom: 1px solid var(--line);
 }
 .home-top .presence { margin-bottom: 0; }
+.presence.home-pres { gap: 10px; }
 .hello { display: flex; align-items: center; gap: 10px; }
 .hello > div:first-child { flex: 1; min-width: 0; }
 .wx { flex: none; display: flex; align-items: center; gap: 6px; text-align: right; }
