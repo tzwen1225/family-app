@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-20 14:22';
+  const VERSION = '2026-11-20 14:35';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -108,7 +108,7 @@
     msgReacts: [],                  // 聊天訊息的表情回應
     studyItems: [], studyCheers: [],   // 讀書計畫和爸媽的鼓勵
     studyKid: null, studyMode: 'day', studyDay: null,
-    videoReady: null, videos: [], videoViews: [], videoLimits: [], videoMode: 'list', videoCat: '',   // 影片
+    videoReady: null, videos: [], videoViews: [], videoLimits: [], videoMode: 'list', videoCat: '', vdMonths: {},   // 影片
     journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -3837,6 +3837,23 @@
   const seenVideo = (v, kid) => state.videoViews.some((x) => x.video_id === v.id && x.kid === kid);
   const doneVideo = (v, kid) => state.videoViews.some((x) => x.video_id === v.id && x.kid === kid && x.finished);
 
+  // 依加進清單的月份分組（新的月份在前）。合起來／展開記在 state.vdMonths['list:2026-11'] 這種 key
+  const vMonth = (v) => { const d = new Date(v.created_at || Date.now()); return d.getFullYear() + '-' + pad(d.getMonth() + 1); };
+  const vMonthLabel = (k) => k.slice(0, 4) + ' 年 ' + Number(k.slice(5)) + ' 月';
+  function byMonth(list) {
+    const groups = [];
+    list.forEach((v) => { const k = vMonth(v); let g = groups.find((x) => x.key === k); if (!g) groups.push(g = { key: k, items: [] }); g.items.push(v); });
+    return groups.sort((a, b) => b.key.localeCompare(a.key));
+  }
+  // where：list（影片頁，最新的月份預設展開）或 vp（播放頁，全部預設合起來）
+  function monthOpen(where, key, first) {
+    const k = where + ':' + key;
+    return k in state.vdMonths ? state.vdMonths[k] : (where === 'list' && first);
+  }
+  function monthHead(where, g, open, extra) {
+    return `<button class="vd-month-head" data-act="vd-month" data-key="${esc(where + ':' + g.key)}" aria-expanded="${open}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg><b>${vMonthLabel(g.key)}</b>${extra || ''}<small>${g.items.length} 部</small></button>`;
+  }
   function thumbHtml(v, cls) {
     return `<span class="vd-thumb ${cls || ''}"><img src="${esc(ytThumb(v.yt_id))}" alt="" loading="lazy"><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.500v13l10.500-6.500z"/></svg></i>${v.duration ? `<b>${durText(v.duration)}</b>` : ''}</span>`;
   }
@@ -3904,7 +3921,11 @@
         </section>`;
     }
     if (cats.length > 1) html += `<div class="vd-cats" role="group" aria-label="分類">${[''].concat(cats).map((c) => `<button class="${(state.videoCat || '') === c ? 'on' : ''}" data-act="vd-cat" data-cat="${esc(c)}" aria-pressed="${(state.videoCat || '') === c}">${esc(c || '全部')}</button>`).join('')}</div>`;
-    html += shown.length ? `<div class="vd-grid">${shown.map(videoCardHtml).join('')}</div>`
+    html += shown.length ? byMonth(shown).map((g, i) => {
+        const open = monthOpen('list', g.key, i === 0);
+        const fresh = child ? g.items.filter((v) => !seenVideo(v, state.userId)).length : 0;
+        return `<section class="vd-month ${open ? 'open' : ''}">${monthHead('list', g, open, fresh ? `<em class="new">${fresh} 部新的</em>` : '')}${open ? `<div class="vd-grid">${g.items.map(videoCardHtml).join('')}</div>` : ''}</section>`;
+      }).join('')
       : `<div class="empty big"><p>${child ? '爸媽還沒有挑影片。看到想看的，可以按下面的「我想看這部」。' : '還沒有影片。按下面的「加一部影片」，貼上 YouTube 連結。'}</p></div>`;
     if (child) {
       const mine = state.videos.filter((v) => v.requested_by === state.userId && v.status !== 'ok');
@@ -4032,8 +4053,7 @@
     const v = vp && findById(state.videos, vp.id);
     if (!v) return closePlayer();
     // 其他也標給同一個小朋友的影片（小朋友看到的是標給自己的），只列標題
-    const who = vp.kid ? [vp.kid] : (v.to || []);
-    const others = myVideos().filter((x) => x.id !== v.id && (!who.length || (x.to || []).some((k) => who.includes(k)))).slice(0, 40);
+    const more = vpOthers(v);
     $video.innerHTML = `
       <div class="vp" role="dialog" aria-modal="true" aria-label="${esc(v.title)}">
         <div class="vp-top"><button class="vp-back" data-act="vp-close">‹ 影片</button><span id="vp-left">${vp.kid ? vLeftText(videoLeft(vp.kid)) : ''}</span></div>
@@ -4059,10 +4079,21 @@
           <h2>${esc(v.title)}</h2>
           ${v.note ? `<p class="vd-note big"><b>${esc(nameOf(v.added_by))}說</b>：${esc(v.note)}</p>` : ''}
           ${v.status === 'pending' ? `<p class="hint">這是${esc(nameOf(v.requested_by))}申請想看的影片，看過再決定要不要同意。</p>` : ''}
-          ${others.length ? `<section class="vp-more"><h3>${vp.kid ? '爸媽挑的其他影片' : who.length ? '也標給' + esc(who.map(nameOf).join('、')) + '的其他影片' : '清單裡的其他影片'}（${others.length}）</h3><ul>${others.map((x) => `<li><button data-act="vd-open" data-id="${esc(x.id)}"><i aria-hidden="true">▶</i><span>${esc(x.title)}</span></button></li>`).join('')}</ul></section>` : ''}
+          ${more ? `<section class="vp-more" id="vp-more">${more}</section>` : ''}
           <p class="hint">影片開頭或中間可能會有 YouTube 的廣告，這個 App 擋不掉。</p>
         </div>
       </div>`;
+  }
+  // 播放頁下面的「其他影片」：也標給同一個小朋友的（小朋友看到的是標給自己的），依月份合起來，只列標題
+  function vpOthers(v) {
+    const who = vp.kid ? [vp.kid] : (v.to || []);
+    const others = myVideos().filter((x) => x.id !== v.id && (!who.length || (x.to || []).some((k) => who.includes(k))));
+    if (!others.length) return '';
+    const title = vp.kid ? '爸媽挑的其他影片' : who.length ? '也標給' + who.map(nameOf).join('、') + '的其他影片' : '清單裡的其他影片';
+    return `<h3>${esc(title)}（${others.length}）</h3>` + byMonth(others).map((g) => {
+      const open = monthOpen('vp', g.key, false);
+      return `<div class="vd-month ${open ? 'open' : ''}">${monthHead('vp', g, open)}${open ? `<ul>${g.items.map((x) => `<li><button data-act="vd-open" data-id="${esc(x.id)}"><i aria-hidden="true">▶</i><span>${esc(x.title)}</span></button></li>`).join('')}</ul>` : ''}</div>`;
+    }).join('');
   }
   const vpEl = (id) => document.getElementById(id);
   function vpHint(text, btn) {
@@ -5886,6 +5917,14 @@
     else if (act === 'vd-edit') { const v = findById(state.videos, el.dataset.id); if (v) openVideoSheet(v); }
     else if (act === 'vd-mode') { state.videoMode = el.dataset.mode; render(); }
     else if (act === 'vd-cat') { state.videoCat = el.dataset.cat; render(); }
+    else if (act === 'vd-month') {
+      const k = el.dataset.key;
+      state.vdMonths[k] = el.getAttribute('aria-expanded') !== 'true';
+      if (k.startsWith('vp:')) {   // 只換「其他影片」這一塊，播放器不能重畫
+        const sec = vpEl('vp-more'), v = vp && findById(state.videos, vp.id);
+        if (sec && v) sec.innerHTML = vpOthers(v);
+      } else render();
+    }
     else if (act === 'vd-paste') {
       const input = document.querySelector('#video-form input[name="yt_url"]');
       if (input && navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then((t) => { input.value = t.trim(); lookupVideo(); }, () => toast('讀不到剪貼簿，請長按輸入框選「貼上」'));

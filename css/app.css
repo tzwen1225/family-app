@@ -2081,7 +2081,22 @@ html[data-style="big"] .st-title b { font-size: 18px; }
 .vp-body h2 { font-size: 20px; line-height: 1.35; font-weight: 800; overflow-wrap: anywhere; }
 .vp-more { padding: 12px 14px; border-radius: 16px; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 10px; }
 .vp-more h3 { font-size: 13px; color: var(--green); }
-.vp-more ul { list-style: none; margin: 0; padding: 0; }
+.vp-more ul { list-style: none; margin: 0 0 4px; padding: 0 0 0 22px; }
+.vp-more { gap: 0; padding-bottom: 4px; }
+.vp-more h3 { margin-bottom: 4px; }
+/* 影片依月份分組：點月份合起來／展開 */
+.vd-month-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; text-align: left; color: var(--ink); }
+.vd-month-head svg { flex: none; width: 14px; height: 14px; fill: none; stroke: var(--ink-2); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
+.vd-month-head[aria-expanded="true"] svg { transform: rotate(90deg); }
+.vd-month-head b { font-size: 15px; }
+.vd-month-head small { margin-left: auto; font-size: 13px; color: var(--ink-2); }
+.vd-month-head em.new { font-style: normal; font-size: 11px; font-weight: 700; color: #fff; background: var(--red, #D4282C); border-radius: 9px; padding: 1px 7px; }
+.vp-more .vd-month { border-top: 1px solid var(--line); }
+.vp-more li button { padding-left: 0; }
+.vp-more li + li { border-top-style: dashed; }
+section.vd-month + section.vd-month > .vd-month-head { border-top: 1px solid var(--line); }
+section.vd-month.open > .vd-month-head { margin-bottom: 4px; }
+@media (prefers-reduced-motion: reduce) { .vd-month-head svg { transition: none; } }
 .vp-more li + li { border-top: 1px solid var(--line); }
 .vp-more li button { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 2px; text-align: left; font-size: 15px; line-height: 1.45; color: var(--ink); }
 .vp-more li button i { flex: none; font-style: normal; font-size: 11px; color: var(--green); padding-top: 4px; }
