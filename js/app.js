@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-20 11:10';
+  const VERSION = '2026-11-20 12:33';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -4812,13 +4812,36 @@
       ['什麼都可以問', child ? ['用簡單的話解釋光合作用', '幫我出五題英文單字小考'] : ['週末全家可以去哪裡走走？', '晚餐想不到煮什麼，給我三個點子']]
     ].filter((g) => g[1].length);
   }
-  function butlerContext() {
+  // 小管家要看的行事曆：前 30 天到後 180 天。讀不到就退回首頁已經有的 90 天。
+  async function butlerEvents() {
+    const from = addDays(today(), -30), to = addDays(today(), 180);
+    try { return { raw: await Api.listEvents(from, to), from, to }; }
+    catch (e) { return null; }
+  }
+  function butlerContext(cal) {
     const t = today(), nm = (id) => nameOf(id);
     const mine = (ids) => !ids || !ids.length ? '全家' : ids.map(nm).join('、');
+    const hours = (e) => e.start_time ? e.start_time + (e.end_time ? '–' + e.end_time : '') : '全天';
+    const from = cal ? cal.from : t, to = cal ? cal.to : addDays(t, 90);
+    const all = cal ? expand(cal.raw, from, to) : state.upcoming;
+    // 1) 未來 14 天：每天攤開（重複的行程也算進去）
     const events = [];
     for (let d = t, i = 0; i < 14; d = addDays(d, 1), i++) {
-      eventsOn(state.upcoming, d).sort(byTime).forEach((e) => events.push({ 日期: d, 星期: WEEKDAYS[parse(d).getDay()], 時間: e.start_time ? e.start_time + (e.end_time ? '–' + e.end_time : '') : '全天', 名稱: e.title, 類型: catOf(e.category).label, 誰: mine(e.member_ids), 備註: (e.note || '').slice(0, 60) }));
+      eventsOn(all, d).sort(byTime).forEach((e) => events.push({ 日期: d, 星期: WEEKDAYS[parse(d).getDay()], 時間: hours(e), 名稱: e.title, 類型: catOf(e.category).label, 誰: mine(e.member_ids), 備註: (e.note || '').slice(0, 60), ...(e.series ? { 每週重複: true } : {}) }));
     }
+    // 2) 每週重複的行程：一筆規則就代表範圍內的每一週
+    const seen = {}, weekly = [];
+    all.forEach((e) => {
+      const s = e.series; if (!s || seen[s.id]) return; seen[s.id] = true;
+      weekly.push({ 名稱: s.title, 每週星期: (s.repeat_days || []).slice().sort().map((d) => WEEKDAYS[d]).join('、'), 時間: hours(s), 從: s.event_date, 到: s.end_date, 類型: catOf(s.category).label, 誰: mine(s.member_ids), 備註: (s.note || '').slice(0, 60),
+        ...((s.skip_dates || []).filter((d) => d >= from && d <= to).length ? { 這幾天停一次: s.skip_dates.filter((d) => d >= from && d <= to).sort() } : {}) });
+    });
+    // 3) 其他單次行程（過去 30 天和 14 天以後的）
+    const last = addDays(t, 13);
+    const one = (e) => ({ 日期: e.event_date, ...(e.end_date > e.event_date ? { 到: e.end_date } : {}), 星期: WEEKDAYS[parse(e.event_date).getDay()], 時間: hours(e), 名稱: e.title, 類型: catOf(e.category).label, 誰: mine(e.member_ids), 備註: (e.note || '').slice(0, 40) });
+    const singles = all.filter((e) => !e.series);
+    const later = singles.filter((e) => e.event_date > last).slice(0, 120).map(one);
+    const before = singles.filter((e) => e.end_date < t).slice(-60).map(one);
     const todos = state.shopping.filter((x) => !x.done).slice(0, 40).map((x) => ({ 事情: x.text, 交給: todoWho(x) ? nm(todoWho(x)) : '全家', 期限: todoDue(x) || '', 重要: !!x.star, 誰加的: x.added_by ? nm(x.added_by) : '' }));
     const kidIds = amChild() ? [state.userId] : kids().map((k) => k.id);
     const month = t.slice(0, 7), pd = parse(month + '-01'); pd.setMonth(pd.getMonth() - 1);
@@ -4847,7 +4870,8 @@
     return {
       今天: t + '（星期' + WEEKDAYS[parse(t).getDay()] + '）', 發問的人: me().display_name,
       家人: state.members.map((m) => m.display_name + (m.child ? '（小朋友）' : '')),
-      calendar_未來14天行程: events, todos_還沒做的待辦: todos, scores_成績: scores, ledger_零用錢: ledger, trips_旅遊: trips, posts_等我回覆的話: posts
+      calendar_說明: '行事曆範圍是 ' + from + ' 到 ' + to + '。「每週重複的行程」每一筆代表從「從」到「到」之間、每個指定星期都有一次（「這幾天停一次」除外），回答某一天或某一週的行程時要把它們算進去。',
+      calendar_未來14天行程: events, calendar_每週重複的行程: weekly, calendar_14天以後的單次行程: later, calendar_過去30天的單次行程: before, todos_還沒做的待辦: todos, scores_成績: scores, ledger_零用錢: ledger, trips_旅遊: trips, posts_等我回覆的話: posts
     };
   }
   function viewButler() {
@@ -4887,7 +4911,7 @@
     askButler(q);
   }
   // 和家裡的事有關才附上完整的紀錄；一般問題只附基本資料，送得少、回得快
-  const BUTLER_HOME = /行程|行事曆|待辦|要做|沒做|成績|考|分數|零用錢|花了|花在|費用|旅|行李|預約|今天|明天|後天|這週|下週|這個月|週末|幾號|什麼時候|有空|誰|我們家|家裡|全家|爸|媽|姊|弟|哥|妹|小孩|小朋友/;
+  const BUTLER_HOME = /行程|行事曆|待辦|要做|沒做|成績|考|分數|零用錢|花了|花在|費用|旅|行李|預約|今天|明天|後天|昨天|前天|這週|下週|上週|這個月|下個月|上個月|每週|每周|星期|禮拜|週[一二三四五六日]|\d+\s*月|\d+[\/／]\d+|幾點|上課|補習|社團|活動|生日|週末|幾號|什麼時候|有空|誰|我們家|家裡|全家|爸|媽|姊|弟|哥|妹|小孩|小朋友/;
   function butlerNeedsRecords(q) {
     if (BUTLER_HOME.test(q) || state.members.some((m) => q.includes(m.display_name))) return true;
     const last = state.butler.msgs.filter((m) => m.role === 'ai' && !m.error).slice(-1)[0];
@@ -4902,7 +4926,7 @@
     try {
       const full = butlerNeedsRecords(text);
       if (full) await state.butlerReady;   // 剛進來就發問：等紀錄讀完，才不會少送
-      const ctx = full ? butlerContext() : { 今天: today() + '（星期' + WEEKDAYS[parse(today()).getDay()] + '）', 發問的人: me().display_name, 家人: state.members.map((m) => m.display_name + (m.child ? '（小朋友）' : '')), 說明: '這一題沒有附上家庭紀錄。如果需要紀錄才能回答，請對方把問題說得具體一點（例如提到行程、待辦、成績、零用錢、旅遊）。' };
+      const ctx = full ? butlerContext(await butlerEvents()) : { 今天: today() + '（星期' + WEEKDAYS[parse(today()).getDay()] + '）', 發問的人: me().display_name, 家人: state.members.map((m) => m.display_name + (m.child ? '（小朋友）' : '')), 說明: '這一題沒有附上家庭紀錄。如果需要紀錄才能回答，請對方把問題說得具體一點（例如提到行程、待辦、成績、零用錢、旅遊）。' };
       const r = await askAi('butler', { question: text, history, context: JSON.stringify(ctx), child: amChild() });
       b.msgs.push({ role: 'ai', text: r.answer, sources: (r.sources || []).filter((k) => BUTLER_SRC[k]), queries: r.queries || [], links: (r.links || []).filter((l) => /^https:\/\//.test(l.url)) });
     } catch (e) { b.msgs.push({ role: 'ai', text: e.friendly || '沒有成功，請再試一次。', error: true }); }
