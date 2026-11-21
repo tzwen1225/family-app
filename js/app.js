@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 01:23';
+  const VERSION = '2026-11-21 10:46';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1156,11 +1156,13 @@
     const list = ciList();
     const latest = kids().map((k) => list.find((c) => c.kid === k.id)).filter(Boolean).sort((a, b) => b.at - a.at);
     if (!kids().length) return '';
+    // 沒有紀錄時整張卡都不顯示（只在還沒部署時提醒管理員）
+    if (!latest.length && !(state.ciReady === false && isAdmin())) return '';
     return `
       <div class="ci-card">
         <h2>${ciSvg('pin')}小朋友報平安${list.length ? `<button class="link-btn" data-act="ci-all">全部紀錄</button>` : ''}</h2>
         ${latest.length ? latest.map((c) => ciRowHtml(c, true)).join('')
-          : `<p class="none">${state.ciReady === false ? (isAdmin() ? '報平安還沒開通：請用最新的 family-app.zip 執行一次 deploy.bat。' : '報平安還沒開通，請跟管理員說。') : '最近 30 天還沒有人報平安。小朋友的首頁有「報平安」按鈕。'}</p>`}
+          : '<p class="none">報平安還沒開通：請用最新的 family-app.zip 執行一次 deploy.bat。</p>'}
       </div>`;
   }
   const ciHtml = () => (!state.userId || !me() ? '' : amChild() ? ciKidHtml() : ciParentHtml());
