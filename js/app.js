@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 11:21';
+  const VERSION = '2026-11-21 11:27';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -7152,13 +7152,20 @@
     if (ev.target.id === 'tra-q') { state.transit.traQ = ev.target.value; refreshFoundStations(); }
   });
 
-  // 手指往右滑＝返回。鍾家生活裡：功能 → 功能清單、旅程 → 所有旅程、公車路線 → 搜尋頁。
-  // 看相簿的照片時，左右滑是上一張、下一張。
+  // 手指往右滑＝返回。鍾家生活裡：功能 → 功能清單、旅程 → 所有旅程、公車路線 → 搜尋頁；
+  // 已經在功能清單，或在聊天、我有話要說、設定：回到首頁。
+  // 看相簿的照片時，左右滑是上一張、下一張。在可以左右捲的地方（分類標籤列等）滑不算。
+  function inSideScroller(el) {
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      if (n.scrollWidth > n.clientWidth + 4 && /auto|scroll/.test(getComputedStyle(n).overflowX)) return true;
+    }
+    return false;
+  }
   let swipe = null;
   document.addEventListener('touchstart', (ev) => {
     const t = ev.touches[0];
     const tag = ev.target.tagName;
-    swipe = ev.touches.length === 1 && !['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)
+    swipe = ev.touches.length === 1 && !['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) && !inSideScroller(ev.target)
       ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
   }, { passive: true });
   document.addEventListener('touchend', (ev) => {
@@ -7172,10 +7179,10 @@
       if (step) step.click();
       return;
     }
-    if (dx < 0 || $sheet.innerHTML || state.tab !== 'notes') return;
-    const back = document.querySelector('#scroller .link-btn.back');
-    if (!back) return;
-    back.click();
+    if (dx < 0 || $sheet.innerHTML || vp || state.tab === 'cal' || (document.getElementById('call-root') || {}).innerHTML) return;
+    const back = state.tab === 'notes' && document.querySelector('#scroller .link-btn.back');
+    if (back) back.click();
+    else goTab('cal');
     const sc = scroller();
     if (sc) { sc.classList.remove('slide-back'); void sc.offsetWidth; sc.classList.add('slide-back'); }
   }, { passive: true });
