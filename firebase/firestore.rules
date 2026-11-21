@@ -598,11 +598,12 @@ service cloud.firestore {
           && request.resource.data.options is list
           && request.resource.data.options.size() == resource.data.options.size() + 1
           && request.resource.data.options.size() <= 12
-          && request.resource.data.options[0:resource.data.options.size()] == resource.data.options
           && request.resource.data.options[resource.data.options.size()] is string
           && request.resource.data.options[resource.data.options.size()].size() >= 1
           && request.resource.data.options[resource.data.options.size()].size() <= 30
-          && request.resource.data.get('option_by', {}) is map)
+          // 原本的選項一個都不能改、順序也不能換：新的清單 = 舊的清單 + 最後一個
+          && request.resource.data.options == resource.data.options.concat([request.resource.data.options[resource.data.options.size()]])
+          && (!('option_by' in request.resource.data) || request.resource.data.option_by is map))
       );
       // 只有還沒有其他人投票的投票可以刪除；有人投過就只能作廢
       allow delete: if isFamily() && resource.data.author == request.auth.uid

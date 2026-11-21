@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 11:48';
+  const VERSION = '2026-11-21 12:49';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2068,11 +2068,19 @@
     if (p.options.length >= POLL_MAX) return toast('選項最多 ' + POLL_MAX + ' 個');
     input.value = ''; delete state.optDrafts[p.id];
     try {
-      await Api.updateDoc('polls', p.id, { options: p.options.concat(text), option_by: { ...(p.option_by || {}), [p.options.length]: state.userId } });
+      // 先讀最新的投票：別人剛好也加了選項時，接在最新的後面，不會因為清單不一樣被擋下
+      const fresh = (await Api.getDoc('polls', p.id)) || p;
+      const opts = Array.isArray(fresh.options) ? fresh.options : [];
+      if (opts.includes(text)) { toast('已經有這個選項了'); refreshPolls(); return; }
+      if (opts.length >= POLL_MAX) { toast('選項最多 ' + POLL_MAX + ' 個'); return; }
+      await Api.updateDoc('polls', p.id, { options: opts.concat(text), option_by: { ...(fresh.option_by || {}), [String(opts.length)]: state.userId } });
       toast('已加入選項');
     } catch (e) {
-      console.error(e); state.optDrafts[p.id] = text; input.value = text;
-      toast(pollOver(p) ? '投票已經結束，不能再加選項' : '沒有加進去，請再試一次');
+      console.error('加選項失敗', e); state.optDrafts[p.id] = text; input.value = text;
+      const code = String((e && (e.code || e.message)) || '');
+      toast(pollOver(p) ? '投票已經結束，不能再加選項'
+        : /permission/i.test(code) ? (isAdmin() ? '被資料庫規則擋下來：請用最新的 family-app.zip 執行一次 deploy.bat' : '沒有加進去，請跟管理員說要重新部署')
+        : '沒有加進去，請確認網路後再試一次' + (isAdmin() && code ? '（' + code.slice(0, 40) + '）' : ''));
     }
     if (document.activeElement) document.activeElement.blur();
     refreshPolls();
