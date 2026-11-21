@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 10:59';
+  const VERSION = '2026-11-21 11:04';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -198,7 +198,7 @@
     return min < 60 ? min + ' 分鐘前' : stamp(p.last_seen);
   }
   // 頭像上的字：基本資料裡有填「頭像上的字」就用它（例如 爸、媽），沒填就用名字的第一個字
-  const faceOf = (m) => ((state.profiles[m.id] || {}).face || m.display_name).slice(0, 1);
+  const faceOf = (m) => Array.from((state.profiles[m.id] || {}).face || m.display_name || '?')[0];   // Array.from：表情符號不會被切成一半
   function avatarHtml(m, cls) {
     return `<span class="avatar ${cls || ''} ${isOnline(m.id) ? 'online' : ''}" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>`;
   }
@@ -1163,7 +1163,7 @@
     if (latest.length && !unread && !state.ciParentOpen) return `
       <button class="ci-bar ci-pbar" data-act="ci-popen" aria-expanded="false" aria-label="小朋友報平安：${esc(latest.map((c) => nameOf(c.kid) + ' ' + clock(c.at) + ' ' + c.text).join('，'))}。點一下展開">
         <i class="ci-badge solid">${ciSvg('pin')}</i>
-        <span class="ci-pchips">${latest.map((c) => { const k = ciKind(c.kind); return `<span class="ci-last" style="--c:${k.c};--bg:${k.bg}"><i>${ciSvg(k.id)}</i>${esc(nameOf(c.kid).slice(0, 1))}・${esc(c.kind === 'custom' ? '留言' : k.short)} ${esc(clock(c.at))}</span>`; }).join('')}</span>
+        <span class="ci-pchips">${latest.map((c) => { const k = ciKind(c.kind); const m = member(c.kid) || {}; return `<span class="ci-last ci-who" style="--c:${k.c};--bg:${k.bg}"><span class="avatar ci-av" style="background:${esc(m.color || '#888')}">${esc(m.id ? faceOf(m) : '?')}</span><i>${ciSvg(k.id)}</i>${esc(c.kind === 'custom' ? '留言' : k.short)} ${esc(clock(c.at))}</span>`; }).join('')}</span>
         <span class="ci-chev" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
       </button>`;
     return `
