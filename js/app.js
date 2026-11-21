@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 11:14';
+  const VERSION = '2026-11-21 11:21';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -761,12 +761,12 @@
             <input type="file" id="chat-file" accept="image/*" multiple hidden>
             ${ICON.photo}
           </label>
-          <input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息">
+          <span class="chat-field"><input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息"><button type="button" class="chat-clear" data-act="input-clear" data-for="chat-input" aria-label="清除輸入的文字"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button></span>
           <button type="submit" class="send" aria-label="傳送">${ICON.send}</button>
         </form>` : ''}
       ${state.tab === 'notes' && state.notesView === 'butler' ? `
         <form class="chat-bar" id="butler-form">
-          <input id="butler-input" name="text" type="text" placeholder="${state.butler.msgs.length ? '繼續問' : '想問什麼都可以'}" maxlength="${amChild() ? 1000 : 4000}" autocomplete="off" enterkeyhint="send" aria-label="問小管家">
+          <span class="chat-field"><input id="butler-input" name="text" type="text" placeholder="${state.butler.msgs.length ? '繼續問' : '想問什麼都可以'}" maxlength="${amChild() ? 1000 : 4000}" autocomplete="off" enterkeyhint="send" aria-label="問小管家"><button type="button" class="chat-clear" data-act="input-clear" data-for="butler-input" aria-label="清除輸入的文字"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button></span>
           <button type="submit" class="send" aria-label="送出">${ICON.send}</button>
         </form>` : ''}
       ${fabLabel() ? `<div class="addbar"><button class="fab" data-act="new" aria-label="${fabLabel()}"><span class="fab-plus" aria-hidden="true">${ICON.plus}</span>${fabLabel()}</button></div>` : ''}
@@ -6106,6 +6106,8 @@
     syncHolidays([state.cursor.slice(0, 4)]);
   }
 
+  // 按 × 時不要讓輸入框失去焦點（iPhone 的鍵盤才不會先收起來又跳出來）
+  document.addEventListener('mousedown', (ev) => { if (ev.target.closest('.chat-clear')) ev.preventDefault(); });
   document.addEventListener('click', (ev) => {
     if (ev.target.closest('a.msg-link')) return;   // 點訊息裡的連結：直接打開，不跳出訊息選單
     const el = ev.target.closest('[data-act]');
@@ -6190,6 +6192,11 @@
     }
     else if (act === 'msg-menu') { state.menuMsg = state.menuMsg === el.dataset.id ? null : el.dataset.id; refreshChat(false); }
     else if (act === 'recall') onRecall(el.dataset.id);
+    else if (act === 'input-clear') {
+      // 一鍵清掉輸入框的字，游標留在框裡可以直接重打
+      const i = document.getElementById(el.dataset.for);
+      if (i) { i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.focus(); }
+    }
     else if (act === 'copy-msg') {
       const m = state.messages.find((x) => x.id === el.dataset.id);
       if (m && m.text) copyText(m.text).then((ok) => { toast(ok ? '已複製' : '沒有複製成功，請長按文字自己選取'); if (ok) { state.menuMsg = null; refreshChat(false); } });

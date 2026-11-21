@@ -2228,3 +2228,10 @@ html[data-style="comic"] :is(.ci-bar, .ci-panel, .ci-card, .ci-tile) { border: 2
 /* 報平安的定位圖示用紅色（像地圖上的圖釘） */
 .ci-badge.solid { background: #D93B30; color: #fff; }
 .ci-card h2 > svg { color: #D93B30; }
+
+/* 輸入框右邊的 ×：有字才出現，按一下全部清掉 */
+.chat-field { position: relative; flex: 1; min-width: 0; display: flex; }
+.chat-field input { flex: 1; min-width: 0; width: 100%; padding-right: 42px !important; }
+.chat-clear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--ink-2); }
+.chat-clear svg { width: 20px; height: 20px; padding: 3px; border-radius: 50%; background: color-mix(in srgb, var(--ink-2) 22%, transparent); fill: none; stroke: var(--sheet); stroke-width: 3; stroke-linecap: round; }
+.chat-field input:placeholder-shown + .chat-clear { display: none; }
