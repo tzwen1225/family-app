@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 23:52';
+  const VERSION = '2026-11-22 00:13';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -142,7 +142,7 @@
     studyItems: [], studyCheers: [],   // 讀書計畫和爸媽的鼓勵
     studyKid: null, studyMode: 'day', studyDay: null,
     videoReady: null, videos: [], videoViews: [], videoLimits: [], videoMode: 'list', videoCat: '', vdMonths: {},
-    checkins: [], places: [], ciOpen: false, ciParentOpen: false, ciReady: null,   // 報平安   // 影片
+    checkins: [], places: [], ciKid: '', ciOpen: false, ciParentOpen: false, ciReady: null,   // 報平安   // 影片
     journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -1166,7 +1166,7 @@
     return h >= 6 && h < 9 ? 'school' : (h >= 11 && h < 13) || (h >= 15 && h < 17) ? 'out' : h >= 17 && h < 23 ? 'home' : '';
   }
   function ciKidHtml() {
-    const last = ciList().find((c) => c.kid === state.userId);
+    const last = ciList().find((c) => c.kid === state.userId && ciDate(c) === today());     // 首頁只顯示今天的
     const lk = last && ciKind(last.kind);
     const chip = last ? `<span class="ci-last" style="--c:${lk.c};--bg:${lk.bg}"><i>${ciSvg(lk.id)}</i>${esc(ciWhen(last))} ${esc(last.kind === 'custom' ? last.text.slice(0, 8) : lk.short)}</span>` : '<small>按一下，告訴爸媽你到了</small>';
     if (!state.ciOpen) return `
@@ -1199,7 +1199,8 @@
   }
   function ciParentHtml() {
     const list = ciList();
-    const latest = kids().map((k) => list.find((c) => c.kid === k.id)).filter(Boolean).sort((a, b) => b.at - a.at);
+    // 首頁只顯示今天的；以前的在「鍾家生活 → 報平安紀錄」
+    const latest = kids().map((k) => list.find((c) => c.kid === k.id && ciDate(c) === today())).filter(Boolean).sort((a, b) => b.at - a.at);
     if (!kids().length) return '';
     // 沒有紀錄時整張卡都不顯示（只在還沒部署時提醒管理員）
     if (!latest.length && !(state.ciReady === false && isAdmin())) return '';
@@ -1213,7 +1214,7 @@
       </button>`;
     return `
       <div class="ci-card ${unread ? 'unread' : ''}">
-        <h2>${ciSvg('pin')}小朋友報平安${unread ? '<em class="ci-new">新的</em>' : ''}${list.length ? `<button class="link-btn" data-act="ci-all">全部紀錄</button>` : ''}</h2>
+        <h2>${ciSvg('pin')}今天的報平安${unread ? '<em class="ci-new">新的</em>' : ''}${list.length ? `<button class="link-btn" data-act="ci-all">以前的紀錄</button>` : ''}</h2>
         ${latest.length ? latest.map((c) => ciRowHtml(c, true)).join('')
           : '<p class="none">報平安還沒開通：請用最新的 family-app.zip 執行一次 deploy.bat。</p>'}
         ${latest.length ? `<button class="ci-fold" data-act="ci-pclose">${unread ? '知道了，收起來' : '收起來'}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>` : ''}
@@ -1228,6 +1229,7 @@
   }
   const ciHtml = () => (!state.userId || !me() ? '' : amChild() ? ciKidHtml() : ciParentHtml());
   function drawCheckin() {
+    if (state.tab === 'notes' && state.notesView === 'checkins' && !$sheet.innerHTML) { const sc = scroller(), y = sc ? sc.scrollTop : 0; render(); if (scroller()) scroller().scrollTop = y; }
     const el = document.getElementById('checkin');
     if (!el) return;
     const html = ciHtml();
@@ -1324,15 +1326,19 @@
           ${state.places.length ? `<div class="ci-places"><small>已經記住的地點</small>${state.places.map((p) => `<span>${esc(p.name)}<button type="button" data-act="ci-place-del" data-id="${esc(p.id)}" aria-label="刪除地點：${esc(p.name)}">×</button></span>`).join('')}</div>` : ''}` : ''}`
     });
   }
-  function openCheckinAll() {
-    const list = ciList(), days = [];
+  // 報平安紀錄（鍾家生活裡的一頁）：最近 30 天，一天一段。爸媽看兩個小朋友的，小朋友看自己的。
+  function viewCheckins() {
+    const list = ciList().filter((c) => !state.ciKid || c.kid === state.ciKid), days = [];
     list.forEach((c) => { const day = ciDate(c); let d = days.find((x) => x.date === day); if (!d) days.push(d = { date: day, items: [] }); d.items.push(c); });
-    showSheet('ci-all-form', {
-      title: '報平安紀錄', readonly: true,
-      body: (days.length ? days.map((d) => `<section class="ci-day"><h3>${d.date === today() ? '今天' : d.date === addDays(today(), -1) ? '昨天' : shortDate(d.date) + '（' + WEEKDAYS[parse(d.date).getDay()] + '）'}</h3>${d.items.map((c) => ciRowHtml(c, true, true)).join('')}</section>`).join('') : '<p class="none">還沒有紀錄。</p>')
-        + '<p class="hint">只保留最近 30 天。位置只在小朋友按下報平安的那一刻記一次，不會持續追蹤。</p>'
-    });
+    const chip = (id, label) => `<button class="album-chip ${state.ciKid === id ? 'on' : ''}" data-act="ci-kid" data-id="${esc(id)}" ${state.ciKid === id ? 'aria-pressed="true"' : ''}>${esc(label)}</button>`;
+    return `
+      <header class="plain-head"><h1>報平安紀錄</h1><p>最近 30 天・${list.length} 筆</p></header>
+      ${!amChild() && kids().length > 1 ? `<div class="album-chips" role="group" aria-label="看誰的紀錄">${chip('', '全部')}${kids().map((k) => chip(k.id, k.display_name)).join('')}</div>` : ''}
+      ${days.length ? days.map((d) => `<section class="ci-card ci-day"><h2>${d.date === today() ? '今天' : d.date === addDays(today(), -1) ? '昨天' : shortDate(d.date)}<span>${d.items.length} 筆</span></h2>${d.items.map((c) => ciRowHtml(c, !amChild(), true)).join('')}</section>`).join('')
+        : '<div class="empty big"><p>最近 30 天沒有報平安的紀錄。</p></div>'}
+      <p class="hint">只保留最近 30 天，超過的會自動刪除。位置只在按下報平安的那一刻記一次，不會持續追蹤。點任何一筆可以看地圖。</p>`;
   }
+  function openCheckinAll() { state.ciKid = ''; state.notesView = 'checkins'; goTab('notes'); if (scroller()) scroller().scrollTop = 0; }
   async function checkCiReady() {
     try { await Api.listDocs('places'); state.ciReady = true; } catch (e) { console.warn('報平安還沒開通', e); state.ciReady = false; }
     drawCheckin();
@@ -5424,6 +5430,7 @@
     ['notes', '旅遊', '#0E9AA7', '<path d="M3.500 12.500l17-7.500-6 15-3-6z"/><path d="M11.500 14l3-3"/>'],
     ['album', '相簿', '#E5557A', '<rect x="3.500" y="5" width="17" height="14" rx="2.500"/><circle cx="9" cy="10" r="1.700"/><path d="M4.500 17l4.500-4 3.500 3 3-2.500 4 3.500"/>'],
     ['transit', '交通', '#3B7BF6', '<rect x="5" y="4" width="14" height="13" rx="3"/><path d="M5 11h14M8 20l1-3M16 20l-1-3"/><circle cx="8.500" cy="14" r=".900" fill="#fff" stroke="none"/><circle cx="15.500" cy="14" r=".900" fill="#fff" stroke="none"/>'],
+    ['checkins', '報平安紀錄', '#D93B30', '<path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z"/><circle cx="12" cy="10" r="2.500"/>'],
     ['shop', '待辦', '#8E5CF7', '<path d="M4 7l1.600 1.600L8.500 5.500M4 13.500l1.600 1.600 2.900-3.100"/><path d="M11.500 7.200h8.500M11.500 13.700h8.500M11.500 19h8.500"/>'],
     ['cards', '資料卡', '#6B7A90', '<rect x="3.500" y="5.500" width="17" height="13" rx="2.500"/><circle cx="9" cy="11" r="2"/><path d="M6.500 16c.500-1.500 4.500-1.500 5 0M14.500 10h3.500M14.500 13.500h3.500"/>']
   ];
@@ -5441,6 +5448,7 @@
       return next ? `${esc(next.title)}　<em>${tripStatus(next).text}</em>` : state.trips.length ? state.trips.length + ' 趟旅程' : '行程、日誌、行李、花費';
     }
     if (id === 'album') return '日常照片，按月份看';
+    if (id === 'checkins') { const n = ciList().filter((c) => ciDate(c) === today()).length; return n ? `<em>今天 ${n} 筆</em>` : amChild() ? '你報過的平安，最近 30 天' : '小朋友最近 30 天的紀錄和位置'; }
     if (id === 'transit') return '新竹公車、台鐵即時資訊';
     if (id === 'shop') {
       const n = state.shopping.filter((x) => !x.done).length, u = urgentTodos().length;
@@ -5461,7 +5469,7 @@
       </nav>`;
   }
   function viewNotes() {
-    const views = { video: viewVideo, study: viewStudy, butler: viewButler, ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, transit: viewTransit, shop: viewShop, cards: viewCards };
+    const views = { video: viewVideo, study: viewStudy, butler: viewButler, ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, checkins: viewCheckins, transit: viewTransit, shop: viewShop, cards: viewCards };
     const view = views[state.notesView];
     if (!view) return viewHub();
     // 旅程裡面、公車路線裡面已經有自己的「返回」，就不再多放一個
@@ -7263,6 +7271,7 @@
     else if (act === 'ci-undo') undoCheckin();
     else if (act === 'ci-view') { if (!amChild()) { ciMarkSeen(); state.ciParentOpen = false; drawCheckin(); } openCheckin(el.dataset.id); }
     else if (act === 'ci-all') { ciMarkSeen(); state.ciParentOpen = false; drawCheckin(); openCheckinAll(); }
+    else if (act === 'ci-kid') { state.ciKid = el.dataset.id; render(); }
     else if (act === 'ci-popen') { state.ciParentOpen = true; drawCheckin(); }
     else if (act === 'ci-pclose') { ciMarkSeen(); state.ciParentOpen = false; drawCheckin(); }
     else if (act === 'ci-place-del') { Api.deleteDoc('places', el.dataset.id).then(() => { el.parentNode.remove(); toast('已刪除地點'); }, () => toast('沒有刪除成功')); }
