@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-22 00:13';
+  const VERSION = '2026-11-22 00:16';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -599,7 +599,7 @@
     }
     if (state.notesView === 'hub' || state.notesView === 'butler') return '';
     if (state.notesView === 'album') return '放照片';
-    if (state.notesView === 'transit') return '';
+    if (state.notesView === 'transit' || state.notesView === 'checkins') return '';   // 報平安紀錄只能看，不能新增
     if (state.notesView === 'shop') return '';                       // 待辦直接在上方輸入
     if (state.notesView === 'cards') return '新增資料卡';
     if (state.notesView === 'video') return amChild() ? '我想看這部' : state.videoMode === 'manage' ? '' : '加一部影片';
