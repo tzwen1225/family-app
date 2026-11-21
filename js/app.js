@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 11:40';
+  const VERSION = '2026-11-21 11:48';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -662,8 +662,8 @@
     const n = events.length + tasks.length;
     return `
       <h2>我的今天<span>${shortDate(t)}</span>${holidayName(t) ? `<em class="holiday-tag">${esc(holidayName(t))}</em>` : ''}${n ? `<b>${n}</b>` : ''}</h2>
-      ${tasks.length ? `<h3>要處理的事</h3><div class="mine-tasks">${tasks.join('')}</div>` : ''}
-      ${events.length ? `<h3>今天的行程</h3>${events.map((e) => eventRow(e)).join('')}` : ''}
+      ${tasks.length ? `${events.length ? '<h3>要處理的事</h3>' : ''}<div class="mine-tasks">${tasks.join('')}</div>` : ''}
+      ${events.length ? `${tasks.length ? '<h3>今天的行程</h3>' : ''}${events.map((e) => eventRow(e)).join('')}` : ''}
       ${n ? '' : '<p class="none">今天沒有跟你有關的事。</p>'}`;
   }
   function refreshTodos() {
