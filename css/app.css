@@ -2255,3 +2255,28 @@ html[data-style="comic"] :is(.ci-bar, .ci-panel, .ci-card, .ci-tile) { border: 2
 .home-polls .hp-item .post { margin: 0 8px 8px; box-shadow: none; border: 1px solid var(--line); }
 @media (prefers-reduced-motion: reduce) { .hp-chev { transition: none; } }
 .hp-item .poll > .post-text { display: none; }
+
+/* 相簿：整個月是一天一張卡片，點進去看那天全部的照片 */
+.album-days { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.album-dcard { display: flex; gap: 12px; align-items: stretch; width: 100%; padding: 8px; border-radius: 18px; text-align: left; color: var(--ink); background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); }
+.album-dcard:active { transform: scale(.99); }
+.album-dcov { flex: none; position: relative; width: 132px; height: 96px; border-radius: 12px; overflow: hidden; display: grid; gap: 2px; background: var(--line); }
+.album-dcov.n1 { grid-template-columns: 1fr; }
+.album-dcov.n2 { grid-template-columns: 1fr 1fr; }
+.album-dcov.n3 { grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; }
+.album-dcov.n3 img:first-child { grid-row: span 2; }
+.album-dcov img { width: 100%; height: 100%; object-fit: cover; display: block; min-height: 0; }
+.album-dcov i { position: absolute; right: 0; bottom: 0; width: calc(33.3% - 1px); height: calc(50% - 1px); display: flex; align-items: center; justify-content: center; font-style: normal; font-size: 15px; font-weight: 700; color: #fff; background: rgba(0, 0, 0, .45); }
+.album-dmeta { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.album-dmeta b { font-size: 16px; display: flex; align-items: baseline; gap: 6px; }
+.album-dmeta b small { font-size: 12px; font-weight: 500; color: var(--ink-2); }
+.album-dmeta em { font-style: normal; font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.album-dmeta > span { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.album-dmeta > span i { font-style: normal; display: inline-flex; align-items: center; gap: 2px; }
+.album-dmeta > span i svg { width: 12px; height: 12px; }
+.album-dwho { margin-left: auto; display: flex; gap: 2px; }
+.album-dwho .avatar.xs { width: 18px; height: 18px; font-size: 10px; }
+.album-dhead h1 { display: flex; flex-direction: column; }
+.album-dhead h1 small { font-size: 13px; font-weight: 500; color: var(--ink-2); margin-top: 2px; }
+.album-dhead + .album-grid { margin-top: 12px; }
+.album-dwho .avatar::after { display: none; }
