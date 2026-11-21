@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 11:27';
+  const VERSION = '2026-11-21 11:40';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -6121,6 +6121,7 @@
         return;
       }
       if (el.dataset.tab === 'notes' && state.tab === 'notes' && state.notesView !== 'hub') { state.notesView = 'hub'; state.tripId = null; state.transit.route = null; }
+      if (el.dataset.tab === 'cal' && state.tab !== 'cal') { state.selected = today(); state.cursor = today().slice(0, 7); }   // 回到首頁：日期回到今天
       state.tab = el.dataset.tab;
       state.menuMsg = null; state.pollEdit = null;
       if (state.tab === 'chat') markRead();
@@ -7194,6 +7195,8 @@
     if (tab === 'video') { state.notesView = 'video'; if (!amChild() && state.videos.some((v) => v.status === 'pending')) state.videoMode = 'manage'; tab = 'notes'; }
     if (tab === 'study') { state.notesView = 'study'; state.studyDay = today(); tab = 'notes'; }
     if (!TABS.some(([id]) => id === tab)) return;
+    // 從別的分頁回到首頁：日期回到今天（之前點去看別天也一樣）
+    if (tab === 'cal' && state.tab !== 'cal') { state.selected = today(); state.cursor = today().slice(0, 7); }
     state.tab = tab;
     state.chatSearch = false; state.chatQuery = ''; state.menuMsg = null;
     if (!state.userId) return;            // 還沒登入：登入後會直接顯示這個分頁
