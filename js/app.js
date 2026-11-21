@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 10:54';
+  const VERSION = '2026-11-21 10:59';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -109,7 +109,7 @@
     studyItems: [], studyCheers: [],   // 讀書計畫和爸媽的鼓勵
     studyKid: null, studyMode: 'day', studyDay: null,
     videoReady: null, videos: [], videoViews: [], videoLimits: [], videoMode: 'list', videoCat: '', vdMonths: {},
-    checkins: [], places: [], ciOpen: false, ciReady: null,   // 報平安   // 影片
+    checkins: [], places: [], ciOpen: false, ciParentOpen: false, ciReady: null,   // 報平安   // 影片
     journalReacts: [],              // 旅遊日誌的表情回應
     trips: [], tripItems: [],       // 家庭旅遊：旅程，以及每趟旅程底下的行程、日誌、行李、花費
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
@@ -1158,12 +1158,28 @@
     if (!kids().length) return '';
     // 沒有紀錄時整張卡都不顯示（只在還沒部署時提醒管理員）
     if (!latest.length && !(state.ciReady === false && isAdmin())) return '';
+    // 看過了（點過任一筆、全部紀錄或「收起」）就合成一條；有新的報平安才自動展開
+    const unread = latest.some((c) => c.at > ciSeenAt());
+    if (latest.length && !unread && !state.ciParentOpen) return `
+      <button class="ci-bar ci-pbar" data-act="ci-popen" aria-expanded="false" aria-label="小朋友報平安：${esc(latest.map((c) => nameOf(c.kid) + ' ' + clock(c.at) + ' ' + c.text).join('，'))}。點一下展開">
+        <i class="ci-badge solid">${ciSvg('pin')}</i>
+        <span class="ci-pchips">${latest.map((c) => { const k = ciKind(c.kind); return `<span class="ci-last" style="--c:${k.c};--bg:${k.bg}"><i>${ciSvg(k.id)}</i>${esc(nameOf(c.kid).slice(0, 1))}・${esc(c.kind === 'custom' ? '留言' : k.short)} ${esc(clock(c.at))}</span>`; }).join('')}</span>
+        <span class="ci-chev" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+      </button>`;
     return `
-      <div class="ci-card">
-        <h2>${ciSvg('pin')}小朋友報平安${list.length ? `<button class="link-btn" data-act="ci-all">全部紀錄</button>` : ''}</h2>
+      <div class="ci-card ${unread ? 'unread' : ''}">
+        <h2>${ciSvg('pin')}小朋友報平安${unread ? '<em class="ci-new">新的</em>' : ''}${list.length ? `<button class="link-btn" data-act="ci-all">全部紀錄</button>` : ''}</h2>
         ${latest.length ? latest.map((c) => ciRowHtml(c, true)).join('')
           : '<p class="none">報平安還沒開通：請用最新的 family-app.zip 執行一次 deploy.bat。</p>'}
+        ${latest.length ? `<button class="ci-fold" data-act="ci-pclose">${unread ? '知道了，收起來' : '收起來'}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>` : ''}
       </div>`;
+  }
+  // 爸媽看過的最後一筆報平安時間（存在這支手機上）
+  const ciSeenKey = () => 'family-ci-seen-' + state.userId;
+  function ciSeenAt() { try { return Number(localStorage.getItem(ciSeenKey())) || 0; } catch (e) { return 0; } }
+  function ciMarkSeen() {
+    const top = ciList().reduce((m, c) => Math.max(m, c.at), 0);
+    try { if (top > ciSeenAt()) localStorage.setItem(ciSeenKey(), String(top)); } catch (e) { /* 存不了就算了 */ }
   }
   const ciHtml = () => (!state.userId || !me() ? '' : amChild() ? ciKidHtml() : ciParentHtml());
   function drawCheckin() {
@@ -6195,8 +6211,10 @@
       else sendCheckin(el.dataset.kind);
     }
     else if (act === 'ci-undo') undoCheckin();
-    else if (act === 'ci-view') openCheckin(el.dataset.id);
-    else if (act === 'ci-all') openCheckinAll();
+    else if (act === 'ci-view') { if (!amChild()) { ciMarkSeen(); state.ciParentOpen = false; drawCheckin(); } openCheckin(el.dataset.id); }
+    else if (act === 'ci-all') { ciMarkSeen(); state.ciParentOpen = false; drawCheckin(); openCheckinAll(); }
+    else if (act === 'ci-popen') { state.ciParentOpen = true; drawCheckin(); }
+    else if (act === 'ci-pclose') { ciMarkSeen(); state.ciParentOpen = false; drawCheckin(); }
     else if (act === 'ci-place-del') { Api.deleteDoc('places', el.dataset.id).then(() => { el.parentNode.remove(); toast('已刪除地點'); }, () => toast('沒有刪除成功')); }
     else if (act === 'vd-month') {
       const k = el.dataset.key;
