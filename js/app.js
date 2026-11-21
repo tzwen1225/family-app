@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-22 00:16';
+  const VERSION = '2026-11-22 00:21';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -879,18 +879,88 @@
   </svg>`;
   const BALLOON = (c) => `<svg class="bday-balloon" viewBox="0 0 40 80" aria-hidden="true"><path d="M20 4C10 4 4 12 4 21c0 11 9 20 16 22 7-2 16-11 16-22C36 12 30 4 20 4z" fill="${c}"/><path d="M17 43h6l-3 4z" fill="${c}"/><path d="M20 47c-4 8 4 14 0 22s3 8 0 10" stroke="#B9A3AD" stroke-width="1.4" fill="none"/><ellipse cx="13" cy="16" rx="3" ry="5" fill="#fff" opacity=".5"/></svg>`;
   const CONFETTI = Array.from({ length: 16 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 5) * 0.18}s;--c:${['#F48FB1', '#FFB020', '#7FB7F2', '#9AD9A8', '#C9A7F5'][i % 5]};--r:${(i * 47) % 180}deg"></i>`).join('');
+  // 一張卡片：紙膠帶、郵戳貼紙、有橫線的信紙、右下角簽名
   function bdayCardHtml(c, i) {
     const who = member(c.from);
     return `
       <article class="bcard paper-${esc(c.paper || 'pink')} ${i % 2 ? 'r' : 'l'}">
-        <span class="bcard-sticker" aria-hidden="true">${esc(c.sticker || '🎂')}</span>
+        <i class="bcard-tape" aria-hidden="true"></i>
+        <span class="bcard-sticker" aria-hidden="true"><b>${esc(c.sticker || '🎂')}</b></span>
         <p>${esc(c.text)}</p>
-        <footer>${who ? avatarHtml(who, 'xs') : ''}<span>${esc(nameOf(c.from))}</span></footer>
+        <footer>${who ? avatarHtml(who, 'xs') : ''}<span>${esc(nameOf(c.from))}${c.year ? `<small>${esc(String(c.year))}</small>` : ''}</span></footer>
       </article>`;
   }
-  function bdayCardsHtml(list) {
-    return `<div class="bcards">${list.map(bdayCardHtml).join('')}</div>`;
+  // 壽星第一次看到的卡片先是一封信（有蠟封），點一下才打開。看過哪些記在這支手機上。
+  const BCARD_OPEN_KEY = 'family-bcards-open';
+  function openedCards() { try { return JSON.parse(localStorage.getItem(BCARD_OPEN_KEY)) || []; } catch (e) { return []; } }
+  function bdayEnvelopeHtml(c, i) {
+    const who = member(c.from);
+    return `
+      <button class="benv paper-${esc(c.paper || 'pink')} ${i % 2 ? 'r' : 'l'}" data-act="bcard-open" data-id="${esc(c.id)}" aria-label="${esc(nameOf(c.from))}寫給你的卡片，點一下打開">
+        <i class="benv-flap" aria-hidden="true"></i><i class="benv-seal" aria-hidden="true">♥</i>
+        <span class="benv-from">${who ? avatarHtml(who, 'sm') : ''}<b>${esc(nameOf(c.from))}寫給你的卡片</b><small>點一下打開</small></span>
+      </button>`;
   }
+  // sealed = true：還沒打開的顯示成信封（只有壽星在首頁看自己的卡片時用）
+  function bdayCardsHtml(list, sealed) {
+    const open = sealed ? openedCards() : null;
+    return `<div class="bcards">${list.map((c, i) => (sealed && !open.includes(c.id) ? bdayEnvelopeHtml(c, i) : bdayCardHtml(c, i))).join('')}</div>`;
+  }
+  function openBdayCard(id) {
+    const open = openedCards();
+    if (!open.includes(id)) { open.push(id); try { localStorage.setItem(BCARD_OPEN_KEY, JSON.stringify(open.slice(-200))); } catch (e) { /* 忽略 */ } }
+    celebrate();
+    drawBday();
+  }
+  // ---- 壽星的驚喜動畫 ----
+  // 生日當天，壽星打開 App 時播一次，之後每隔 2～5 分鐘不定時再來一個（氣球、彩帶、煙火、蛋糕輪流）。
+  // 動畫蓋在畫面上但點不到，不會擋住操作；看影片、視訊、打字、表單打開時不播。系統設成「減少動態效果」也不播。
+  const isMyBirthday = () => { const b = state.userId && me() ? birthdayOf(state.userId, Number(today().slice(0, 4))) : null; return !!b && b.date === today(); };
+  const PARTY_KINDS = ['balloons', 'confetti', 'fireworks', 'cake'];
+  let partyTimer = null, partyLast = '', partyDay = '';
+  function partyBusy() {
+    const a = document.activeElement;
+    return !!($sheet.innerHTML || vp || (document.getElementById('call-root') || {}).innerHTML || document.visibilityState !== 'visible'
+      || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) || document.querySelector('.party'));
+  }
+  function playParty(kind) {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    if (partyBusy()) return false;
+    const pool = PARTY_KINDS.filter((k) => k !== partyLast);
+    kind = PARTY_KINDS.includes(kind) ? kind : pool[Math.floor(Math.random() * pool.length)];
+    partyLast = kind;
+    const colors = ['#F48FB1', '#FFB020', '#7FB7F2', '#9AD9A8', '#C9A7F5', '#FF7A59'];
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const box = document.createElement('div');
+    box.className = 'party party-' + kind; box.setAttribute('aria-hidden', 'true');
+    let html = '';
+    if (kind === 'balloons') for (let i = 0; i < 9; i++) html += `<span style="--x:${Math.round(rnd(2, 88))}%;--d:${rnd(0, 1.2).toFixed(2)}s;--t:${rnd(3.6, 5.2).toFixed(2)}s;--s:${rnd(.8, 1.25).toFixed(2)};--sway:${Math.round(rnd(-30, 30))}px">${BALLOON(colors[i % colors.length])}</span>`;
+    else if (kind === 'confetti') for (let i = 0; i < 46; i++) html += `<i style="--x:${Math.round(rnd(0, 100))}%;--d:${rnd(0, 1.6).toFixed(2)}s;--t:${rnd(2.6, 4.2).toFixed(2)}s;--c:${colors[i % colors.length]};--r:${Math.round(rnd(0, 360))}deg;--dx:${Math.round(rnd(-60, 60))}px"></i>`;
+    else if (kind === 'fireworks') for (let b = 0; b < 4; b++) {
+      const x = Math.round(rnd(14, 86)), y = Math.round(rnd(14, 52)), c = colors[b % colors.length];
+      html += `<span style="left:${x}%;top:${y}%;--d:${(b * 0.55).toFixed(2)}s">${Array.from({ length: 14 }, (_, i) => `<i style="--a:${Math.round((360 / 14) * i)}deg;--c:${i % 3 ? c : '#FFF2B0'};--l:${Math.round(rnd(52, 92))}px"></i>`).join('')}</span>`;
+    }
+    else html = `<div class="party-card">${CAKE_ART}<b>生日快樂</b><small>${esc(me().display_name)}，今天你最大</small></div>` + Array.from({ length: 18 }, (_, i) => `<i style="--x:${Math.round(rnd(0, 100))}%;--d:${rnd(0, 1).toFixed(2)}s;--t:${rnd(2.4, 3.6).toFixed(2)}s;--c:${colors[i % colors.length]};--r:${Math.round(rnd(0, 360))}deg;--dx:${Math.round(rnd(-40, 40))}px"></i>`).join('');
+    box.innerHTML = html;
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), kind === 'balloons' ? 6600 : kind === 'cake' ? 4200 : 5400);
+    return true;
+  }
+  // 排下一次：隨機 2～5 分鐘後。沒播成（正在忙）就 20 秒後再試。
+  function scheduleParty(firstDelay) {
+    clearTimeout(partyTimer);
+    if (!isMyBirthday()) return;
+    const wait = firstDelay !== undefined ? firstDelay : 120000 + Math.random() * 180000;
+    partyTimer = setTimeout(() => { if (!isMyBirthday()) return; scheduleParty(playParty() ? undefined : 20000); }, wait);
+  }
+  // 資料到齊後呼叫：今天是我生日就開始（每天只啟動一次；回到 App 時馬上再來一個）
+  function startParty() {
+    if (!isMyBirthday()) { clearTimeout(partyTimer); partyDay = ''; return; }
+    if (partyDay === today()) return;
+    partyDay = today();
+    scheduleParty(900);
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && partyDay === today() && isMyBirthday()) scheduleParty(1200); });
   function bdayHtml() {
     if (!state.userId || !me()) return '';
     const t = today(), year = Number(t.slice(0, 4));
@@ -908,8 +978,9 @@
           <h2>生日快樂</h2>
           <p class="bday-name">${esc(m.display_name)}${b.age > 0 ? `<span class="bday-age">${b.age} 歲</span>` : ''}</p>
           <p class="bday-wish">全家都祝你天天開心，願望都實現</p>
+          <button class="bday-again" data-act="bday-party">再放一次驚喜</button>
         </div>
-        ${cards.length ? `<h3 class="bday-sub">家人寫給你的卡片・${cards.length} 張</h3>${bdayCardsHtml(cards)}` : '<p class="bday-none">家人寫的卡片會一張一張出現在這裡 💌</p>'}`;
+        ${cards.length ? `<h3 class="bday-sub">家人寫給你的卡片・${cards.length} 張</h3>${bdayCardsHtml(cards, true)}` : '<p class="bday-none">家人寫的卡片會一張一張出現在這裡 💌</p>'}`;
       } else {
         const mine = cards.find((c) => c.from === state.userId);
         html += `
@@ -928,11 +999,12 @@
     const mineB = [birthdayOf(state.userId, year), birthdayOf(state.userId, year - 1)].filter((b) => b && b.date < t && b.date >= addDays(t, -7))[0];
     if (mineB) {
       const cards = cardsFor(state.userId, Number(mineB.date.slice(0, 4)));
-      if (cards.length) html += `<h3 class="bday-sub">你的生日卡片（${shortDate(mineB.date)}）</h3>${bdayCardsHtml(cards)}`;
+      if (cards.length) html += `<h3 class="bday-sub">你的生日卡片（${shortDate(mineB.date)}）</h3>${bdayCardsHtml(cards, true)}`;
     }
     return html;
   }
   function drawBday() {
+    startParty();
     const arch = document.querySelector('.bday-archive');
     if (arch && state.tab === 'me') arch.outerHTML = bdayArchiveEntry();
     const el = document.getElementById('bday');
@@ -1534,6 +1606,7 @@
     const hour = new Date().getHours(), now = parse(today());
     const hello = hour < 5 ? '夜深了' : hour < 11 ? '早安' : hour < 18 ? '午安' : '晚安';
     loadWeather();
+    startParty();
     // 問候、天氣和家人狀態固定在最上面，往下滑也看得到
     return `<div class="home-top">
         <header class="hello"><div><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></div><button class="wx" id="wx" data-act="wx-tap" aria-label="今天天氣，點一下更新或改用我的位置">${weatherHtml()}</button></header>
@@ -7271,6 +7344,8 @@
     else if (act === 'ci-undo') undoCheckin();
     else if (act === 'ci-view') { if (!amChild()) { ciMarkSeen(); state.ciParentOpen = false; drawCheckin(); } openCheckin(el.dataset.id); }
     else if (act === 'ci-all') { ciMarkSeen(); state.ciParentOpen = false; drawCheckin(); openCheckinAll(); }
+    else if (act === 'bcard-open') openBdayCard(el.dataset.id);
+    else if (act === 'bday-party') { if (!playParty()) toast('這支手機設成「減少動態效果」，所以不播動畫'); }
     else if (act === 'ci-kid') { state.ciKid = el.dataset.id; render(); }
     else if (act === 'ci-popen') { state.ciParentOpen = true; drawCheckin(); }
     else if (act === 'ci-pclose') { ciMarkSeen(); state.ciParentOpen = false; drawCheckin(); }
