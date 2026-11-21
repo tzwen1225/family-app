@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 12:49';
+  const VERSION = '2026-11-21 18:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1937,6 +1937,13 @@
   }
 
   // ---------- 投票 ----------
+  // 全家都投完之後：最後一次改票（或加選項）滿 1 小時，伺服器會自動結束（每 5 分鐘檢查一次）
+  const ICON_CLOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.500"/><path d="M12 7.500V12l3 2"/></svg>';
+  function pollQuietText(p, votes) {
+    const last = Math.max(p.options_at || 0, ...votes.map((v) => v.voted_at || 0));
+    const left = Math.ceil((last + 3600000 - Date.now()) / 60000);
+    return !last ? '1 小時內沒有人改票就會自動結束。' : left > 0 ? `再 ${left} 分鐘沒有人改票，就會自動結束。` : '很快就會自動結束。';
+  }
   // 一則投票。home = true 時是首頁用的精簡版（沒有結束、刪除按鈕）
   function pollCardHtml(p, home) {
     const over = pollOver(p);
@@ -1981,6 +1988,8 @@
           </form>` : ''}
           ${!over && home && p.open_options ? '<p class="pick-hint">可以到「投票」加自己的選項</p>' : ''}
           <p class="poll-foot">${due ? `<b>${due}</b>　` : ''}${votes.length} / ${state.members.length} 人已投${waiting.length && !over ? '　還沒投：' + esc(waiting.map((m) => m.display_name).join('、')) : ''}</p>
+          ${!over && !waiting.length && p.options.length ? `<p class="poll-auto">${ICON_CLOCK}全家都投完了。${pollQuietText(p, votes)}</p>` : ''}
+          ${over && p.auto_closed ? '<p class="poll-auto">全家都投完、1 小時沒有人改票，自動結束。</p>' : ''}
           ${over || !p.options.length ? '' : `<button class="btn ghost small vote-btn" data-act="poll-edit" data-id="${esc(p.id)}">${editing ? '取消' : mine ? '修改我的票' : '我要投票'}</button>`}
           ${!home && p.author === state.userId ? `
             <div class="poll-actions">
@@ -2073,7 +2082,7 @@
       const opts = Array.isArray(fresh.options) ? fresh.options : [];
       if (opts.includes(text)) { toast('已經有這個選項了'); refreshPolls(); return; }
       if (opts.length >= POLL_MAX) { toast('選項最多 ' + POLL_MAX + ' 個'); return; }
-      await Api.updateDoc('polls', p.id, { options: opts.concat(text), option_by: { ...(fresh.option_by || {}), [String(opts.length)]: state.userId } });
+      await Api.updateDoc('polls', p.id, { options: opts.concat(text), option_by: { ...(fresh.option_by || {}), [String(opts.length)]: state.userId }, options_at: Date.now() });
       toast('已加入選項');
     } catch (e) {
       console.error('加選項失敗', e); state.optDrafts[p.id] = text; input.value = text;

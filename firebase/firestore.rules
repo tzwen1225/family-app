@@ -594,7 +594,7 @@ service cloud.firestore {
         || (resource.data.get('open_options', false) == true
           && resource.data.closed == false && resource.data.get('voided', false) == false
           && (resource.data.get('deadline_at', 0) == 0 || request.time.toMillis() <= resource.data.get('deadline_at', 0))
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['options', 'option_by'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['options', 'option_by', 'options_at'])
           && request.resource.data.options is list
           && request.resource.data.options.size() == resource.data.options.size() + 1
           && request.resource.data.options.size() <= 12

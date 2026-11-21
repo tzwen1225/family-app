@@ -237,6 +237,46 @@ exports.onBirthdayCard = onDocumentCreated('birthday_cards/{id}', async (event) 
   await notify([c.to], (names[c.from] || '家人') + '寫了生日卡片給你', clip(c.text), 'bday-' + c.to);
 });
 
+// ---------- 投票自動結束 ----------
+// 全家都投過票，而且 1 小時內沒有人改票、沒有人加選項，就自動結束（移到歷史紀錄），並通知全家結果。
+// 「最後一次變動」用資料庫記的更新時間：投票文件和每一張票的 updateTime，改票、加選項都會更新它。
+const POLL_QUIET_MS = 3600000;
+async function closeQuietPolls(now) {
+  const [polls, members] = await Promise.all([
+    db.collection('polls').where('closed', '==', false).get(),
+    db.collection('members').get()
+  ]);
+  const everyone = members.docs.map((d) => d.id);
+  const names = {};
+  members.docs.forEach((d) => { names[d.id] = d.data().display_name || '家人'; });
+  let n = 0;
+  for (const pd of polls.docs) {
+    const p = pd.data();
+    if (p.voided || !Array.isArray(p.options) || !p.options.length) continue;
+    const votes = (await db.collection('poll_votes').where('poll_id', '==', pd.id).get()).docs
+      .filter((v) => everyone.includes(v.data().uid));
+    if (!everyone.length || !everyone.every((uid) => votes.some((v) => v.data().uid === uid))) continue;
+    const last = Math.max(pd.updateTime.toMillis(), ...votes.map((v) => v.updateTime.toMillis()));
+    if (now - last < POLL_QUIET_MS) continue;
+    // 用交易再確認一次還沒結束，避免同時有人按了「結束投票」
+    const closed = await db.runTransaction(async (tx) => {
+      const fresh = await tx.get(pd.ref);
+      if (!fresh.exists || fresh.data().closed || fresh.data().voided || fresh.updateTime.toMillis() !== pd.updateTime.toMillis()) return false;
+      tx.update(pd.ref, { closed: true, auto_closed: true, closed_at: now });
+      return true;
+    });
+    if (!closed) continue;
+    n++;
+    const count = p.options.map((_, i) => votes.filter((v) => v.data().choice === i).length);
+    const top = Math.max(...count);
+    const win = p.options.filter((_, i) => count[i] === top);
+    const result = top === 0 ? '沒有人投票' : (win.length > 1 ? '平手：' + win.map(clip).join('、') : clip(win[0])) + '（' + top + ' 票）';
+    await notify(everyone, '投票結束：' + clip(p.question), result, 'poll-' + pd.id).catch((e) => logger.error('投票結果通知失敗', e));
+  }
+  return n;
+}
+exports._closeQuietPolls = closeQuietPolls;   // 給測試用
+
 // ---------- 讀書計畫 ----------
 // 晚上 8 點：今天還有沒讀完的，提醒那位小朋友（一天一次）
 async function remindStudy(now) {
@@ -322,6 +362,7 @@ exports.remindEvents = onSchedule({ schedule: 'every 5 minutes', timeZone: 'Asia
     const n = await remindEvents(Date.now()); if (n) logger.info('行程提醒：' + n + ' 則');
     await greetBirthdays(Date.now()).catch((e) => logger.error('生日提醒失敗', e));
     await remindStudy(Date.now()).catch((e) => logger.error('讀書提醒失敗', e));
+    await closeQuietPolls(Date.now()).then((n) => n && logger.info('投票自動結束：' + n + ' 則'), (e) => logger.error('投票自動結束失敗', e));
     await cleanCheckins(Date.now()).catch((e) => logger.error('清報平安紀錄失敗', e));
   });
 exports._remindEvents = remindEvents;   // 給測試用
