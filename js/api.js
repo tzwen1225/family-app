@@ -176,8 +176,10 @@
       deleteNote: (id) => remove('notes', id),
 
       // extra：傳照片時帶 { thumb, image_id }
-      async sendMessage(text, extra) {
-        await F.addDoc(col('messages'), { text, ...(extra || {}), sender: uid(), sent_at: Date.now() });
+      // id、at：App 先決定好編號和時間（沒網路時先排隊，之後用同一個編號補送，不會變成兩則）
+      async sendMessage(text, extra, id, at) {
+        const data = { text, ...(extra || {}), sender: uid(), sent_at: at || Date.now() };
+        if (id) await F.setDoc(F.doc(db, 'messages', id), data); else await F.addDoc(col('messages'), data);
       },
       // 收回：清空內容並標記。安全規則只允許本人在送出一小時內這樣做。
       async recallMessage(id, hasImage, hasAudio) {
@@ -430,6 +432,11 @@
         { id: 'ci3', kid: 'm4', kind: 'school', text: '我到學校了', note: '', at: ago(310), date: day(0) }
       ],
       places: [{ id: 'pl1', name: '學校', lat: 24.8040, lng: 120.9715 }],
+      notifications: [
+        { id: 'nt1', uid: 'm1', title: '弟弟：我上車了', body: '在「東區」附近・點開看地圖', tag: 'checkin-m4', kind: 'checkin', at: ago(55) },
+        { id: 'nt2', uid: 'm1', title: '投票結束：晚上吃什麼', body: '火鍋（3 票）', tag: 'poll-x', kind: 'poll', at: ago(400) },
+        { id: 'nt3', uid: 'm3', title: '1 小時後：鋼琴課', body: '16:00 開始', tag: 'event-x', kind: 'cal', at: ago(90) }
+      ],
       study_cheers: [
         { id: 'sc1', kid: 'm3', from: 'm2', kind: 'like', text: '數學習題都寫完了，很棒！', date: day(0), created_at: ago(30) }
       ],
@@ -594,8 +601,9 @@
       async saveNote(n) { return upsert('notes', n.id, cleanNote(n, load().user), 'n'); },
       async deleteNote(id) { drop('notes', id); },
 
-      async sendMessage(text, extra) {
-        upsert('messages', null, { text, ...(extra || {}), sender: load().user, sent_at: Date.now() }, 'g');
+      async sendMessage(text, extra, id, at) {
+        if (window.__demoOffline) throw new Error('unavailable');
+        upsert('messages', id || null, { text, ...(extra || {}), sender: load().user, sent_at: at || Date.now() }, 'g');
         emit('messages');
       },
       async recallMessage(id) {

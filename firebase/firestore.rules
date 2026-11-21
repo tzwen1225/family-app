@@ -278,6 +278,19 @@ service cloud.firestore {
       allow delete: if isFamily() && (resource.data.uid == request.auth.uid || isAdmin());
     }
 
+    // App 裡的通知紀錄：伺服器寫入，只有本人讀得到（查詢要帶 uid == 自己）
+    match /notifications/{id} {
+      allow read: if isFamily() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+    // 每個人不想收哪幾種推播（文件 id 是自己的 UID）
+    match /notify_prefs/{uid} {
+      allow read: if isFamily() && uid == request.auth.uid;
+      allow create, update: if isFamily() && uid == request.auth.uid
+        && request.resource.data.off is list && request.resource.data.off.size() <= 12;
+      allow delete: if false;
+    }
+
     // 語音訊息的聲音檔：只能以自己的名義上傳；收回訊息時由本人刪除
     match /chat_audio/{id} {
       allow read: if isFamily();

@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 22:45';
+  const VERSION = '2026-11-21 23:13';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -176,6 +176,7 @@
     pins: [], pinsOpen: false,   // 聊天室置頂的訊息
     unreadFrom: null, unreadJump: false,   // 進聊天室時上次讀到的時間點（畫「以下是新訊息」用）
     quiet: null,             // 聊天免打擾時段 { on, start, end }
+    notices: [], notifyOff: null,   // App 裡的通知紀錄；我關掉的推播種類（null = 還沒讀）
     previews: {},            // 連結預覽
     replyTo: null,           // 正在引用回覆哪一則訊息
     mentionQ: null,          // 正在打 @ 後面的字（null 代表沒有在選人）
@@ -498,6 +499,7 @@
       Api.watchList('places', (l) => { state.places = l; drawCheckin(); }),
       Api.watchList('message_reacts', (list) => { state.msgReacts = list; if (state.tab === 'chat') refreshChat(false); }),
       Api.watchList('chat_pins', (list) => { state.pins = list; drawPins(); if (state.tab === 'chat') refreshChat(false); }),
+      Api.watchWhere('notifications', 'uid', state.userId, (list) => { state.notices = list; drawBell(); }),
       Api.watchList('settings', (list) => { state.quiet = findById(list, 'chat_quiet') || null; if (state.tab === 'me' && !$sheet.innerHTML) render(); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       // 資料卡：家長看全部；小朋友只讀得到自己新增的（安全規則也是這樣擋）
@@ -1335,6 +1337,192 @@
     drawCheckin();
   }
 
+  // ---------- 通知中心 ----------
+  // notifications/{id}：伺服器每發一則推播（聊天、來電除外）就記一筆給那個人，留 14 天。錯過推播也能在這裡找到。
+  const BELL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></svg>';
+  const NOTICE_SEEN_KEY = 'family-notice-seen';
+  const NOTIFY_KINDS = [['chat', '聊天'], ['post', '我有話要說'], ['poll', '投票'], ['cal', '行程提醒、生日'], ['money', '零用錢、費用申請'], ['todo', '待辦'], ['study', '讀書計畫'], ['video', '影片']];
+  const noticeList = () => state.notices.slice().sort((a, b) => b.at - a.at).slice(0, 60);
+  function noticeSeenAt() { try { return Number(localStorage.getItem(NOTICE_SEEN_KEY + '-' + state.userId)) || 0; } catch (e) { return 0; } }
+  const noticeNew = () => state.notices.filter((n) => n.at > noticeSeenAt()).length;
+  const noticeTab = (tag) => { const k = String(tag || '').split('-')[0]; return { event: 'cal', bday: 'cal', checkin: 'cal', poll: 'polls', post: 'posts', request: 'ledger', todo: 'todos', study: 'study', video: 'video' }[k] || 'cal'; };
+  function drawBell() {
+    const el = document.getElementById('bell');
+    if (!el) return;
+    const n = noticeNew();
+    el.classList.toggle('has', n > 0);
+    el.setAttribute('aria-label', n ? '通知，' + n + ' 則新的' : '通知');
+  }
+  function openNotices() {
+    const seen = noticeSeenAt(), list = noticeList();
+    showSheet('notice-form', {
+      title: '通知', readonly: true,
+      body: (list.length ? list.map((n) => `
+        <button class="nt-row ${n.at > seen ? 'new' : ''}" data-act="notice-go" data-tag="${esc(n.tag || '')}">
+          <b>${esc(n.title)}</b>${n.body ? `<span>${esc(n.body)}</span>` : ''}<time>${stamp(n.at)}</time>
+        </button>`).join('') : '<p class="none">最近 14 天沒有通知。</p>')
+        + '<p class="hint">這裡留著最近 14 天的通知（聊天訊息除外）。想關掉某一種推播，到「設定 → 通知」調整。</p>'
+    });
+    try { localStorage.setItem(NOTICE_SEEN_KEY + '-' + state.userId, String(Date.now())); } catch (e) { /* 忽略 */ }
+    drawBell();
+  }
+  // 設定頁：我不想收哪幾種推播
+  function notifyPrefsHtml() {
+    if (state.notifyOff === null) {
+      state.notifyOff = undefined;
+      Api.getDoc('notify_prefs', state.userId).then((d) => { state.notifyOff = (d && Array.isArray(d.off) ? d.off : []); }, (e) => { console.warn('讀不到通知設定', e); state.notifyOff = false; })
+        .then(() => { if (state.tab === 'me' && !$sheet.innerHTML) render(); });
+    }
+    const off = state.notifyOff;
+    return `
+      <section class="card-list">
+        <h2>要收哪些通知<small>只影響你自己的帳號</small></h2>
+        ${off === false ? '<p class="hint">這個設定還沒開通，需要先部署一次。</p>' : !Array.isArray(off) ? '<div class="skel line w60"></div>' : `
+        <div class="nt-kinds" role="group" aria-label="要收哪些通知">${NOTIFY_KINDS.map(([id, label]) => `<button class="chip-btn ${off.includes(id) ? '' : 'on'}" data-act="notify-kind" data-kind="${id}" aria-pressed="${!off.includes(id)}">${off.includes(id) ? '' : '✓ '}${label}</button>`).join('')}</div>
+        <p class="hint">點一下可以關掉或打開。關掉的種類不會跳通知，但還是會出現在首頁右上角的「通知」裡。報平安和視訊來電一定會通知。</p>`}
+      </section>`;
+  }
+  async function toggleNotifyKind(kind) {
+    if (!Array.isArray(state.notifyOff)) return;
+    const was = state.notifyOff, off = was.includes(kind) ? was.filter((k) => k !== kind) : was.concat(kind);
+    state.notifyOff = off; render();
+    try { await Api.setDoc('notify_prefs', state.userId, { off }); }
+    catch (e) { console.error(e); state.notifyOff = was; render(); toast('沒有存到，請再試一次'); }
+  }
+  // ---------- 首頁排列（只存在這支手機） ----------
+  const HOME_KEY = 'family-home-layout';
+  const HOME_PARTS = [['checkin', '報平安'], ['mine', '我的今天'], ['polls', '投票'], ['cal', '行事曆']];
+  function homeLayout() {
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(HOME_KEY)) || []; } catch (e) { saved = []; }
+    const list = saved.filter((x) => x && HOME_PARTS.some(([id]) => id === x.id)).map((x) => ({ id: x.id, on: x.on !== false || x.id === 'cal' }));
+    HOME_PARTS.forEach(([id]) => { if (!list.some((x) => x.id === id)) list.push({ id, on: true }); });
+    return list;
+  }
+  function saveHomeLayout(list) { try { localStorage.setItem(HOME_KEY, JSON.stringify(list)); } catch (e) { /* 存不了就算了 */ } }
+  function homeLayoutHtml() {
+    const list = homeLayout();
+    return `
+      <section class="card-list">
+        <h2>首頁排列<small>只會改這支手機</small></h2>
+        <div class="home-order">${list.map((x, i) => {
+          const label = (HOME_PARTS.find(([id]) => id === x.id) || [])[1];
+          return `<div class="ho-row ${x.on ? '' : 'off'}">
+            <b>${label}</b>
+            <button class="icon-btn" data-act="home-move" data-id="${x.id}" data-dir="-1" aria-label="${label}往上移" ${i === 0 ? 'disabled' : ''}>↑</button>
+            <button class="icon-btn" data-act="home-move" data-id="${x.id}" data-dir="1" aria-label="${label}往下移" ${i === list.length - 1 ? 'disabled' : ''}>↓</button>
+            ${x.id === 'cal' ? '<span class="ho-fixed">固定顯示</span>' : `<button class="chip-btn ${x.on ? 'on' : ''}" data-act="home-show" data-id="${x.id}" aria-pressed="${x.on}">${x.on ? '顯示中' : '已隱藏'}</button>`}
+          </div>`;
+        }).join('')}</div>
+        <p class="hint">用箭頭調整首頁由上到下的順序；不想看的可以隱藏。生日當天的祝福一定會在最上面。</p>
+      </section>`;
+  }
+  // ---------- 全站搜尋 ----------
+  const SEARCH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.500"/><path d="M16 16l4.500 4.500"/></svg>';
+  function openSearch() {
+    showSheet('search-form', {
+      title: '搜尋', readonly: true, focus: true,
+      body: `<input id="gs-q" class="search" type="search" placeholder="找行程、聊天、待辦、發言、筆記" autocomplete="off" aria-label="搜尋全部內容">
+        <div id="gs-out">${searchHtml('')}</div>`
+    });
+  }
+  function searchHtml(raw) {
+    const q = raw.trim().toLowerCase();
+    if (!q) return '<p class="hint">輸入關鍵字，一次找行事曆（今天起 90 天和這個月）、最近 300 則聊天、待辦、我有話要說、筆記。</p>';
+    const has = (...texts) => texts.some((t) => String(t || '').toLowerCase().includes(q));
+    const row = (act, id, title, sub, extra) => `<button class="gs-row" data-act="${act}" data-id="${esc(id)}" ${extra || ''}><b>${markText(String(title || '').slice(0, 80), raw.trim())}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</button>`;
+    const seen = {}, groups = [];
+    const events = state.upcoming.concat(state.monthEvents).filter((e) => { const k = (e.series ? e.series.id : e.id) + e.event_date; if (seen[k]) return false; seen[k] = true; return has(e.title, e.note); })
+      .sort((a, b) => a.event_date.localeCompare(b.event_date)).slice(0, 12);
+    if (events.length) groups.push(['行事曆', events.map((e) => row('gs-event', (e.series || e).id, e.title, shortDate(e.event_date) + '（' + WEEKDAYS[parse(e.event_date).getDay()] + '）' + (e.start_time ? ' ' + e.start_time : ''), `data-date="${esc(e.event_date)}"`))]);
+    const msgs = state.messages.filter((m) => !m.recalled && has(m.text)).slice(-12).reverse();
+    if (msgs.length) groups.push(['聊天', msgs.map((m) => row('gs-msg', m.id, m.text, nameOf(m.sender) + '・' + stamp(m.sent_at)))]);
+    const todos = state.shopping.filter((t) => has(t.text, t.note)).slice(0, 12);
+    if (todos.length) groups.push(['待辦', todos.map((t) => row('gs-go', 'todos', t.text, (t.done ? '已完成' : '還沒做') + (t.due ? '・' + shortDate(t.due) : '')))]);
+    const posts = state.posts.filter((p) => has(p.text)).slice(0, 12);
+    if (posts.length) groups.push(['我有話要說', posts.map((p) => row('gs-go', 'posts', p.text, nameOf(p.author) + '・' + stamp(p.created_at)))]);
+    const polls = state.polls.filter((p) => has(p.question, ...(p.options || []))).slice(0, 8);
+    if (polls.length) groups.push(['投票', polls.map((p) => row('gs-go', 'polls', p.question, pollOver(p) ? '已結束' : '進行中'))]);
+    const notes = state.notes.filter((n) => has(n.title, n.body, n.text)).slice(0, 12);
+    if (notes.length) groups.push(['筆記', notes.map((n) => row('gs-go', 'notes', n.title || n.text || '筆記', ''))]);
+    if (!groups.length) return `<p class="hint">找不到含有「${esc(raw.trim())}」的內容。</p>`;
+    return groups.map(([name, rows]) => `<section class="gs-group"><h3>${name}<span>${rows.length}</span></h3>${rows.join('')}</section>`).join('');
+  }
+  function searchGo(el) {
+    const act = el.dataset.act, id = el.dataset.id;
+    closeSheet();
+    if (act === 'gs-event') {
+      const e = state.upcoming.concat(state.monthEvents).find((x) => (x.series || x).id === id && x.event_date === el.dataset.date);
+      if (e) openEventView(e.series || e, el.dataset.date);
+    } else if (act === 'gs-msg') { goTab('chat'); setTimeout(() => gotoMessage(id), 350); }
+    else if (id === 'notes') { state.notesView = 'notes'; goTab('notes'); }
+    else goTab(id);
+  }
+  // ---------- 沒網路時先排隊，連上後自動補送 ----------
+  // 每一則訊息先給一個固定的編號放進 outbox（也存在手機上），送成功才拿掉。
+  // 同一個編號重送不會變成兩則：資料庫裡已經有的話，寫入會被擋下，這時確認一下真的有就當作送出了。
+  const OUTBOX_KEY = 'family-outbox';
+  let outbox = [];
+  try { outbox = (JSON.parse(localStorage.getItem(OUTBOX_KEY)) || []).filter((x) => x && x.id && x.text); } catch (e) { outbox = []; }
+  const saveOutbox = () => { try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox.map((x) => ({ id: x.id, text: x.text, extra: x.extra, at: x.at, uid: x.uid })))); } catch (e) { /* 存不了就算了 */ } };
+  const newMsgId = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  function dropOutbox(id) { outbox = outbox.filter((x) => x.id !== id); saveOutbox(); if (state.tab === 'chat') refreshChat(false); }
+  function trySend(x) {
+    if (x.sending || x.uid !== state.userId) return;
+    x.sending = true; x.failed = false;
+    Api.sendMessage(x.text, x.extra, x.id, x.at).then(() => dropOutbox(x.id), async (e) => {
+      x.sending = false;
+      console.warn('訊息還沒送出', e);
+      if (/permission|already/i.test(String(e && (e.code || e.message)))) {
+        const there = await Api.getDoc('messages', x.id).catch(() => null);
+        if (there) return dropOutbox(x.id);
+      }
+      x.failed = true;
+      if (state.tab === 'chat') refreshChat(false);
+    });
+  }
+  function flushOutbox(skipFailed) { outbox.forEach((x) => { if (!x.sending && !(skipFailed && x.failed)) trySend(x); }); }
+  window.addEventListener('online', () => flushOutbox());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.userId) flushOutbox(); });
+  function outboxHtml() {
+    const waiting = outbox.filter((x) => x.uid === state.userId && !state.messages.some((m) => m.id === x.id));
+    return waiting.map((x) => `
+      <div class="msg mine pending ${x.failed ? 'failed' : ''}">
+        <div class="msg-row"><div class="bubble">${richText(x.text)}</div><span class="msg-meta">${x.failed
+          ? `<button class="link-btn" data-act="outbox-retry" data-id="${esc(x.id)}">沒送出，再試一次</button><button class="link-btn del" data-act="outbox-drop" data-id="${esc(x.id)}">不傳了</button>`
+          : `<small class="sending">${navigator.onLine === false ? '沒有網路，連上後會自動送出' : '傳送中…'}</small>`}</span></div>
+      </div>`).join('');
+  }
+  // ---------- 備份（管理員） ----------
+  const BACKUP_KEY = 'family-backup-at';
+  const BACKUP_SETS = ['members', 'profiles', 'events', 'categories', 'notes', 'trips', 'trip_items', 'ledger', 'requests', 'scores', 'subjects', 'shopping', 'polls', 'poll_votes', 'posts', 'replies',
+    'cards', 'contacts', 'messages', 'chat_pins', 'study_items', 'study_cheers', 'videos', 'video_limits', 'checkins', 'places', 'birthday_cards', 'photo_comments', 'settings', 'transit_favs'];
+  function backupNote() {
+    let at = 0;
+    try { at = Number(localStorage.getItem(BACKUP_KEY)) || 0; } catch (e) { at = 0; }
+    if (!at) return '這支手機還沒有備份過。建議每個月備份一次。';
+    const days = Math.floor((Date.now() - at) / 86400000);
+    return '上次備份：' + (days === 0 ? '今天' : days + ' 天前') + (days >= 30 ? '。已經超過一個月，建議再備份一次。' : '。');
+  }
+  async function exportBackup(btn) {
+    if (!isAdmin() || btn.disabled) return;
+    btn.disabled = true; btn.textContent = '整理資料中…';
+    const data = { app: '鍾家大宅', version: VERSION, exported_at: new Date().toISOString(), collections: {}, skipped: [] };
+    for (const name of BACKUP_SETS) {
+      try { data.collections[name] = await Api.listDocs(name); }
+      catch (e) { console.warn('備份讀不到', name, e); data.skipped.push(name); }
+    }
+    const count = Object.values(data.collections).reduce((n, l) => n + l.length, 0);
+    const file = new File([JSON.stringify(data)], '鍾家大宅備份-' + today() + '.json', { type: 'application/json' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: file.name });
+      else { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); }
+      try { localStorage.setItem(BACKUP_KEY, String(Date.now())); } catch (e) { /* 忽略 */ }
+      toast('已備份 ' + count + ' 筆資料' + (data.skipped.length ? '（' + data.skipped.length + ' 類讀不到）' : ''));
+    } catch (e) { if (!e || e.name !== 'AbortError') { console.error(e); toast('備份沒有完成，請再試一次'); } }
+    render();
+  }
+
   function viewCalendar() {
     const hour = new Date().getHours(), now = parse(today());
     const hello = hour < 5 ? '夜深了' : hour < 11 ? '早安' : hour < 18 ? '午安' : '晚安';
@@ -1342,13 +1530,15 @@
     // 問候、天氣和家人狀態固定在最上面，往下滑也看得到
     return `<div class="home-top">
         <header class="hello"><div><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></div><button class="wx" id="wx" data-act="wx-tap" aria-label="今天天氣，點一下更新或改用我的位置">${weatherHtml()}</button></header>
-        <section class="presence home-pres" id="presence" aria-label="家人上線狀態">${presenceHtml(true)}</section>
+        <div class="home-tools"><section class="presence home-pres" id="presence" aria-label="家人上線狀態">${presenceHtml(true)}</section><button class="icon-btn gs-open" data-act="gs-open" aria-label="搜尋全部內容">${SEARCH_SVG}</button><button class="icon-btn gs-open bell ${noticeNew() ? 'has' : ''}" id="bell" data-act="notices" aria-label="通知${noticeNew() ? '，' + noticeNew() + ' 則新的' : ''}">${BELL_SVG}</button></div>
       </div>`
-      + `<section class="checkin" id="checkin" aria-label="報平安" ${ciHtml() ? '' : 'hidden'}>${ciHtml()}</section>`
       + `<section class="bday" id="bday" aria-label="生日" ${bdayHtml() ? '' : 'hidden'}>${bdayHtml()}</section>`
-      + `<section class="today-card mine-card" id="mine" aria-label="我的今天">${mineHtml()}</section>`
-      + `<section class="home-polls" id="home-polls" aria-label="投票" ${homePollsHtml() ? '' : 'hidden'}>${homePollsHtml()}</section>`
-      + calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming());
+      + homeLayout().filter((x) => x.on).map((x) => ({
+        checkin: () => `<section class="checkin" id="checkin" aria-label="報平安" ${ciHtml() ? '' : 'hidden'}>${ciHtml()}</section>`,
+        mine: () => `<section class="today-card mine-card" id="mine" aria-label="我的今天">${mineHtml()}</section>`,
+        polls: () => `<section class="home-polls" id="home-polls" aria-label="投票" ${homePollsHtml() ? '' : 'hidden'}>${homePollsHtml()}</section>`,
+        cal: () => calSwitch() + (state.calView === 'month' ? viewMonth() : viewUpcoming())
+      })[x.id]()).join('');
   }
 
   function viewMonth() {
@@ -1915,7 +2105,7 @@
       ? state.messages.filter((m) => !m.recalled && (m.text || '').toLowerCase().includes(q.toLowerCase()))
       : state.messages;
     if (q && !list.length) return '<div class="empty big"><p>找不到含有「' + esc(q) + '」的訊息。</p></div>';
-    if (!list.length) return '<div class="empty big"><p>還沒有訊息。說聲嗨吧。</p></div>';
+    if (!list.length && !outbox.length) return '<div class="empty big"><p>還沒有訊息。說聲嗨吧。</p></div>';
 
     // 平常只畫最新的幾十則（畫得快，新訊息一來馬上出現）；要看更早的再往上展開
     const shown = q ? list : list.slice(-state.chatShown);
@@ -1947,14 +2137,14 @@
       html += `
         <div class="msg ${mine ? 'mine' : ''} ${atMe ? 'at-me' : ''} ${state.editMsg === m.id ? 'editing' : ''}" id="m-${esc(m.id)}" style="--who:${esc(colorOf(m.sender))}">
           ${showName ? `<div class="msg-name">${esc(nameOf(m.sender))}</div>` : ''}
-          <div class="msg-row">${bubble}<span class="msg-meta">${state.pins.some((p) => p.id === m.id) ? `<i class="pinned-mark" role="img" aria-label="已置頂">${PIN_SVG}</i>` : ''}<time>${clock(m.sent_at)}</time>${m.edited_at && !m.recalled ? '<small class="edited">已編輯</small>' : ''}${m.recalled ? '' : readersHtml(m, pos)}</span></div>
+          <div class="msg-row">${bubble}<span class="msg-meta">${state.pins.some((p) => p.id === m.id) ? `<i class="pinned-mark" role="img" aria-label="已置頂">${PIN_SVG}</i>` : ''}<time>${clock(m.sent_at)}</time>${m.edited_at && !m.recalled ? '<small class="edited">已編輯</small>' : ''}${m.recalled ? '' : outbox.some((x) => x.id === m.id) ? '<small class="sending">傳送中…</small>' : readersHtml(m, pos)}</span></div>
           ${q ? '' : previewHtml(m)}
           ${m.recalled ? '' : reactChipsHtml(m.id)}
           ${state.menuMsg === m.id && !m.recalled && !q ? reactPickHtml(m.id) + msgActsHtml(m) : ''}
         </div>`;
       lastSender = m.sender;
     });
-    return html;
+    return html + (q ? '' : outboxHtml());
   }
 
   function viewChat() {
@@ -2030,6 +2220,7 @@
     const grew = list.length !== state.messages.length
       || (list.length && state.messages.length && list[list.length - 1].id !== state.messages[state.messages.length - 1].id);
     state.messages = list;
+    if (outbox.length) flushOutbox(true);     // 上次沒送完的（例如沒網路時關掉 App）：資料一連上就補送
     if (state.tab === 'chat' && document.visibilityState === 'visible') {
       markRead();
       refreshChat(grew && !state.chatSearch);
@@ -2060,15 +2251,12 @@
     if (mentions.length) extra.mentions = mentions;
     const quoted = state.replyTo && findById(state.messages, state.replyTo);
     if (quoted && !quoted.recalled) extra.reply_to = { id: quoted.id, sender: quoted.sender, text: quoted.image_id ? '' : quoteText(quoted), photo: !!quoted.image_id };
-    const hadReply = state.replyTo;
     state.replyTo = null; state.mentionQ = null; drawAssist();
-    try { await Api.sendMessage(text, extra); scrollChat(); }
-    catch (e) {
-      console.error(e);
-      state.draft = text; input.value = text;
-      state.replyTo = hadReply; drawAssist();
-      toast('訊息沒有送出，請再試一次');
-    }
+    // 先放進待送清單（畫面上馬上看得到），沒網路也不會不見，連上後自動送出
+    const item = { id: newMsgId(), text, extra, at: Date.now(), uid: state.userId };
+    outbox.push(item); saveOutbox();
+    refreshChat(true);
+    trySend(item);
   }
 
   // ---------- 聊天照片 ----------
@@ -5164,6 +5352,7 @@
       </section>
       ${bdayArchiveEntry()}
       <h3 class="set-group">這支手機</h3>
+      ${homeLayoutHtml()}
       <section class="card-list">
         <h2>介面風格<small>只會改這支手機，可以和面板顏色自由搭配</small></h2>
         <div class="styles" role="group" aria-label="介面風格">
@@ -5185,6 +5374,7 @@
         <label class="switch auto-night"><span>跟著手機的深色模式<small>手機切到深色時自動換成夜間，白天換回你選的顏色</small></span><input type="checkbox" id="auto-night" ${autoNight() ? 'checked' : ''}></label>
       </section>
       ${pushSectionHtml()}
+      ${notifyPrefsHtml()}
       <h3 class="set-group">家庭設定</h3>
       <section class="card-list">
         <h2>聊天免打擾<small>小朋友在這段時間不收聊天通知</small></h2>
@@ -5211,7 +5401,12 @@
       </section>
       ${isAdmin() ? `
       <details class="set-admin">
-        <summary>管理員設定<small>交通查詢、視訊通話的金鑰</small></summary>
+        <summary>管理員設定<small>備份、交通查詢、視訊通話的金鑰</small></summary>
+      <section class="card-list">
+        <h2>資料備份<small>把全家的資料存一份到手機</small></h2>
+        <p class="hint">${backupNote()}會匯出行事曆、零用錢、成績、待辦、聊天文字、讀書計畫等資料成一個檔案（不含照片和語音的原始檔、金鑰）。檔案裡有全家的資料，請存在安全的地方。</p>
+        <button class="btn ghost small" data-act="backup">匯出備份</button>
+      </section>
       <section class="card-list">
         <h2>交通查詢<small>公車、台鐵即時資訊的資料來源</small></h2>
         <p class="hint">即時資料來自交通部 TDX 平臺，需要一組免費的 API 金鑰。只有管理員可以新增和查看。</p>
@@ -6668,6 +6863,21 @@
     else if (act === 'voice-cancel') stopVoice(false);
     else if (act === 'play-voice') playVoice(el.dataset.id);
     else if (act === 'quiet-edit') openQuietSheet();
+    else if (act === 'outbox-retry') { const x = outbox.find((o) => o.id === el.dataset.id); if (x) { trySend(x); refreshChat(false); } }
+    else if (act === 'outbox-drop') dropOutbox(el.dataset.id);
+    else if (act === 'gs-open') openSearch();
+    else if (act === 'notices') openNotices();
+    else if (act === 'notice-go') { closeSheet(); goTab(noticeTab(el.dataset.tag)); }
+    else if (act === 'notify-kind') toggleNotifyKind(el.dataset.kind);
+    else if (act === 'gs-event' || act === 'gs-msg' || act === 'gs-go') searchGo(el);
+    else if (act === 'backup') exportBackup(el);
+    else if (act === 'home-move' || act === 'home-show') {
+      const list = homeLayout(), i = list.findIndex((x) => x.id === el.dataset.id);
+      if (i < 0) return;
+      if (act === 'home-show') list[i].on = !list[i].on;
+      else { const j = i + Number(el.dataset.dir); if (j < 0 || j >= list.length) return; [list[i], list[j]] = [list[j], list[i]]; }
+      saveHomeLayout(list); render();
+    }
     else if (act === 'pick-mention') pickMention(el.dataset.name);
     else if (act === 'goto-msg') gotoMessage(el.dataset.id);
     else if (act === 'del-post') onDeletePost(el);
@@ -6962,6 +7172,7 @@
     if (t.form && t.form.id === 'bday-form') drawBdayPreview();
     if (t.id === 'chat-input') { state.draft = t.value; watchMention(t); pingTyping(t.value); }
     else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
+    else if (t.id === 'gs-q') { const out = document.getElementById('gs-out'); if (out) out.innerHTML = searchHtml(t.value); }
     else if (t.id === 'transit-q') state.transit.q = t.value;
     else if (t.id === 'todo-date') {
       // 自己選日期：取代「不限／今天／明天」

@@ -2361,3 +2361,50 @@ html[data-theme="night"] .hp-flag.ok { color: #7FD9B3; }
 /* 近期新增的卡片，圓角、邊線統一成跟其他頁面一樣的 16px */
 .ci-bar, .ci-card, .ci-panel, .hp-list, .album-dcard, .pins, .lp { border-radius: 16px; }
 .ci-tile, .lp.yt img, .album-dcov { border-radius: 12px; }
+
+/* ---- 首頁排列、全站搜尋、待送訊息 ---- */
+.home-order { display: flex; flex-direction: column; }
+.ho-row { display: flex; align-items: center; gap: 6px; min-height: 48px; border-top: 1px solid var(--line); }
+.ho-row:first-child { border-top: 0; }
+.ho-row b { flex: 1; font-size: 15px; }
+.ho-row.off b { color: var(--ink-2); text-decoration: line-through; }
+.ho-row .icon-btn { width: 40px; height: 40px; font-size: 17px; }
+.ho-row .chip-btn { min-width: 76px; }
+.ho-row .chip-btn.on { color: var(--green); }
+.ho-fixed { min-width: 76px; text-align: center; font-size: 12px; color: var(--ink-2); }
+.hello > div { flex: 1; min-width: 0; }
+.gs-open { flex: none; width: 40px; height: 40px; }
+.gs-open svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+#gs-out { margin-top: 12px; }
+.gs-group h3 { display: flex; align-items: baseline; gap: 6px; margin: 14px 2px 4px; font-size: 13px; color: var(--green); }
+.gs-group h3 span { font-size: 12px; font-weight: 500; color: var(--ink-2); }
+.gs-row { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 9px 4px; text-align: left; color: var(--ink); border-top: 1px solid var(--line); }
+.gs-row b { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.gs-row small { font-size: 12px; color: var(--ink-2); }
+.msg.pending .bubble { opacity: .6; }
+.msg.pending.failed .bubble { opacity: 1; outline: 1.5px dashed #C62828; outline-offset: 2px; }
+.msg-meta .sending { font-size: 11px; color: var(--ink-2); }
+.msg.pending .msg-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.msg.pending .msg-meta .link-btn { min-height: 28px; font-size: 12px; }
+
+/* ---- 通知中心 ---- */
+.gs-open.bell { position: relative; margin-left: -6px; }
+.gs-open.bell svg { stroke-linejoin: round; }
+.gs-open.bell.has::after { content: ''; position: absolute; top: 8px; right: 9px; width: 9px; height: 9px; border-radius: 50%; background: #D93B30; box-shadow: 0 0 0 2px var(--paper); }
+.nt-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; width: 100%; padding: 10px 4px; text-align: left; color: var(--ink); border-top: 1px solid var(--line); }
+.nt-row:first-child { border-top: 0; }
+.nt-row b { font-size: 15px; overflow-wrap: anywhere; }
+.nt-row span { grid-column: 1; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.nt-row time { grid-column: 2; grid-row: 1; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.nt-row.new b::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: #D93B30; vertical-align: 1px; }
+.nt-kinds { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 8px; }
+.nt-kinds .chip-btn { min-height: 36px; }
+.nt-kinds .chip-btn.on { color: var(--green); font-weight: 700; }
+.nt-kinds .chip-btn:not(.on) { color: var(--ink-2); text-decoration: line-through; }
+
+.home-tools { display: flex; align-items: center; gap: 6px; }
+.home-tools .presence { flex: 1; min-width: 0; margin: 0; }
+.home-tools .gs-open { width: 36px; height: 36px; }
+.home-tools .gs-open svg { width: 19px; height: 19px; }
+.home-tools .gs-open.bell { margin-left: 0; }
+.home-tools .gs-open.bell.has::after { top: 6px; right: 7px; }

@@ -37,8 +37,26 @@ async function memberNames() {
 }
 
 // 把通知送到這些成員登記過的所有手機
+// 通知的種類（看 tag 開頭）。每個人可以在設定裡關掉某幾種（notify_prefs/{uid}.off）；報平安和視訊來電一定會通知。
+const NOTIFY_KINDS = { chat: 'chat', post: 'post', poll: 'poll', event: 'cal', bday: 'cal', request: 'money', todo: 'todo', study: 'study', video: 'video', checkin: 'checkin', call: 'call' };
+const notifyKind = (tag) => NOTIFY_KINDS[String(tag || '').split('-')[0]] || 'other';
+exports._notifyKind = notifyKind;
 async function notify(uids, title, body, tag) {
-  const targets = [...new Set(uids)].filter(Boolean);
+  const everyone = [...new Set(uids)].filter(Boolean);
+  if (!everyone.length) return;
+  const kind = notifyKind(tag);
+  // App 裡的「通知」頁：聊天以外的都記一筆（聊天室自己有未讀數），留 14 天。關掉推播的種類還是會記在這裡。
+  if (kind !== 'chat' && kind !== 'call') {
+    const batch = db.batch(), at = Date.now();
+    everyone.forEach((uid) => batch.set(db.collection('notifications').doc(), { uid, title: String(title).slice(0, 80), body: String(body || '').slice(0, 200), tag: String(tag || ''), kind, at }));
+    await batch.commit().catch((e) => logger.warn('通知紀錄沒存到', e));
+  }
+  let targets = everyone;
+  if (kind !== 'checkin' && kind !== 'call' && kind !== 'other') {
+    const prefs = await db.collection('notify_prefs').get().catch(() => ({ docs: [] }));
+    const off = prefs.docs.filter((d) => Array.isArray(d.data().off) && d.data().off.includes(kind)).map((d) => d.id);
+    targets = everyone.filter((uid) => !off.includes(uid));
+  }
   if (!targets.length) return;
   const snap = await db.collection('push_tokens').where('uid', 'in', targets).get();
   if (snap.empty) return;
@@ -375,6 +393,15 @@ async function cleanCheckins(now) {
   return old.size;
 }
 exports._cleanCheckins = cleanCheckins;   // 給測試用
+// App 裡的通知紀錄只留 14 天
+async function cleanNotifications(now) {
+  const old = await db.collection('notifications').where('at', '<', now - 14 * 86400000).limit(300).get();
+  if (!old.docs.length) return 0;
+  const batch = db.batch();
+  old.docs.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+  return old.docs.length;
+}
 
 exports.remindEvents = onSchedule({ schedule: 'every 5 minutes', timeZone: 'Asia/Taipei', region: 'asia-east1', maxInstances: 1, timeoutSeconds: 60 },
   async () => {
@@ -383,6 +410,7 @@ exports.remindEvents = onSchedule({ schedule: 'every 5 minutes', timeZone: 'Asia
     await remindStudy(Date.now()).catch((e) => logger.error('讀書提醒失敗', e));
     await closeQuietPolls(Date.now()).then((n) => n && logger.info('投票自動結束：' + n + ' 則'), (e) => logger.error('投票自動結束失敗', e));
     await cleanCheckins(Date.now()).catch((e) => logger.error('清報平安紀錄失敗', e));
+    await cleanNotifications(Date.now()).catch((e) => logger.error('清通知紀錄失敗', e));
   });
 exports._remindEvents = remindEvents;   // 給測試用
 
