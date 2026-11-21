@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 19:41';
+  const VERSION = '2026-11-21 22:45';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -139,6 +139,11 @@
     bdayCards: [],           // 生日卡片
     optDrafts: {},           // 投票裡正在打的新選項（依投票 id）
     menuMsg: null,           // 正在顯示「回覆／收回」按鈕的訊息
+    editMsg: null,           // 正在編輯哪一則訊息
+    pins: [], pinsOpen: false,   // 聊天室置頂的訊息
+    unreadFrom: null, unreadJump: false,   // 進聊天室時上次讀到的時間點（畫「以下是新訊息」用）
+    quiet: null,             // 聊天免打擾時段 { on, start, end }
+    previews: {},            // 連結預覽
     replyTo: null,           // 正在引用回覆哪一則訊息
     mentionQ: null,          // 正在打 @ 後面的字（null 代表沒有在選人）
     posts: [],
@@ -437,7 +442,7 @@
       () => { replyWatch.forEach((w) => w.off()); replyWatch.clear(); },
       Api.watchPresence((map) => {
         state.presence = map; refreshPresence();
-        if (state.tab === 'chat') refreshChat(false);     // 有人讀了訊息：更新「已讀」
+        if (state.tab === 'chat') { refreshChat(false); onTypingChange(); }     // 有人讀了訊息：更新「已讀」；有人在打字
       }),
       Api.watchList('subjects', (list) => {
         state.subjects = list.sort((a, b) => a.created_at - b.created_at);
@@ -459,6 +464,8 @@
       (amChild() ? (cb) => Api.watchWhere('checkins', 'kid', state.userId, cb) : (cb) => Api.watchList('checkins', cb))((l) => { state.checkins = l; drawCheckin(); }),
       Api.watchList('places', (l) => { state.places = l; drawCheckin(); }),
       Api.watchList('message_reacts', (list) => { state.msgReacts = list; if (state.tab === 'chat') refreshChat(false); }),
+      Api.watchList('chat_pins', (list) => { state.pins = list; drawPins(); if (state.tab === 'chat') refreshChat(false); }),
+      Api.watchList('settings', (list) => { state.quiet = findById(list, 'chat_quiet') || null; if (state.tab === 'me' && !$sheet.innerHTML) render(); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       // 資料卡：家長看全部；小朋友只讀得到自己新增的（安全規則也是這樣擋）
       (amChild() ? (cb) => Api.watchWhere('cards', 'created_by', state.userId, cb) : (cb) => Api.watchList('cards', cb))(
@@ -762,6 +769,7 @@
             <input type="file" id="chat-file" accept="image/*" multiple hidden>
             ${ICON.photo}
           </label>
+          <button type="button" class="attach mic" data-act="voice-start" aria-label="錄語音訊息">${MIC_SVG}</button>
           <span class="chat-field"><input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息"><button type="button" class="chat-clear" data-act="input-clear" data-for="chat-input" aria-label="清除輸入的文字"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button></span>
           <button type="submit" class="send" aria-label="傳送">${ICON.send}</button>
         </form>` : ''}
@@ -1529,7 +1537,7 @@
     if (text.includes('@' + AT_ALL)) return others.map((m) => m.id);
     return others.filter((m) => text.includes('@' + m.display_name)).map((m) => m.id);
   }
-  const quoteText = (m) => (m.recalled ? '訊息已收回' : m.image_id ? '照片' : (m.text || '').length > 60 ? m.text.slice(0, 60) + '…' : m.text || '');
+  const quoteText = (m) => (m.recalled ? '訊息已收回' : m.image_id ? '照片' : m.audio_id ? '語音訊息' : (m.text || '').length > 60 ? m.text.slice(0, 60) + '…' : m.text || '');
   function quoteHtml(r) {
     const live = findById(state.messages, r.id);
     const text = live ? quoteText(live) : r.photo ? '照片' : r.text || '';
@@ -1538,6 +1546,18 @@
   // 輸入列上方：正在引用哪一則、@ 可以選誰
   function chatAssistHtml() {
     let html = '';
+    const typing = typingNames();
+    if (typing.length) html += `<div class="typing" aria-live="polite"><i></i><i></i><i></i>${esc(typing.join('、'))}正在輸入…</div>`;
+    if (rec) return html + `
+      <div class="rec-strip" role="group" aria-label="錄音中">
+        <i class="rec-dot" aria-hidden="true"></i><b id="rec-time">${voiceLen(Date.now() - rec.at)}</b><span>錄音中，最長 60 秒</span>
+        <button type="button" data-act="voice-cancel">取消</button><button type="button" class="strong" data-act="voice-send">傳送</button>
+      </div>`;
+    if (state.editMsg && findById(state.messages, state.editMsg)) html += `
+      <div class="reply-strip edit" style="--who:var(--green)">
+        <span><b>編輯訊息</b><small>改好之後按傳送</small></span>
+        <button type="button" class="icon-btn" data-act="edit-cancel" aria-label="取消編輯">✕</button>
+      </div>`;
     if (state.mentionQ !== null) {
       const q = state.mentionQ;
       const names = state.members.filter((m) => m.id !== state.userId).map((m) => ({ name: m.display_name, color: m.color }))
@@ -1545,7 +1565,7 @@
       if (names.length) html += `<div class="at-pick" role="group" aria-label="要提到誰">${names.map((x) =>
         `<button type="button" data-act="pick-mention" data-name="${esc(x.name)}" style="--who:${esc(x.color)}">@${esc(x.name)}</button>`).join('')}</div>`;
     }
-    const m = state.replyTo && findById(state.messages, state.replyTo);
+    const m = !state.editMsg && state.replyTo && findById(state.messages, state.replyTo);
     if (m && !m.recalled) html += `
       <div class="reply-strip" style="--who:${esc(colorOf(m.sender))}">
         <span><b>回覆 ${esc(m.sender === state.userId ? '自己' : nameOf(m.sender))}</b><small>${esc(quoteText(m))}</small></span>
@@ -1590,6 +1610,270 @@
     el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
   }
 
+  // ---------- 聊天：編輯、置頂、未讀線、正在輸入、連結預覽、語音 ----------
+  const EDIT_MS = 15 * 60 * 1000;       // 訊息送出後多久內可以編輯
+  const PIN_MAX = 3;
+  const canEdit = (m) => m.sender === state.userId && !m.recalled && !!m.text && !m.checkin && !m.image_id && !m.audio_id && Date.now() - m.sent_at < EDIT_MS;
+  const PIN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v7"/></svg>';
+  function msgActsHtml(m) {
+    const b = (act, label, cls) => `<button class="${cls || 'reply-btn'}" data-act="${act}" data-id="${esc(m.id)}">${label}</button>`;
+    const pinned = state.pins.some((p) => p.id === m.id);
+    return `<div class="msg-acts">${b('reply-msg', '回覆')}${m.text ? b('copy-msg', '複製') : ''}${canEdit(m) ? b('edit-msg', '編輯') : ''}${b('pin-msg', pinned ? '取消置頂' : '置頂')}`
+      + `${m.text && !m.checkin ? b('msg-todo', '加到待辦') + b('msg-event', '加到行事曆') : ''}${canRecall(m) ? b('recall', '收回', 'recall') : ''}</div>`;
+  }
+  // 置頂：最上面固定顯示最新的一則，其他的點「還有 N 則」展開
+  function pinsHtml() {
+    const list = state.pins.slice().sort((a, b) => b.at - a.at);
+    if (!list.length || state.chatSearch) return '';
+    const shown = state.pinsOpen ? list : list.slice(0, 1);
+    return `<div class="pins">${shown.map((p) => `
+      <div class="pin-row">
+        <button class="pin-main" data-act="goto-msg" data-id="${esc(p.id)}">${PIN_SVG}<b>${esc(nameOf(p.sender))}</b><span>${esc(p.text || '訊息')}</span></button>
+        <button class="pin-x" data-act="pin-msg" data-id="${esc(p.id)}" aria-label="取消置頂">×</button>
+      </div>`).join('')}${list.length > 1 ? `<button class="pin-more" data-act="pins-toggle">${state.pinsOpen ? '收起' : '還有 ' + (list.length - 1) + ' 則置頂'}</button>` : ''}</div>`;
+  }
+  function drawPins() { const el = document.getElementById('chat-pins'); if (el) { const h = pinsHtml(); if (el.innerHTML !== h) el.innerHTML = h; } }
+  async function togglePin(id) {
+    state.menuMsg = null;
+    try {
+      if (state.pins.some((p) => p.id === id)) { await Api.deleteDoc('chat_pins', id); toast('已取消置頂'); }
+      else {
+        const m = findById(state.messages, id);
+        if (!m || m.recalled) return;
+        if (state.pins.length >= PIN_MAX) return toast('最多置頂 ' + PIN_MAX + ' 則，請先取消一則');
+        await Api.setDoc('chat_pins', id, { sender: m.sender, text: quoteText(m).slice(0, 200), by: state.userId, at: Date.now() });
+        toast('已置頂');
+      }
+    } catch (e) { console.error(e); toast(/permission/i.test(String(e && (e.code || e.message))) ? '置頂還沒開通，需要先部署一次' : '沒有成功，請再試一次'); }
+    refreshChat(false);
+  }
+  // 進聊天室：有沒看過的訊息，就記下「上次讀到哪」，畫一條「以下是新訊息」並捲到那裡
+  function enterChat() {
+    const from = Math.max(state.lastRead, (state.presence[state.userId] || {}).read_at || 0);   // 這支手機沒紀錄就用另一支手機讀到的位置
+    const n = from ? state.messages.filter((m) => m.sent_at > from && m.sender !== state.userId).length : 0;
+    state.unreadFrom = n ? from : null; state.unreadJump = !!n;
+    if (n + 5 > state.chatShown) state.chatShown = n + 10;
+    if (n) setTimeout(() => { state.unreadJump = false; }, 700);
+    markRead();
+  }
+  function leaveChat() {
+    state.unreadFrom = null; state.unreadJump = false; state.editMsg = null;
+    pingTyping('');
+    if (rec) stopVoice(false);
+    stopPlaying();
+  }
+  // 正在輸入：打字時每 3 秒回報一次；別人 6 秒內回報過就顯示
+  let typingSent = 0, typingTimer = null;
+  function pingTyping(value) {
+    const now = Date.now();
+    if (!value) { if (typingSent) { typingSent = 0; Api.typing(false).catch(() => {}); } return; }
+    if (now - typingSent > 3000) { typingSent = now; Api.typing(true).catch(() => {}); }
+  }
+  const typingNames = () => state.members.filter((m) => m.id !== state.userId && ((state.presence[m.id] || {}).typing_at || 0) > Date.now() - 6000).map((m) => m.display_name);
+  function onTypingChange() {
+    drawAssist();
+    clearTimeout(typingTimer);
+    if (typingNames().length) typingTimer = setTimeout(onTypingChange, 6200);
+  }
+  function startEdit(id) {
+    const m = findById(state.messages, id), input = document.getElementById('chat-input');
+    if (!m || !canEdit(m) || !input) return toast('超過 15 分鐘的訊息不能編輯');
+    state.editMsg = id; state.replyTo = null; state.menuMsg = null;
+    input.value = m.text; state.draft = m.text;
+    refreshChat(false); drawAssist();
+    input.focus();
+  }
+  function cancelEdit() {
+    state.editMsg = null; state.draft = '';
+    const input = document.getElementById('chat-input');
+    if (input) input.value = '';
+    drawAssist();
+  }
+  // ---- 連結預覽 ----
+  function firstUrl(text) {
+    URL_RE.lastIndex = 0;
+    const hit = URL_RE.exec(text || '');
+    URL_RE.lastIndex = 0;
+    if (!hit) return '';
+    const url = splitUrl(hit[0])[0];
+    return /^www\./i.test(url) ? 'https://' + url : url;
+  }
+  const previewKey = (url) => { const yt = parseYouTube(url); return yt ? 'yt:' + yt : url; };
+  const PREVIEW_KEY = 'family-previews';
+  try { state.previews = JSON.parse(localStorage.getItem(PREVIEW_KEY)) || {}; } catch (e) { state.previews = {}; }
+  function savePreviews() {
+    const keys = Object.keys(state.previews).filter((k) => !state.previews[k].failed).slice(-150), keep = {};
+    keys.forEach((k) => { keep[k] = state.previews[k]; });
+    try { localStorage.setItem(PREVIEW_KEY, JSON.stringify(keep)); } catch (e) { /* 存不了就算了 */ }
+  }
+  const previewPending = new Set();
+  function loadPreviews() {
+    if (state.chatSearch || state.tab !== 'chat') return;
+    let n = 0;
+    for (const m of state.messages.slice(-state.chatShown)) {
+      const url = !m.recalled && m.text ? firstUrl(m.text) : '';
+      if (!url) continue;
+      const key = previewKey(url);
+      if (key in state.previews || previewPending.has(key)) continue;
+      if (++n > 4) break;
+      previewPending.add(key);
+      (key.startsWith('yt:') ? Api.videoInfo(key.slice(3)) : Api.linkPreview(url))
+        .then((r) => r || { ok: false }, (e) => { console.warn('連結預覽失敗', e); return { ok: false, failed: true }; })
+        .then((r) => {
+          previewPending.delete(key); state.previews[key] = r;
+          if (!r.failed) savePreviews();
+          if (state.tab === 'chat') refreshChat(false);
+        });
+    }
+  }
+  function previewHtml(m) {
+    const url = !m.recalled && m.text ? firstUrl(m.text) : '';
+    if (!url) return '';
+    const yt = parseYouTube(url), p = state.previews[previewKey(url)];
+    if (yt) {
+      const have = state.videos.some((v) => v.yt_id === yt);
+      return `<div class="lp yt"><img src="${esc(ytThumb(yt))}" alt="" loading="lazy" decoding="async">
+        <span><b>${esc((p && p.title) || 'YouTube 影片')}</b><small>${esc((p && p.channel) || 'YouTube')}</small>
+        ${have ? '<em>已在影片清單</em>' : `<button data-act="chat-add-video" data-url="${esc(url)}">${amChild() ? '跟爸媽申請想看' : '加到影片清單'}</button>`}</span></div>`;
+    }
+    if (!p || !p.ok) return '';
+    return `<a class="lp" href="${esc(url)}" target="_blank" rel="noopener noreferrer"><small>${esc(p.site || '')}</small><b>${esc(p.title)}</b>${p.desc ? `<span>${esc(p.desc)}</span>` : ''}</a>`;
+  }
+  // 從聊天室的 YouTube 連結，直接開「加影片」（小朋友是「我想看這部」）並帶入連結
+  function addVideoFromChat(url) {
+    state.menuMsg = null;
+    openVideoSheet();
+    const form = document.getElementById('video-form');
+    if (form && form.elements.yt_url) { form.elements.yt_url.value = url; lookupVideo(); }
+  }
+  // ---- 語音訊息 ----
+  // 聲音壓成很小的檔案直接存進資料庫（chat_audio），最長 60 秒；訊息裡只記編號和長度。
+  const VOICE_MAX_MS = 60000;
+  const MIC_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.500" width="6" height="11" rx="3"/><path d="M5.500 11.500a6.500 6.500 0 0 0 13 0M12 18v3"/></svg>';
+  const voiceLen = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return Math.floor(s / 60) + ':' + pad(s % 60); };
+  let rec = null;       // { mr, stream, chunks, at, timer, send }
+  async function startVoice() {
+    if (rec) return;
+    if (!navigator.mediaDevices || !window.MediaRecorder) return toast('這支手機不支援錄音');
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { console.warn(e); return toast('沒有麥克風權限：請到手機的設定允許這個 App 使用麥克風'); }
+    const type = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
+    let mr;
+    try { mr = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : undefined); }
+    catch (e) { stream.getTracks().forEach((t) => t.stop()); return toast('這支手機不支援錄音'); }
+    rec = { mr, stream, chunks: [], at: Date.now(), send: false };
+    mr.ondataavailable = (ev) => { if (ev.data && ev.data.size) rec && rec.chunks.push(ev.data); };
+    mr.onstop = () => finishVoice(mr.mimeType || type || 'audio/mp4');
+    mr.start();
+    rec.timer = setInterval(() => {
+      const el = document.getElementById('rec-time'), ms = Date.now() - rec.at;
+      if (el) el.textContent = voiceLen(ms);
+      if (ms >= VOICE_MAX_MS) stopVoice(true);
+    }, 250);
+    drawAssist();
+  }
+  function stopVoice(send) {
+    if (!rec || rec.stopping) return;
+    rec.stopping = true; rec.send = send; rec.ms = Date.now() - rec.at;
+    clearInterval(rec.timer);
+    try { rec.mr.stop(); } catch (e) { finishVoice(''); }
+  }
+  async function finishVoice(type) {
+    const r = rec;
+    rec = null;
+    if (!r) return;
+    r.stream.getTracks().forEach((t) => t.stop());
+    drawAssist();
+    if (!r.send) return;
+    if (r.ms < 700 || !r.chunks.length) return toast('錄音太短了');
+    try {
+      const blob = new Blob(r.chunks, { type: (type || 'audio/mp4').split(';')[0] });
+      const data = await new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result)); fr.onerror = reject; fr.readAsDataURL(blob); });
+      if (!data.startsWith('data:audio/')) throw new Error('not-audio');
+      if (data.length > 940000) return toast('錄音太長了，請錄短一點');
+      const ms = Math.min(r.ms, VOICE_MAX_MS);
+      const id = await Api.addDoc('chat_audio', { sender: state.userId, data, ms });
+      voiceCache.set(id, data);
+      await Api.sendMessage('', { audio_id: id, audio_ms: ms });
+      scrollChat();
+    } catch (e) {
+      console.error(e);
+      toast(/permission/i.test(String(e && (e.code || e.message))) ? '語音訊息還沒開通，需要先部署一次' : '語音沒有送出，請再試一次');
+    }
+  }
+  // 播放：聲音點了才讀。iPhone 要在按下去的當下就開始播放才不會被擋，所以先播一小段無聲的，讀到之後再換成真的。
+  const voiceCache = new Map();
+  const SILENT = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+  let playing = null;   // { id, audio }
+  function stopPlaying() {
+    if (!playing) return;
+    try { playing.audio.pause(); } catch (e) { /* 沒關係 */ }
+    playing = null;
+  }
+  async function playVoice(id) {
+    const was = playing && playing.id;
+    stopPlaying();
+    if (was === id) return refreshChat(false);
+    const m = findById(state.messages, id);
+    if (!m || !m.audio_id) return;
+    const audio = new Audio();
+    playing = { id, audio };
+    audio.onended = () => { if (playing && playing.audio === audio) { playing = null; refreshChat(false); } };
+    audio.src = SILENT; audio.play().catch(() => {});
+    refreshChat(false);
+    try {
+      let data = voiceCache.get(m.audio_id);
+      if (!data) { const doc = await Api.getDoc('chat_audio', m.audio_id); data = doc && doc.data; }
+      if (!data || !String(data).startsWith('data:audio/')) throw new Error('no-audio');
+      voiceCache.set(m.audio_id, data);
+      if (!playing || playing.audio !== audio) return;
+      audio.src = data;
+      await audio.play();
+    } catch (e) {
+      console.error(e);
+      if (playing && playing.audio === audio) { playing = null; refreshChat(false); }
+      toast('語音播放失敗');
+    }
+  }
+  function voiceBubble(m) {
+    const on = playing && playing.id === m.id;
+    return `<button class="bubble voice ${on ? 'on' : ''}" data-act="play-voice" data-id="${esc(m.id)}" aria-label="語音訊息 ${Math.round((m.audio_ms || 0) / 1000)} 秒，${on ? '點一下停止' : '點一下播放'}">
+      <svg viewBox="0 0 24 24" aria-hidden="true">${on ? '<rect x="7" y="7" width="10" height="10" rx="1.500"/>' : '<path d="M8 5.500v13l10.500-6.500z"/>'}</svg>
+      <i class="wave" aria-hidden="true"></i><b>${voiceLen(m.audio_ms || 0)}</b></button>`;
+  }
+  // 訊息 → 待辦、行事曆
+  async function msgToTodo(id) {
+    const m = findById(state.messages, id);
+    state.menuMsg = null; refreshChat(false);
+    if (!m || !m.text) return;
+    const text = m.text.replace(/\s+/g, ' ').trim();
+    try {
+      await Api.addDoc('shopping', { text: text.slice(0, 60), note: text.length > 60 ? text.slice(0, 300) : '', done: false, who: '', due: '', repeat: '', star: false, added_by: state.userId, done_by: null, done_at: null, created_at: Date.now() });
+      toast('已加到待辦');
+    } catch (e) { console.error(e); toast('沒有加進去，請再試一次'); }
+  }
+  function msgToEvent(id) {
+    const m = findById(state.messages, id);
+    state.menuMsg = null; refreshChat(false);
+    if (!m || !m.text) return;
+    openEventSheet(null, null, { ai_text: m.text.replace(/\s+/g, ' ').trim().slice(0, 300) });
+    setTimeout(aiFillEvent, 60);      // 用 AI 把這句話變成日期、時間、名稱，使用者確認後才儲存
+  }
+  // 免打擾時段（設定頁）
+  const quietSet = () => state.quiet || { on: false, start: '22:00', end: '07:00' };
+  function openQuietSheet() {
+    const q = quietSet();
+    showSheet('quiet-form', {
+      title: '聊天免打擾', submit: '儲存',
+      body: `
+      <label class="switch"><span>開啟免打擾</span><input type="checkbox" name="on" ${q.on ? 'checked' : ''}></label>
+      <label>開始時間<input type="time" name="start" value="${esc(q.start)}"></label>
+      <label>結束時間<input type="time" name="end" value="${esc(q.end)}"></label>
+      <p class="hint">這段時間裡，小朋友的手機不會跳聊天通知；打開 App 還是看得到訊息。報平安、行程提醒、爸媽的手機不受影響。</p>`
+    });
+  }
+
   function chatListHtml() {
     const q = state.chatSearch ? state.chatQuery.trim() : '';
     if (state.chatSearch && !q) return '<div class="empty big"><p>輸入關鍵字，搜尋最近 300 則訊息。</p></div>';
@@ -1604,7 +1888,7 @@
     let html = q ? `<p class="found">找到 ${list.length} 則</p>`
       : shown.length < list.length ? '<button class="link-btn chat-older" data-act="chat-older">看更早的訊息</button>' : '';
     const pos = readPositions();
-    let lastDay = '', lastSender = '';
+    let lastDay = '', lastSender = '', newLine = false;
     shown.forEach((m) => {
       const day = ymd(new Date(m.sent_at));
       if (day !== lastDay) {
@@ -1613,20 +1897,26 @@
         lastDay = day; lastSender = '';
       }
       const mine = m.sender === state.userId;
+      if (!q && state.unreadFrom && !newLine && !mine && m.sent_at > state.unreadFrom) {
+        html += '<div class="chat-new" id="chat-new"><span>以下是新訊息</span></div>';
+        newLine = true; lastSender = '';
+      }
       const showName = !mine && (q || m.sender !== lastSender);
       let bubble;
       const thumb = m.thumb && String(m.thumb).startsWith('data:image/') ? m.thumb : '';
       if (!m.recalled && thumb) bubble = `<button class="bubble photo" data-act="view-image" data-id="${esc(m.id)}" aria-label="照片，點一下放大"><img src="${esc(thumb)}" alt="照片"></button>`;
+      else if (!m.recalled && m.audio_id) bubble = voiceBubble(m);
       else if (m.recalled) bubble = `<div class="bubble recalled">${mine ? '你' : esc(nameOf(m.sender))}收回了訊息</div>`;
       else if (!q) bubble = `<div class="bubble" role="button" tabindex="0" data-act="msg-menu" data-id="${esc(m.id)}">${m.reply_to && m.reply_to.id ? quoteHtml(m.reply_to) : ''}${richText(m.text)}</div>`;
       else bubble = `<div class="bubble">${markText(m.text, q)}</div>`;
       const atMe = !mine && !m.recalled && ((m.mentions || []).includes(state.userId) || (m.reply_to && m.reply_to.sender === state.userId));
       html += `
-        <div class="msg ${mine ? 'mine' : ''} ${atMe ? 'at-me' : ''}" id="m-${esc(m.id)}" style="--who:${esc(colorOf(m.sender))}">
+        <div class="msg ${mine ? 'mine' : ''} ${atMe ? 'at-me' : ''} ${state.editMsg === m.id ? 'editing' : ''}" id="m-${esc(m.id)}" style="--who:${esc(colorOf(m.sender))}">
           ${showName ? `<div class="msg-name">${esc(nameOf(m.sender))}</div>` : ''}
-          <div class="msg-row">${bubble}<span class="msg-meta"><time>${clock(m.sent_at)}</time>${m.recalled ? '' : readersHtml(m, pos)}</span></div>
+          <div class="msg-row">${bubble}<span class="msg-meta">${state.pins.some((p) => p.id === m.id) ? `<i class="pinned-mark" role="img" aria-label="已置頂">${PIN_SVG}</i>` : ''}<time>${clock(m.sent_at)}</time>${m.edited_at && !m.recalled ? '<small class="edited">已編輯</small>' : ''}${m.recalled ? '' : readersHtml(m, pos)}</span></div>
+          ${q ? '' : previewHtml(m)}
           ${m.recalled ? '' : reactChipsHtml(m.id)}
-          ${state.menuMsg === m.id && !m.recalled && !q ? `${reactPickHtml(m.id)}<div class="msg-acts"><button class="reply-btn" data-act="reply-msg" data-id="${esc(m.id)}">回覆</button>${m.text ? `<button class="reply-btn" data-act="copy-msg" data-id="${esc(m.id)}">複製</button>` : ''}${canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回</button>` : ''}</div>` : ''}
+          ${state.menuMsg === m.id && !m.recalled && !q ? reactPickHtml(m.id) + msgActsHtml(m) : ''}
         </div>`;
       lastSender = m.sender;
     });
@@ -1643,6 +1933,7 @@
         <button class="icon-btn ${state.chatSearch ? 'on' : ''}" data-act="chat-search" aria-label="${state.chatSearch ? '關閉搜尋' : '搜尋訊息'}" aria-pressed="${state.chatSearch}">${ICON.search}</button>
       </header>
       <div id="call-banner">${callBannerHtml()}</div>
+      <div id="chat-pins">${pinsHtml()}</div>
       ${state.chatSearch ? `<input id="chat-q" class="search" type="search" placeholder="搜尋訊息" value="${esc(state.chatQuery)}" autocomplete="off" aria-label="搜尋訊息">` : ''}
       </div>
       <div class="chat" id="chat-list" aria-live="polite">${chatDrawn = chatListHtml()}</div>`;
@@ -1650,7 +1941,14 @@
 
   // 捲到最新一則。畫面高度可能還在變（鍵盤彈出、新訊息剛畫上去），所以隔一下再補捲兩次。
   function scrollChat() {
-    const go = () => { const s = scroller(); if (s && state.tab === 'chat' && !state.chatSearch) s.scrollTop = s.scrollHeight; };
+    const go = () => {
+      const s = scroller();
+      if (!s || state.tab !== 'chat' || state.chatSearch) return;
+      // 有沒看過的訊息：停在「以下是新訊息」那條線（留出上方固定列的高度），否則到最底
+      const mark = state.unreadJump && document.getElementById('chat-new'), top = document.querySelector('.chat-top');
+      if (mark) s.scrollTop += mark.getBoundingClientRect().top - (top ? top.getBoundingClientRect().bottom : s.getBoundingClientRect().top) - 8;
+      else s.scrollTop = s.scrollHeight;
+    };
     go(); requestAnimationFrame(go); setTimeout(go, 150); setTimeout(go, 400);
   }
 
@@ -1661,6 +1959,7 @@
     const html = chatListHtml();
     if (html !== chatDrawn || !el.firstChild) { el.innerHTML = html; chatDrawn = html; }
     if (toBottom) scrollChat();
+    loadPreviews();
   }
   let chatDrawn = '';
 
@@ -1708,6 +2007,17 @@
     const input = form.elements.text;
     const text = input.value.trim();
     if (!text) return;
+    typingSent = 0; Api.typing(false).catch(() => {});
+    if (state.editMsg) {
+      const id = state.editMsg, old = findById(state.messages, id);
+      state.editMsg = null; input.value = ''; state.draft = ''; state.mentionQ = null; drawAssist();
+      input.focus();
+      if (!old || old.text === text) return;
+      try { await Api.editMessage(id, text, mentionsIn(text)); toast('已修改'); }
+      catch (e) { console.error(e); state.draft = text; input.value = text; toast('沒有改成功：超過 15 分鐘的訊息不能編輯'); }
+      return;
+    }
+    state.unreadFrom = null;
     input.value = ''; state.draft = '';
     input.focus();
     scrollChat();
@@ -1851,11 +2161,15 @@
   async function onRecall(id) {
     state.menuMsg = null;
     const msg = findById(state.messages, id);
-    const imageId = msg && msg.image_id;
+    const imageId = msg && msg.image_id, audioId = msg && msg.audio_id;
     if ($sheet.querySelector('.viewer')) closeSheet();
+    if (playing && playing.id === id) stopPlaying();
+    if (state.editMsg === id) cancelEdit();
     try {
-      await Api.recallMessage(id, !!imageId);
+      await Api.recallMessage(id, !!imageId, !!audioId);
       if (imageId) Api.deleteDoc('chat_images', imageId).catch((e) => console.warn(e));
+      if (audioId) Api.deleteDoc('chat_audio', audioId).catch((e) => console.warn(e));
+      if (state.pins.some((p) => p.id === id)) Api.deleteDoc('chat_pins', id).catch((e) => console.warn(e));
       toast('已收回');
     }
     catch (e) {
@@ -4838,6 +5152,11 @@
       ${pushSectionHtml()}
       <h3 class="set-group">家庭設定</h3>
       <section class="card-list">
+        <h2>聊天免打擾<small>小朋友在這段時間不收聊天通知</small></h2>
+        <p class="hint">${quietSet().on ? `每天 ${esc(quietSet().start)}～${esc(quietSet().end)}，小朋友的手機不會跳聊天通知（打開 App 還是看得到訊息；報平安、行程提醒不受影響）。` : '目前沒有開啟。'}</p>
+        ${amChild() ? '' : '<button class="btn ghost small" data-act="quiet-edit">設定時段</button>'}
+      </section>
+      <section class="card-list">
         <h2>行事曆類型<small>${amChild() ? '由家長管理' : '家長可以新增或刪除'}</small></h2>
         <div class="cats">
           ${EVENT_CATS.map((k) => `<span class="cat-chip" style="--cat:${CATEGORIES[k].color}">${CATEGORIES[k].label}</span>`).join('')}
@@ -5891,6 +6210,13 @@
       },
       after() { state.pollHistory = false; refreshPolls(); const sc = scroller(); if (sc) sc.scrollTop = 0; }
     },
+    'quiet-form': {
+      read: (f) => ({ on: f.on.checked, start: f.start.value, end: f.end.value }),
+      check: (d) => (!/^\d\d:\d\d$/.test(d.start) || !/^\d\d:\d\d$/.test(d.end) ? '請選開始和結束的時間' : d.on && d.start === d.end ? '開始和結束的時間不能一樣' : null),
+      save: (d) => Api.setDoc('settings', 'chat_quiet', d),
+      done: '已儲存',
+      after(d) { state.quiet = { id: 'chat_quiet', ...d }; render(); }
+    },
     'ci-sent-form': {
       read: (f) => ({ note: f.note ? f.note.value.trim() : '' }),
       check: () => null,
@@ -6168,10 +6494,35 @@
     syncHolidays([state.cursor.slice(0, 4)]);
   }
 
+  // 長按訊息：叫出選單（表情、回覆、複製、編輯、置頂…）。手指移動超過一點點就算是在捲動，不觸發。
+  let press = null, pressFired = 0;
+  const endPress = () => { if (press) { clearTimeout(press.timer); press = null; } };
+  document.addEventListener('touchstart', (ev) => {
+    endPress();
+    const b = ev.touches.length === 1 && ev.target.closest && ev.target.closest('#chat-list .bubble[data-id]');
+    if (!b || state.chatSearch) return;
+    const t = ev.touches[0], id = b.dataset.id;
+    press = { x: t.clientX, y: t.clientY, timer: setTimeout(() => {
+      press = null; pressFired = Date.now();
+      state.menuMsg = id; refreshChat(false);
+      if (navigator.vibrate) navigator.vibrate(10);
+      const el = document.getElementById('m-' + id);
+      if (el) el.scrollIntoView({ block: 'nearest' });
+    }, 450) };
+  }, { passive: true });
+  document.addEventListener('touchmove', (ev) => { const t = ev.touches[0]; if (press && t && Math.hypot(t.clientX - press.x, t.clientY - press.y) > 10) endPress(); }, { passive: true });
+  document.addEventListener('touchend', endPress, { passive: true });
+  document.addEventListener('touchcancel', endPress, { passive: true });
+  document.addEventListener('contextmenu', (ev) => { if (ev.target.closest && ev.target.closest('#chat-list .bubble')) ev.preventDefault(); });
   // 按 × 時不要讓輸入框失去焦點（iPhone 的鍵盤才不會先收起來又跳出來）
   document.addEventListener('mousedown', (ev) => { if (ev.target.closest('.chat-clear')) ev.preventDefault(); });
   document.addEventListener('click', (ev) => {
-    if (ev.target.closest('a.msg-link')) return;   // 點訊息裡的連結：直接打開，不跳出訊息選單
+    if (Date.now() - pressFired < 700) { ev.preventDefault(); return; }   // 剛剛是長按叫出選單，放開手指的這一下不算點擊
+    const link = ev.target.closest('a.msg-link, a.lp');
+    if (link) {   // 點訊息裡的連結：直接打開，不跳出訊息選單。小朋友點 YouTube 連結：改成跟爸媽申請，不跳去 YouTube
+      if (amChild() && parseYouTube(link.href)) { ev.preventDefault(); addVideoFromChat(link.href); }
+      return;
+    }
     const el = ev.target.closest('[data-act]');
     if (!el) return;
     const act = el.dataset.act;
@@ -6184,9 +6535,10 @@
       }
       if (el.dataset.tab === 'notes' && state.tab === 'notes' && state.notesView !== 'hub') { state.notesView = 'hub'; state.tripId = null; state.transit.route = null; }
       if (el.dataset.tab === 'cal' && state.tab !== 'cal') { state.selected = today(); state.cursor = today().slice(0, 7); }   // 回到首頁：日期回到今天
+      if (state.tab === 'chat') leaveChat();
       state.tab = el.dataset.tab;
       state.menuMsg = null; state.pollEdit = null;
-      if (state.tab === 'chat') markRead();
+      if (state.tab === 'chat') enterChat();
       render();
       loadTab();
     }
@@ -6268,6 +6620,18 @@
     else if (act === 'wx-tap') onWeatherTap();
     else if (act === 'msg-react') toggleMsgReact(el.dataset.id, el.dataset.emoji);
     else if (act === 'reply-cancel') { state.replyTo = null; drawAssist(); }
+    else if (act === 'edit-msg') startEdit(el.dataset.id);
+    else if (act === 'edit-cancel') cancelEdit();
+    else if (act === 'pin-msg') togglePin(el.dataset.id);
+    else if (act === 'pins-toggle') { state.pinsOpen = !state.pinsOpen; drawPins(); }
+    else if (act === 'msg-todo') msgToTodo(el.dataset.id);
+    else if (act === 'msg-event') msgToEvent(el.dataset.id);
+    else if (act === 'chat-add-video') addVideoFromChat(el.dataset.url);
+    else if (act === 'voice-start') startVoice();
+    else if (act === 'voice-send') stopVoice(true);
+    else if (act === 'voice-cancel') stopVoice(false);
+    else if (act === 'play-voice') playVoice(el.dataset.id);
+    else if (act === 'quiet-edit') openQuietSheet();
     else if (act === 'pick-mention') pickMention(el.dataset.name);
     else if (act === 'goto-msg') gotoMessage(el.dataset.id);
     else if (act === 'del-post') onDeletePost(el);
@@ -6559,7 +6923,7 @@
     const t = ev.target;
     if (t.name === 'photos' && t.type === 'file') showPhotoPreviews(t);
     if (t.form && t.form.id === 'bday-form') drawBdayPreview();
-    if (t.id === 'chat-input') { state.draft = t.value; watchMention(t); }
+    if (t.id === 'chat-input') { state.draft = t.value; watchMention(t); pingTyping(t.value); }
     else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
     else if (t.id === 'transit-q') state.transit.q = t.value;
     else if (t.id === 'todo-date') {
@@ -7261,11 +7625,13 @@
     if (!TABS.some(([id]) => id === tab)) return;
     // 從別的分頁回到首頁：日期回到今天（之前點去看別天也一樣）
     if (tab === 'cal' && state.tab !== 'cal') { state.selected = today(); state.cursor = today().slice(0, 7); }
+    if (state.tab === 'chat' && tab !== 'chat') leaveChat();
+    const entering = tab === 'chat' && state.tab !== 'chat';
     state.tab = tab;
     state.chatSearch = false; state.chatQuery = ''; state.menuMsg = null;
     if (!state.userId) return;            // 還沒登入：登入後會直接顯示這個分頁
     closeSheet();
-    if (tab === 'chat') markRead();
+    if (entering) enterChat(); else if (tab === 'chat') markRead();
     render();
     loadTab();
     if (tab === 'chat') scrollChat();

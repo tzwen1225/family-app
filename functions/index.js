@@ -70,16 +70,35 @@ exports.onChatMessage = onDocumentCreated('messages/{id}', async (event) => {
   if (m.checkin) return;     // 報平安順便貼到聊天室的那一則：爸媽已經有報平安的通知了，不再多跳一次
   const names = await memberNames();
   const others = Object.keys(names).filter((uid) => uid !== m.sender);
-  const who = names[m.sender] || '家人', body = m.image_id ? '傳了一張照片' : clip(m.text);
+  const who = names[m.sender] || '家人', body = m.image_id ? '傳了一張照片' : m.audio_id ? '傳了一則語音訊息' : clip(m.text);
+  const muted = await quietKids(Date.now());   // 免打擾時段：小朋友不收聊天通知（打開 App 還是看得到）
   // 被 @ 的人、被引用回覆的人，通知標題不一樣
   const at = (Array.isArray(m.mentions) ? m.mentions : []).filter((uid) => others.includes(uid));
   const replied = m.reply_to && others.includes(m.reply_to.sender) && !at.includes(m.reply_to.sender) ? [m.reply_to.sender] : [];
+  const awake = (list) => list.filter((uid) => !muted.includes(uid));
   await Promise.all([
-    notify(at, who + '提到了你', body, 'chat'),
-    notify(replied, who + '回覆了你', body, 'chat'),
-    notify(others.filter((uid) => !at.includes(uid) && !replied.includes(uid)), who, body, 'chat')
+    notify(awake(at), who + '提到了你', body, 'chat'),
+    notify(awake(replied), who + '回覆了你', body, 'chat'),
+    notify(awake(others.filter((uid) => !at.includes(uid) && !replied.includes(uid))), who, body, 'chat')
   ]);
 });
+
+// ---- 聊天免打擾 ----
+// settings/chat_quiet：{ on, start: 'HH:MM', end: 'HH:MM' }（台灣時間，可以跨過半夜）。回傳現在不該收聊天通知的小朋友。
+function inQuiet(q, now) {
+  if (!q || q.on !== true || !/^\d\d:\d\d$/.test(q.start || '') || !/^\d\d:\d\d$/.test(q.end || '') || q.start === q.end) return false;
+  const t = new Date(now + 8 * 3600000).toISOString().slice(11, 16);
+  return q.start < q.end ? t >= q.start && t < q.end : t >= q.start || t < q.end;
+}
+async function quietKids(now) {
+  try {
+    const q = await db.doc('settings/chat_quiet').get();
+    if (!q.exists || !inQuiet(q.data(), now)) return [];
+    const members = await db.collection('members').get();
+    return members.docs.filter((d) => d.data().child === true).map((d) => d.id);
+  } catch (e) { logger.warn('讀不到免打擾設定', e); return []; }
+}
+exports._inQuiet = inQuiet;   // 給測試用
 
 exports.onPost = onDocumentCreated('posts/{id}', async (event) => {
   const p = event.data.data();
@@ -631,6 +650,92 @@ exports.videoInfo = onCall({ region: 'asia-east1', invoker: 'public', maxInstanc
   if (!res.ok) throw new HttpsError('unavailable', 'youtube-' + res.status);
   const d = await res.json();
   return { ok: true, title: String(d.title || '').slice(0, 200), channel: String(d.author_name || '').slice(0, 100) };
+});
+
+// ---------- 連結預覽 ----------
+// 聊天室貼了網址：抓那個網頁的標題和簡介（不抓圖片）。只有登入的家人能呼叫。
+// 為了不被拿來連到內部位址：只接受 http/https 的一般連接埠、主機解析出來的位址必須全部是公開位址、
+// 每一次轉址都重新檢查、最多讀 150KB、6 秒逾時。結果存在 link_previews 七天。
+const dns = require('dns').promises;
+const net = require('net');
+const crypto = require('crypto');
+function privateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19));
+  }
+  const x = ip.toLowerCase();
+  if (x.startsWith('::ffff:')) { const v4 = x.slice(7); return net.isIPv4(v4) ? privateIp(v4) : true; }
+  return x === '::' || x === '::1' || x.startsWith('fc') || x.startsWith('fd') || x.startsWith('fe8') || x.startsWith('fe9') || x.startsWith('fea') || x.startsWith('feb') || x.startsWith('ff') || x.startsWith('64:ff9b') || x.startsWith('2002:');
+}
+async function publicUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch (e) { return null; }
+  if (!/^https?:$/.test(u.protocol) || u.username || u.password || (u.port && u.port !== '80' && u.port !== '443')) return null;
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (!host || host === 'localhost' || host.endsWith('.internal') || host.endsWith('.local')) return null;
+  let addrs;
+  try { addrs = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true }); } catch (e) { return null; }
+  if (!addrs.length || addrs.some((a) => privateIp(a.address))) return null;
+  return u;
+}
+exports._privateIp = privateIp; exports._publicUrl = publicUrl;   // 給測試用
+const unescapeHtml = (t) => String(t || '').replace(/&#(\d+);/g, (m, n) => String.fromCodePoint(Number(n) || 32)).replace(/&#x([0-9a-f]+);/gi, (m, n) => String.fromCodePoint(parseInt(n, 16) || 32))
+  .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+function metaOf(html, key) {
+  const tags = html.match(/<meta\b[^>]*>/gi) || [];
+  for (const tag of tags) {
+    const name = (/(?:property|name)\s*=\s*["']?([^"'\s>]+)/i.exec(tag) || [])[1];
+    if (!name || name.toLowerCase() !== key) continue;
+    const c = /content\s*=\s*"([^"]*)"/i.exec(tag) || /content\s*=\s*'([^']*)'/i.exec(tag);
+    if (c && c[1].trim()) return unescapeHtml(c[1]);
+  }
+  return '';
+}
+exports._metaOf = metaOf;
+async function fetchPreview(raw) {
+  let url = raw;
+  for (let hop = 0; hop < 4; hop++) {
+    const u = await publicUrl(url);
+    if (!u) return { ok: false };
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 6000);
+    try {
+      const res = await fetch(u, { redirect: 'manual', signal: ctl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FamilyAppLinkPreview/1.0)', Accept: 'text/html', 'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.6' } });
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location');
+        if (!loc) return { ok: false };
+        url = new URL(loc, u).href; continue;
+      }
+      const type = res.headers.get('content-type') || '';
+      if (!res.ok || !/text\/html|application\/xhtml/i.test(type)) return { ok: false };
+      const reader = res.body.getReader(), chunks = [];
+      let size = 0;
+      while (size < 150000) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); size += value.length; }
+      ctl.abort();
+      const buf = Buffer.concat(chunks.map((c) => Buffer.from(c)));
+      const charset = (/charset=([\w-]+)/i.exec(type) || /<meta[^>]+charset=["']?([\w-]+)/i.exec(buf.toString('latin1')) || [])[1] || 'utf-8';
+      let html;
+      try { html = new TextDecoder(charset).decode(buf); } catch (e) { html = buf.toString('utf8'); }
+      const title = metaOf(html, 'og:title') || unescapeHtml((/<title[^>]*>([^<]*)<\/title>/i.exec(html) || [])[1]);
+      if (!title) return { ok: false };
+      return { ok: true, title: title.slice(0, 120), desc: (metaOf(html, 'og:description') || metaOf(html, 'description')).slice(0, 200), site: (metaOf(html, 'og:site_name') || u.hostname.replace(/^www\./, '')).slice(0, 60) };
+    } catch (e) { return { ok: false }; } finally { clearTimeout(timer); }
+  }
+  return { ok: false };
+}
+exports.linkPreview = onCall({ region: 'asia-east1', invoker: 'public', maxInstances: 3, timeoutSeconds: 30, memory: '256MiB' }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'login');
+  const member = await db.doc('members/' + req.auth.uid).get();
+  if (!member.exists) throw new HttpsError('permission-denied', 'not-family');
+  const url = String((req.data || {}).url || '').slice(0, 1000);
+  if (!/^https?:\/\//i.test(url)) throw new HttpsError('invalid-argument', 'url');
+  const ref = db.doc('link_previews/' + crypto.createHash('sha1').update(url).digest('hex'));
+  const hit = await ref.get();
+  if (hit.exists && Date.now() - (hit.data().at || 0) < 7 * 86400000) return hit.data().result;
+  const result = await fetchPreview(url);
+  await ref.set({ url, result, at: Date.now() }).catch((e) => logger.warn('預覽沒存到', e));
+  return result;
 });
 
 // 爸媽加了影片：通知要看的小朋友；小朋友申請想看：通知爸媽

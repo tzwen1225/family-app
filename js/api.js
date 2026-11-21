@@ -180,9 +180,18 @@
         await F.addDoc(col('messages'), { text, ...(extra || {}), sender: uid(), sent_at: Date.now() });
       },
       // 收回：清空內容並標記。安全規則只允許本人在送出一小時內這樣做。
-      async recallMessage(id, hasImage) {
+      async recallMessage(id, hasImage, hasAudio) {
         await F.updateDoc(F.doc(db, 'messages', id),
-          hasImage ? { text: '', recalled: true, thumb: '', image_id: '' } : { text: '', recalled: true });
+          hasImage ? { text: '', recalled: true, thumb: '', image_id: '' } : hasAudio ? { text: '', recalled: true, audio_id: '' } : { text: '', recalled: true });
+      },
+      // 編輯：只改文字（和 @ 到誰）。安全規則只允許本人在送出 15 分鐘內這樣做。
+      editMessage: (id, text, mentions) => F.updateDoc(F.doc(db, 'messages', id), { text, mentions: mentions || [], edited_at: Date.now() }),
+      // 「正在輸入」：只更新自己上線狀態裡的一個欄位（0 = 沒在打字）
+      typing: (on) => F.setDoc(F.doc(db, 'presence', uid()), { typing_at: on ? Date.now() : 0 }, { merge: true }),
+      // 問雲端這個網址的標題和簡介（聊天室的連結預覽）
+      async linkPreview(url) {
+        const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'linkPreview');
+        return (await call({ url })).data;
       },
       watchMessages: (cb) => watch('聊天室', F.query(col('messages'), F.orderBy('sent_at'), F.limitToLast(300)), cb),
 
@@ -592,7 +601,23 @@
       async recallMessage(id) {
         const m = load().messages.find((x) => x.id === id);
         if (!m || m.sender !== load().user || Date.now() - m.sent_at >= 3600000) throw new Error('permission-denied');
-        m.text = ''; m.recalled = true; m.thumb = ''; m.image_id = ''; persist(); emit('messages');
+        m.text = ''; m.recalled = true; m.thumb = ''; m.image_id = ''; m.audio_id = ''; persist(); emit('messages');
+      },
+      async editMessage(id, text, mentions) {
+        const m = load().messages.find((x) => x.id === id);
+        if (!m || m.sender !== load().user || m.recalled || Date.now() - m.sent_at >= 900000) throw new Error('permission-denied');
+        m.text = text; m.mentions = mentions || []; m.edited_at = Date.now(); persist(); emit('messages');
+      },
+      async typing(on) {
+        const db = load();
+        if (!db.user) return;
+        db.presence[db.user] = { ...(db.presence[db.user] || { id: db.user }), typing_at: on ? Date.now() : 0 };
+        persist(); emit('presence');
+      },
+      async linkPreview(url) {
+        await new Promise((r) => setTimeout(r, 200));
+        const host = url.replace(/^https?:\/\//, '').split('/')[0].replace(/^www\./, '');
+        return /fail/.test(url) ? { ok: false } : { ok: true, title: '示範網頁：' + host, desc: '這是示範模式的連結預覽，正式環境會顯示網頁的標題和簡介。', site: host };
       },
       watchMessages: watch('messages'),
 

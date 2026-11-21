@@ -121,7 +121,10 @@ service cloud.firestore {
       return d.text is string && d.text.size() <= 2000
         && (d.text.size() >= 1
             || (d.get('image_id', '') is string && d.get('image_id', '').size() >= 1
-                && d.get('thumb', '') is string && d.get('thumb', '').size() <= 60000))
+                && d.get('thumb', '') is string && d.get('thumb', '').size() <= 60000)
+            // 語音訊息：聲音另外存在 chat_audio
+            || (d.get('audio_id', '') is string && d.get('audio_id', '').size() >= 1
+                && d.get('audio_ms', 0) is number && d.get('audio_ms', 0) <= 61000))
         && d.sender == request.auth.uid
         && d.sent_at is number
         // @某人、引用回覆（都可以沒有）
@@ -160,9 +163,21 @@ service cloud.firestore {
     function validRecall() {
       return resource.data.sender == request.auth.uid
         && request.time.toMillis() - resource.data.sent_at < 3600000
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'recalled', 'thumb', 'image_id'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'recalled', 'thumb', 'image_id', 'audio_id'])
         && request.resource.data.recalled == true
         && request.resource.data.text == '';
+    }
+
+    // 編輯訊息：本人、送出 15 分鐘內（多留 1 分鐘給時鐘誤差）、只能改文字，不能改已收回的
+    function validEdit() {
+      return resource.data.sender == request.auth.uid
+        && resource.data.get('recalled', false) != true
+        && request.time.toMillis() - resource.data.sent_at < 960000
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'edited_at', 'mentions'])
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 2000
+        && request.resource.data.edited_at is number
+        && request.resource.data.get('mentions', []) is list && request.resource.data.get('mentions', []).size() <= 10;
     }
 
     // 成員名單：在 Firebase 後台維護。唯一的例外是管理員可以在 App 裡切換「是不是小朋友」。
@@ -248,7 +263,7 @@ service cloud.firestore {
     match /messages/{id} {
       allow read: if isFamily();
       allow create: if isFamily() && validMessage();
-      allow update: if isFamily() && validRecall();
+      allow update: if isFamily() && (validRecall() || validEdit());
       allow delete: if false;
     }
 
@@ -261,6 +276,40 @@ service cloud.firestore {
         && request.resource.data.emoji is string && request.resource.data.emoji.size() <= 8
         && id == request.resource.data.msg_id + '_' + request.auth.uid;
       allow delete: if isFamily() && (resource.data.uid == request.auth.uid || isAdmin());
+    }
+
+    // 語音訊息的聲音檔：只能以自己的名義上傳；收回訊息時由本人刪除
+    match /chat_audio/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.sender == request.auth.uid
+        && request.resource.data.data is string
+        && request.resource.data.data.size() <= 950000
+        && request.resource.data.ms is number;
+      allow delete: if isFamily() && (resource.data.sender == request.auth.uid || isAdmin());
+      allow update: if false;
+    }
+
+    // 聊天室置頂的訊息（文件 id 是訊息 id）：全家都可以置頂、取消置頂
+    match /chat_pins/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.sender is string
+        && request.resource.data.text is string && request.resource.data.text.size() <= 200
+        && request.resource.data.at is number;
+      allow delete: if isFamily();
+      allow update: if false;
+    }
+
+    // 家庭設定（目前只有聊天免打擾時段 chat_quiet）：全家讀得到，只有爸媽能改
+    match /settings/{id} {
+      allow read: if isFamily();
+      allow create, update: if isFamily() && !isChild() && id == 'chat_quiet'
+        && request.resource.data.on is bool
+        && request.resource.data.start is string && request.resource.data.start.size() == 5
+        && request.resource.data.end is string && request.resource.data.end.size() == 5;
+      allow delete: if false;
     }
 
     // 聊天照片的原圖：只能以自己的名義上傳；收回訊息時由本人刪除
