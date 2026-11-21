@@ -2408,3 +2408,68 @@ html[data-theme="night"] .hp-flag.ok { color: #7FD9B3; }
 .home-tools .gs-open svg { width: 19px; height: 19px; }
 .home-tools .gs-open.bell { margin-left: 0; }
 .home-tools .gs-open.bell.has::after { top: 6px; right: 7px; }
+
+/* ---- 相簿：分頁、自訂相簿、整年、那年今日、多選、密度、手勢 ---- */
+.album-tabs { margin: 10px 0 2px; }
+.album-ytitle { display: inline-flex; align-items: center; gap: 4px; font: inherit; color: inherit; }
+.album-ytitle svg { width: 18px; height: 18px; fill: none; stroke: var(--ink-2); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.album-books { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 12px; margin-top: 14px; }
+.album-book { display: flex; flex-direction: column; gap: 2px; text-align: left; color: var(--ink); min-width: 0; }
+.album-bcov { aspect-ratio: 4 / 3; border-radius: 16px; overflow: hidden; background: var(--line); margin-bottom: 4px; box-shadow: 0 2px 0 -1px var(--sheet), 0 4px 0 -2px var(--line), 0 7px 0 -4px var(--sheet), 0 8px 0 -4px var(--line); }
+.album-bcov img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.album-bcov i { display: block; width: 100%; height: 100%; background: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--ink-2) 10%, transparent) 10px 20px); }
+.album-book b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; }
+.album-book small { font-size: 12px; color: var(--ink-2); }
+.album-tools { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; }
+.album-tools .album-play { margin-right: auto; }
+.album-tools + .album-grid { margin-top: 10px; }
+.album-grid.dense { grid-template-columns: repeat(4, 1fr); }
+.album-grid.dense .album-cell { aspect-ratio: 1; grid-column: auto; grid-row: auto; }
+.album-grid.dense .album-badges { display: none; }
+.album-cell { position: relative; }
+.album-grid.picking .album-cell img { transition: transform .12s; }
+.album-cell.picked img { transform: scale(.86); border-radius: 8px; }
+.album-tick { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; border-radius: 50%; background: rgba(0, 0, 0, .28); box-shadow: inset 0 0 0 2px #fff; display: flex; align-items: center; justify-content: center; }
+.album-cell.picked .album-tick { background: var(--green); }
+.album-tick svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.album-selbar { position: sticky; bottom: 8px; z-index: 3; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 14px; padding: 8px 10px; border-radius: 16px; background: var(--sheet); box-shadow: 0 6px 22px rgba(0, 0, 0, .18), inset 0 0 0 1px var(--line); }
+.album-selbar b { flex: 1 0 100%; font-size: 13px; }
+.album-selbar button { flex: 1; min-height: 40px; padding: 0 8px; border-radius: 12px; font-size: 13px; font-weight: 700; color: var(--ink); background: color-mix(in srgb, var(--ink-2) 12%, transparent); white-space: nowrap; }
+.album-selbar button:disabled { opacity: .4; }
+.album-selbar button.del { color: #C62828; }
+.album-selbar button.strong { color: #fff; background: var(--green); }
+html[data-theme="night"] .album-selbar button.strong { color: #0E1412; }
+.album-year { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.album-ym { position: relative; aspect-ratio: 1; border-radius: 16px; overflow: hidden; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); display: flex; flex-direction: column; justify-content: flex-end; padding: 8px 10px; text-align: left; color: var(--ink); }
+.album-ym img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.album-ym img ~ b, .album-ym img ~ small { position: relative; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .7); }
+.album-ym img ~ small { opacity: .95; }
+.album-ym:has(img)::after { content: ''; position: absolute; inset: 40% 0 0; background: linear-gradient(transparent, rgba(0, 0, 0, .55)); }
+.album-ym b, .album-ym small { z-index: 1; }
+.album-ym b { font-size: 17px; }
+.album-ym small { font-size: 12px; color: var(--ink-2); }
+.album-ym.cur { box-shadow: inset 0 0 0 2.5px var(--green); }
+.album-ym:disabled { opacity: .35; }
+.album-mem { margin-top: 12px; }
+.album-mem h2 { font-size: 13px; font-weight: 600; color: var(--green); padding: 0 4px 6px; }
+.album-memrow { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.album-memrow::-webkit-scrollbar { display: none; }
+.album-memrow button { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 6px; border-radius: 16px; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--line); text-align: left; color: var(--ink); }
+.album-memrow img { width: 54px; height: 54px; border-radius: 12px; object-fit: cover; }
+.album-memrow span { display: flex; flex-direction: column; }
+.album-memrow b { font-size: 14px; } .album-memrow small { font-size: 12px; color: var(--ink-2); }
+.album-dmeta em.ev { font-weight: 700; color: var(--green); }
+.album-stage img { touch-action: none; transition: transform .05s linear; will-change: transform; }
+.album-pickset { border: 0; padding: 0; margin: 0 0 10px; display: flex; flex-direction: column; }
+.album-pickset legend { font-size: 13px; color: var(--ink-2); margin-bottom: 4px; }
+.album-pickset label { display: flex; align-items: center; gap: 10px; min-height: 44px; border-top: 1px solid var(--line); font-size: 15px; }
+.album-pickset input { width: 20px; height: 20px; accent-color: var(--green); }
+.photo-ai-out { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 8px 0 4px; }
+.photo-ai-out .chip-btn { text-align: left; white-space: normal; height: auto; min-height: 36px; padding: 6px 12px; }
+.photo-ai-out small { font-size: 12px; color: var(--ink-2); }
+.photo-previews .pv { position: relative; flex: none; width: 64px; height: 64px; border-radius: 10px; }
+.photo-previews .pv i { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+.photo-previews .pv.busy img { opacity: .5; }
+.photo-previews .pv.ok i { background: rgba(31, 138, 95, .55) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / 22px no-repeat; }
+.photo-previews .pv.bad i { box-shadow: inset 0 0 0 3px #D93B30; }
+.album-ym.none b { color: var(--ink-2); font-weight: 600; }

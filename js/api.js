@@ -485,7 +485,7 @@
         { id: 'ti10', trip_id: 't2', kind: 'cost', title: '住宿', amount: 4200, paid_by: 'm1', date: day(-52), created_at: 10 },
         { id: 'ti11', trip_id: 't2', kind: 'cost', title: '晚餐', amount: 1350, paid_by: 'm2', date: day(-52), created_at: 11 }
       ],
-      photos: [], photo_comments: [], photo_likes: [],
+      photos: [], photo_comments: [], photo_likes: [], albums: [], album_months: [],
       chat_images: []
     });
     const G = (name) => {
@@ -552,6 +552,7 @@
           }
           return { items, tips: ['示範提醒：考前一天早點睡'] };
         }
+        if (op === 'caption') return { captions: [(args.events && args.events[0] ? args.events[0] + '的一天' : '平凡又開心的一天') + ' 😊', '（示範）' + (args.people && args.people.length ? args.people.join('、') + '的合照' : '全家的回憶'), '（示範）這天值得記下來'] };
         if (op === 'journal') return { text: '（示範）今天' + (args.place ? '在' + args.place : '') + '玩得很開心！' + args.text.replace(/\n/g, '、') + '，每一件事都想記下來。\n\n接上 Gemini 之後，這裡會是一段完整的日記。' };
         if (op === 'analyze') return { text: '（示範）' + args.name + '的' + (args.kind === 'scores' ? '成績' : '零用錢') + '說明會出現在這裡。\n\n接上 Gemini 之後，這裡會是根據實際紀錄寫出的幾段文字。' };
         throw new Error('op');

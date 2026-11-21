@@ -525,14 +525,46 @@ service cloud.firestore {
         && request.resource.data.image_id is string
         && request.resource.data.caption is string && request.resource.data.caption.size() <= 100
         && request.resource.data.thumb is string && request.resource.data.thumb.size() <= 200000
-        && request.resource.data.get('people', []) is list && request.resource.data.get('people', []).size() <= 4;
-      // 放照片的人和管理員可以改說明、日期、照片裡有誰；照片本身不能換
+        && request.resource.data.get('people', []) is list && request.resource.data.get('people', []).size() <= 4
+        && request.resource.data.get('album_id', '') is string && request.resource.data.get('album_id', '').size() <= 40
+        && request.resource.data.get('event_title', '') is string && request.resource.data.get('event_title', '').size() <= 60;
+      // 放照片的人和管理員可以改說明、日期、照片裡有誰、是哪個行程的；照片本身不能換
       allow update: if isFamily() && (madeIt() || isAdmin())
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['caption', 'people', 'date', 'month'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['caption', 'people', 'date', 'month', 'album_id', 'event_title'])
+        && request.resource.data.get('album_id', '') is string && request.resource.data.get('album_id', '').size() <= 40
+        && request.resource.data.get('event_title', '') is string && request.resource.data.get('event_title', '').size() <= 60
         && request.resource.data.caption is string && request.resource.data.caption.size() <= 100
         && request.resource.data.get('people', []) is list && request.resource.data.get('people', []).size() <= 4
         && request.resource.data.date is string && request.resource.data.month is string;
       allow delete: if isFamily() && (madeIt() || isAdmin());
+      // 把照片放進相簿、拿出相簿：全家都可以（只能動 album_id 這一欄）
+      allow update: if isFamily()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['album_id'])
+        && request.resource.data.album_id is string && request.resource.data.album_id.size() <= 40;
+    }
+    // 自訂相簿（例如「日本旅行」）：全家都能看、能建立；改名和刪除只有建立的人和管理員（刪相簿不會刪照片）
+    match /albums/{id} {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.created_by == request.auth.uid
+        && request.resource.data.name is string && request.resource.data.name.size() >= 1 && request.resource.data.name.size() <= 30;
+      allow update: if isFamily() && (madeIt() || isAdmin())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+        && request.resource.data.name is string && request.resource.data.name.size() >= 1 && request.resource.data.name.size() <= 30;
+      // 封面和張數：誰打開相簿誰順手更新
+      allow update: if isFamily()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cover', 'count'])
+        && request.resource.data.cover is string && request.resource.data.cover.size() <= 200000
+        && request.resource.data.count is number;
+      allow delete: if isFamily() && (madeIt() || isAdmin());
+    }
+    // 每個月的封面和張數（文件 id 是 YYYY-MM），給「整年總覽」用：誰打開那個月誰順手更新
+    match /album_months/{id} {
+      allow read: if isFamily();
+      allow create, update: if isFamily()
+        && request.resource.data.count is number
+        && request.resource.data.cover is string && request.resource.data.cover.size() <= 200000;
+      allow delete: if false;
     }
     // 照片的愛心：每個人每張一顆（文件 id 是「照片id_自己的UID」），只能按或收回自己的
     match /photo_likes/{id} {

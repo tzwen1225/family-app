@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 23:13';
+  const VERSION = '2026-11-21 23:52';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -148,7 +148,7 @@
     tripId: null, tripTab: 'plan',  // 正在看哪一趟旅程、哪個分頁（plan 行程 | journal 日誌 | pack 行李 | cost 花費）
     showOldNotes: false,
     chatShown: 60,           // 聊天室目前畫出最新的幾則
-    photos: [], photoComments: [], photoLikes: [], albumFilter: '', slideshow: 0, albumMonth: today().slice(0, 7), albumLoaded: null, photoId: null, albumDay: null,   // albumDay：正在看哪一天（null = 整個月的天數清單）
+    photos: [], photoComments: [], photoLikes: [], albumFilter: '', slideshow: 0, albumMonth: today().slice(0, 7), albumLoaded: null, photoId: null, albumDay: null, albumTab: 'date', albumId: null, albumYear: null, albums: [], albumSel: null, albumDense: false, memories: null,   // albumDay：正在看哪一天（null = 整個月的天數清單）
       // 家庭相簿：只放正在看的那個月
     subjects: [],                   // 家長自訂的考試科目 { id, label }
     scores: [], scoreSubject: '',   // 成績紀錄
@@ -498,6 +498,7 @@
       (amChild() ? (cb) => Api.watchWhere('checkins', 'kid', state.userId, cb) : (cb) => Api.watchList('checkins', cb))((l) => { state.checkins = l; drawCheckin(); }),
       Api.watchList('places', (l) => { state.places = l; drawCheckin(); }),
       Api.watchList('message_reacts', (list) => { state.msgReacts = list; if (state.tab === 'chat') refreshChat(false); }),
+      Api.watchList('albums', (list) => { state.albums = list; if (state.tab === 'notes' && state.notesView === 'album' && !$sheet.innerHTML) render(); }),
       Api.watchList('chat_pins', (list) => { state.pins = list; drawPins(); if (state.tab === 'chat') refreshChat(false); }),
       Api.watchWhere('notifications', 'uid', state.userId, (list) => { state.notices = list; drawBell(); }),
       Api.watchList('settings', (list) => { state.quiet = findById(list, 'chat_quiet') || null; if (state.tab === 'me' && !$sheet.innerHTML) render(); }),
@@ -3347,27 +3348,50 @@
     else if (state.photoId) refreshPhotoPanel();
   }
   function loadAlbum() {
-    const month = state.albumMonth;
-    if (albumWatch.month === month) return;
+    const scope = albumScope(), month = state.albumId ? '' : state.albumMonth, albumId = state.albumId;
+    if (albumWatch.month === scope) return;
     stopAlbum();
-    const cached = albumCache[month];
-    if (cached) Object.assign(state, { photos: cached.photos, photoComments: cached.comments, photoLikes: cached.likes, albumLoaded: month });
+    const cached = albumCache[scope];
+    if (cached) Object.assign(state, { photos: cached.photos, photoComments: cached.comments, photoLikes: cached.likes, albumLoaded: scope });
     const got = { photos: false, comments: false, likes: false };
     const done = () => {
-      if (albumWatch.month !== month || !got.photos || !got.comments || !got.likes) return;
-      state.albumLoaded = month;
-      albumCache[month] = { photos: state.photos, comments: state.photoComments, likes: state.photoLikes };
+      if (albumWatch.month !== scope || !got.photos || !got.comments || !got.likes) return;
+      state.albumLoaded = scope;
+      albumCache[scope] = { photos: state.photos, comments: state.photoComments, likes: state.photoLikes };
+      syncSummary(albumId ? 'a' : 'm', albumId || month, state.photos);
       drawAlbum();
     };
-    const watch = (name, key, apply) => Api.watchWhere(name, 'month', month, (list) => {
-      if (albumWatch.month !== month) return;
-      apply(list); got[key] = true; done();
-    });
-    albumWatch = { month, stops: [
-      watch('photos', 'photos', (list) => { state.photos = list.sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at); }),
-      watch('photo_comments', 'comments', (list) => { state.photoComments = list; }),
-      watch('photo_likes', 'likes', (list) => { state.photoLikes = list; })
-    ] };
+    const order = (list) => list.sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at);
+    if (!albumId) {
+      const watch = (name, key, apply) => Api.watchWhere(name, 'month', month, (list) => {
+        if (albumWatch.month !== scope) return;
+        apply(list); got[key] = true; done();
+      });
+      albumWatch = { month: scope, stops: [
+        watch('photos', 'photos', (list) => { state.photos = order(list); }),
+        watch('photo_comments', 'comments', (list) => { state.photoComments = list; }),
+        watch('photo_likes', 'likes', (list) => { state.photoLikes = list; })
+      ] };
+    } else {
+      // 一本相簿的照片可能分散在好幾個月：照片用 album_id 找，留言和愛心再照出現的月份分別讀
+      const subs = {}, cm = {}, lk = {};
+      const merge = () => { state.photoComments = [].concat(...Object.values(cm)); state.photoLikes = [].concat(...Object.values(lk)); };
+      albumWatch = { month: scope, stops: [
+        Api.watchWhere('photos', 'album_id', albumId, (list) => {
+          if (albumWatch.month !== scope) return;
+          state.photos = order(list);
+          [...new Set(list.map((p) => p.month))].forEach((m) => {
+            if (subs[m]) return;
+            subs[m] = [
+              Api.watchWhere('photo_comments', 'month', m, (l) => { if (albumWatch.month !== scope) return; cm[m] = l; merge(); done(); }),
+              Api.watchWhere('photo_likes', 'month', m, (l) => { if (albumWatch.month !== scope) return; lk[m] = l; merge(); done(); })
+            ];
+          });
+          got.photos = got.comments = got.likes = true; done();
+        }),
+        () => Object.values(subs).forEach((pair) => pair.forEach((f) => f && f()))
+      ] };
+    }
     if (cached) drawAlbum();
   }
 
@@ -3385,6 +3409,287 @@
   }
 
   // 篩選：全部、我按愛心的、或照片裡有某個人
+  // ---------- 相簿：自訂相簿、整年總覽、那年今日、多選、密度 ----------
+  // albums/{id}：{ name, created_by, created_at, cover, count }；照片的 album_id 指到相簿（'' = 沒放）
+  // album_months/{YYYY-MM}：{ count, cover }　整年總覽用的每月封面，誰打開那個月誰順手更新
+  const albumScope = () => (state.albumId ? 'a:' + state.albumId : state.albumMonth);
+  const albumOf = (id) => findById(state.albums, id);
+  const canEditAlbum = (a) => isAdmin() || a.created_by === state.userId;
+  const DENSE_KEY = 'family-album-dense';
+  try { state.albumDense = localStorage.getItem(DENSE_KEY) === '1'; } catch (e) { state.albumDense = false; }
+  const monthSums = {};      // 'YYYY-MM' → { count, cover }（讀過的）
+  const sumSent = {};        // 這次開 App 已經更新過的摘要，內容一樣就不再寫
+  function syncSummary(kind, id, list) {
+    const cover = list.length ? list[0].thumb : '', key = kind + id, sig = list.length + '|' + cover.length;
+    if (sumSent[key] === sig) return;
+    sumSent[key] = sig;
+    if (kind === 'm') {
+      const cur = monthSums[id];
+      if (cur && cur.count === list.length && cur.cover === cover) return;
+      monthSums[id] = { id, count: list.length, cover };
+      Api.setDoc('album_months', id, { count: list.length, cover, updated_at: Date.now() }).catch((e) => console.warn('月份封面沒更新', e));
+    } else {
+      const a = albumOf(id);
+      if (!a || (a.count === list.length && (a.cover || '') === cover)) return;
+      Api.updateDoc('albums', id, { count: list.length, cover }).catch((e) => console.warn('相簿封面沒更新', e));
+    }
+  }
+  // 剛放進相簿時先把封面和張數補上（之後誰打開相簿，會再照實際的照片更正）
+  function bumpAlbum(id, added, thumb) {
+    const a = albumOf(id);
+    if (!id || !added) return;
+    Api.updateDoc('albums', id, { count: ((a && a.count) || 0) + added, cover: (a && a.cover) || thumb || '' }).catch((e) => console.warn(e));
+  }
+  const eventTitleOf = (items) => {
+    const n = {};
+    items.forEach((p) => { if (p.event_title) n[p.event_title] = (n[p.event_title] || 0) + 1; });
+    return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || '';
+  };
+  const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>';
+  // 日期／相簿 兩個分頁
+  function albumTabsHtml() {
+    const b = (v, label) => `<button class="${state.albumTab === v ? 'on' : ''}" data-act="album-tab" data-tab="${v}" ${state.albumTab === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
+    return `<div class="switcher album-tabs" role="group" aria-label="用日期或相簿看照片">${b('date', '依日期')}${b('albums', '相簿' + (state.albums.length ? ' ' + state.albums.length : ''))}</div>`;
+  }
+  // 所有自訂相簿
+  function viewAlbumList() {
+    const list = state.albums.slice().sort((a, b) => b.created_at - a.created_at);
+    return `
+      <header class="month-head"><h1>相簿</h1><div class="month-nav"><button class="chip-btn" data-act="album-new">＋ 新相簿</button></div></header>
+      ${albumTabsHtml()}
+      ${list.length ? `<div class="album-books">${list.map((a) => `
+        <button class="album-book" data-act="album-open" data-id="${esc(a.id)}">
+          <span class="album-bcov">${a.cover ? `<img src="${esc(a.cover)}" alt="" loading="lazy" decoding="async">` : '<i aria-hidden="true"></i>'}</span>
+          <b>${esc(a.name)}</b><small>${a.count || 0} 張・${esc(nameOf(a.created_by))}</small>
+        </button>`).join('')}</div>`
+        : '<div class="empty big"><p>還沒有相簿。旅行、表演、畢業典禮這類想放在一起看的照片，可以開一本相簿收起來。</p></div>'}`;
+  }
+  // 選取列（看某一天、某本相簿時可以多選）
+  function albumToolsHtml(items) {
+    const sel = state.albumSel;
+    if (sel) return '';
+    return `<div class="album-tools">
+      ${items.length > 1 ? `<button class="album-play" data-act="album-play">${PLAY}播放</button>` : ''}
+      <button class="chip-btn" data-act="album-dense" aria-pressed="${state.albumDense}">${state.albumDense ? '大圖' : '小圖'}</button>
+      ${items.length ? '<button class="chip-btn" data-act="album-select">選取</button>' : ''}
+    </div>`;
+  }
+  function albumSelBarHtml() {
+    const sel = state.albumSel;
+    if (!sel) return '';
+    const n = sel.length;
+    return `<div class="album-selbar" role="group" aria-label="已選的照片">
+      <b>已選 ${n} 張</b>
+      <button data-act="sel-album" ${n ? '' : 'disabled'}>放進相簿</button>
+      <button data-act="sel-people" ${n ? '' : 'disabled'}>標註</button>
+      <button data-act="sel-share" ${n ? '' : 'disabled'}>存到手機</button>
+      <button class="del" data-act="sel-del" ${n ? '' : 'disabled'}>刪除</button>
+      <button class="strong" data-act="album-select">完成</button>
+    </div>`;
+  }
+  // 一本相簿
+  function viewAlbumOne() {
+    const a = albumOf(state.albumId), loaded = state.albumLoaded === albumScope();
+    if (!a) { state.albumId = null; return viewAlbumList(); }
+    const items = loaded ? state.photos : [];
+    return `
+      <button class="link-btn back" data-act="album-close">‹ 所有相簿</button>
+      <header class="month-head album-dhead">
+        <h1>${esc(a.name)}<small>${loaded ? items.length + ' 張' : '讀取中'}・${esc(nameOf(a.created_by))}建立</small></h1>
+        ${canEditAlbum(a) ? '<div class="month-nav"><button class="chip-btn" data-act="album-edit">改名／刪除</button></div>' : ''}
+      </header>
+      ${albumToolsHtml(items)}
+      ${!loaded ? '<div class="skel-wrap"><div class="skel hero"></div></div>' : items.length ? albumGridHtml(items)
+        : '<div class="empty big"><p>這本相簿還沒有照片。按下面的「放照片」直接上傳到這裡，或到「依日期」那邊選取照片再「放進相簿」。</p></div>'}
+      ${albumSelBarHtml()}`;
+  }
+  // 整年總覽：12 個月各一張封面
+  let yearLoading = '';
+  function viewAlbumYear() {
+    const y = state.albumYear, now = today().slice(0, 7);
+    loadYear(y);
+    return `
+      <button class="link-btn back" data-act="album-year-close">‹ 回到${Number(state.albumMonth.slice(5))}月</button>
+      <header class="month-head">
+        <h1>${y}年</h1>
+        <div class="month-nav">
+          <button class="icon-btn" data-act="album-year-step" data-dir="-1" aria-label="前一年">‹</button>
+          <button class="icon-btn" data-act="album-year-step" data-dir="1" aria-label="後一年" ${y >= Number(now.slice(0, 4)) ? 'disabled' : ''}>›</button>
+        </div>
+      </header>
+      <div class="album-year">${Array.from({ length: 12 }, (_, i) => {
+        const m = y + '-' + pad(i + 1), s = monthSums[m], future = m > now;
+        return `<button class="album-ym ${s && s.count ? '' : 'none'} ${m === state.albumMonth ? 'cur' : ''}" data-act="album-month" data-month="${m}" ${future ? 'disabled' : ''} aria-label="${i + 1}月${s ? '，' + s.count + ' 張' : ''}">
+          ${s && s.cover ? `<img src="${esc(s.cover)}" alt="" loading="lazy" decoding="async">` : ''}
+          <b>${i + 1}月</b><small>${future ? '' : !s ? '…' : s.count ? s.count + ' 張' : '沒有照片'}</small>
+        </button>`;
+      }).join('')}</div>`;
+  }
+  // 讀這一年每個月的封面；還沒有摘要的月份（功能上線前的照片）在背景補算一次
+  async function loadYear(y) {
+    if (yearLoading === String(y)) return;
+    yearLoading = String(y);
+    const redraw = () => { if (state.albumYear === y && state.tab === 'notes' && state.notesView === 'album' && !$sheet.innerHTML) render(); };
+    try { (await Api.listDocs('album_months')).forEach((d) => { monthSums[d.id] = d; }); } catch (e) { console.warn('讀不到月份封面', e); }
+    redraw();
+    const now = today().slice(0, 7);
+    for (let i = 12; i >= 1; i--) {
+      const m = y + '-' + pad(i);
+      if (m > now || monthSums[m] || state.albumYear !== y) continue;
+      try {
+        const list = (await Api.listDocs('photos', ['month', m])).sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at);
+        monthSums[m] = { id: m, count: list.length, cover: list.length ? list[0].thumb : '' };
+        Api.setDoc('album_months', m, { count: list.length, cover: monthSums[m].cover, updated_at: Date.now() }).catch(() => {});
+        redraw();
+      } catch (e) { console.warn(e); monthSums[m] = { id: m, count: 0, cover: '' }; }
+    }
+  }
+  // 那年今日：上個月、去年、前年的同一天
+  function loadMemories() {
+    if (state.memories !== null) return;
+    state.memories = [];
+    const t = parse(today()), day = (y, m) => { const d = new Date(t.getFullYear() + y, t.getMonth() + m, t.getDate()); return d.getDate() === t.getDate() ? ymd(d) : ''; };
+    const wants = [['上個月的今天', day(0, -1)], ['去年的今天', day(-1, 0)], ['前年的今天', day(-2, 0)]].filter((x) => x[1]);
+    Promise.all(wants.map(([label, date]) => Api.listDocs('photos', ['date', date]).then((items) => ({ label, date, items }), () => ({ label, date, items: [] }))))
+      .then((list) => { state.memories = list.filter((x) => x.items.length); if (state.memories.length) drawAlbum(); });
+  }
+  function memoriesHtml() {
+    loadMemories();
+    if (!state.memories || !state.memories.length) return '';
+    return `<section class="album-mem" aria-label="那年今日"><h2>那年今日</h2><div class="album-memrow">${state.memories.map((x) => `
+      <button data-act="album-jump" data-date="${esc(x.date)}"><img src="${esc(x.items[0].thumb)}" alt="" loading="lazy" decoding="async"><span><b>${x.label}</b><small>${x.date.slice(0, 4)}年・${x.items.length} 張</small></span></button>`).join('')}</div></section>`;
+  }
+  function jumpToDay(date) {
+    Object.assign(state, { tab: 'notes', notesView: 'album', albumTab: 'date', albumId: null, albumYear: null, albumSel: null, albumFilter: '', albumMonth: date.slice(0, 7), albumDay: date });
+    closeSheet(); render(); loadAlbum();
+    if (scroller()) scroller().scrollTop = 0;
+  }
+  // 多選之後的動作
+  const selPhotos = () => (state.albumSel || []).map((id) => findById(state.photos, id)).filter(Boolean);
+  async function removePhoto(p) {
+    await Api.deleteDoc('photos', p.id);
+    Api.deleteDoc('chat_images', p.image_id).catch(() => {});
+    commentsOf(p.id).forEach((c) => Api.deleteDoc('photo_comments', c.id).catch(() => {}));
+    state.photoLikes.filter((l) => l.photo_id === p.id).forEach((l) => Api.deleteDoc('photo_likes', l.id).catch(() => {}));
+    state.photos = state.photos.filter((x) => x.id !== p.id);
+    state.photoComments = state.photoComments.filter((c) => c.photo_id !== p.id);
+  }
+  async function selDelete(btn) {
+    const list = selPhotos(), mine = list.filter(canDeletePhoto);
+    if (!mine.length) return toast('只能刪除自己放的照片');
+    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = '確定刪 ' + mine.length + ' 張'; return; }
+    btn.disabled = true;
+    let n = 0;
+    for (const p of mine) { try { await removePhoto(p); n++; } catch (e) { console.error(e); } }
+    state.albumSel = null;
+    toast('已刪除 ' + n + ' 張' + (list.length > mine.length ? '（別人放的 ' + (list.length - mine.length) + ' 張沒有刪）' : ''));
+    render();
+  }
+  async function selShare() {
+    const list = selPhotos().slice(0, 10), missing = list.filter((p) => !fullImages.has(p.image_id));
+    if (missing.length) {      // iPhone 的分享要在按下去的當下呼叫，所以先把原圖讀好，再請使用者按一次
+      toast('正在準備 ' + missing.length + ' 張照片…');
+      await Promise.all(missing.map((p) => fullImage(p).catch(() => null)));
+      return toast('照片準備好了，請再按一次「存到手機」');
+    }
+    try {
+      const files = list.map((p, i) => dataUrlFile(fullImages.get(p.image_id) || p.thumb, '鍾家相簿-' + p.date + '-' + (i + 1) + '.jpg'));
+      if (navigator.canShare && navigator.canShare({ files })) { await navigator.share({ files, title: '鍾家相簿' }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; console.warn(e); }
+    toast('這支手機不能一次存多張，請點開照片一張一張存');
+  }
+  function openAlbumPick() {
+    showSheet('album-pick-form', {
+      title: '放進相簿', submit: '確定',
+      body: `<fieldset class="album-pickset"><legend>${state.albumSel.length} 張照片要放進哪一本？</legend>
+        ${state.albums.map((a) => `<label><input type="radio" name="album" value="${esc(a.id)}"><span>${esc(a.name)}</span></label>`).join('')}
+        <label><input type="radio" name="album" value=""><span>不放在任何相簿</span></label>
+        <label><input type="radio" name="album" value="+" ${state.albums.length ? '' : 'checked'}><span>開一本新的</span></label></fieldset>
+        <label>新相簿的名字<input name="name" maxlength="30" placeholder="例如：2026 日本旅行" autocomplete="off"></label>`
+    });
+  }
+  function openAlbumForm(a) {
+    showSheet('album-form', {
+      title: a ? '相簿' : '新相簿', submit: a ? '儲存' : '建立', focus: !a,
+      body: `<input type="hidden" name="item_id" value="${a ? esc(a.id) : ''}">
+        <label>相簿名字<input class="title-input" name="name" maxlength="30" value="${a ? esc(a.name) : ''}" placeholder="例如：2026 日本旅行" autocomplete="off"></label>
+        ${a ? '<p class="hint">刪除相簿只會把這本相簿拿掉，裡面的照片還是留在「依日期」裡。</p><button type="button" class="btn ghost danger-text" data-act="album-del">刪除這本相簿</button>' : '<p class="hint">建立之後，上傳照片時可以直接選這本相簿；也可以到「依日期」選取已經有的照片再放進來。</p>'}`
+    });
+  }
+  async function deleteAlbum(btn) {
+    const a = albumOf(state.albumId);
+    if (!a || !canEditAlbum(a)) return;
+    if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = '再按一次確定刪除'; return; }
+    btn.disabled = true;
+    try {
+      const inside = await Api.listDocs('photos', ['album_id', a.id]);
+      await Promise.all(inside.map((p) => Api.updateDoc('photos', p.id, { album_id: '' }).catch(() => {})));
+      await Api.deleteDoc('albums', a.id);
+      state.albumId = null; state.albumSel = null;
+      closeSheet(); render(); loadAlbum(); toast('已刪除相簿，照片還在');
+    } catch (e) { console.error(e); btn.disabled = false; toast('沒有刪除成功'); }
+  }
+  // 上傳時：這一天有哪些行程可以選
+  async function fillPhotoEvents() {
+    const form = document.getElementById('photo-form');
+    if (!form || !form.elements.event_title) return;
+    const sel = form.elements.event_title, date = form.elements.date.value;
+    let titles = [];
+    try { titles = [...new Set(expand(await Api.listEvents(date, date), date, date).map((e) => e.title).filter(Boolean))]; } catch (e) { console.warn(e); }
+    if (form.elements.date.value !== date) return;
+    sel.innerHTML = '<option value="">不指定</option>' + titles.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    sel.closest('label').hidden = !titles.length;
+    form.dataset.events = JSON.stringify(titles);
+    if (titles.length === 1) sel.value = titles[0];
+  }
+  async function photoAi(btn) {
+    const form = document.getElementById('photo-form'), out = document.getElementById('photo-ai-out');
+    if (!form || !out || btn.disabled) return;
+    btn.disabled = true; btn.textContent = '想說明中…'; out.innerHTML = '';
+    try {
+      const people = Array.from(form.querySelectorAll('input[name="people"]:checked')).map((i) => nameOf(i.value));
+      const picked = form.elements.event_title.value;
+      const r = await askAi('caption', { date: form.elements.date.value, events: picked ? [picked] : JSON.parse(form.dataset.events || '[]'), people, hint: form.elements.caption.value.trim(), album: (albumOf(form.elements.album_id.value) || {}).name || '' });
+      out.innerHTML = (r.captions || []).map((c) => `<button type="button" class="chip-btn" data-act="photo-ai-pick">${esc(c)}</button>`).join('') + '<small>點一句就會填進說明，可以再改。AI 只看日期、行程和標註，看不到照片。</small>';
+    } catch (e) { out.innerHTML = `<small>${esc(e.friendly || 'AI 現在沒有回應，請稍後再試')}</small>`; }
+    btn.disabled = false; btn.textContent = 'AI 幫我想說明';
+  }
+  // 大圖手勢：兩指放大縮小、放大後拖曳、往下滑關閉
+  let zoom = { scale: 1, x: 0, y: 0 }, pinch = null;
+  const stageImg = () => $sheet.querySelector('.album-stage img');
+  function applyZoom() { const img = stageImg(); if (img) img.style.transform = zoom.scale > 1 ? `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` : ''; }
+  const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  document.addEventListener('touchstart', (ev) => {
+    if (!ev.target.closest || !ev.target.closest('.album-stage')) { pinch = null; return; }
+    const t = ev.touches;
+    if (t.length === 2) pinch = { kind: 'pinch', d: dist(t[0], t[1]), scale: zoom.scale };
+    else if (t.length === 1) pinch = { kind: zoom.scale > 1 ? 'pan' : 'down', sx: t[0].clientX, sy: t[0].clientY, x: zoom.x, y: zoom.y };
+  }, { passive: true });
+  document.addEventListener('touchmove', (ev) => {
+    if (!pinch) return;
+    const t = ev.touches;
+    if (pinch.kind === 'pinch' && t.length === 2) {
+      zoom.scale = Math.min(4, Math.max(1, pinch.scale * dist(t[0], t[1]) / pinch.d));
+      if (zoom.scale === 1) { zoom.x = 0; zoom.y = 0; }
+      if (ev.cancelable) ev.preventDefault();
+      applyZoom();
+    } else if (pinch.kind === 'pan' && t.length === 1) {
+      const max = 160 * zoom.scale;
+      zoom.x = Math.min(max, Math.max(-max, pinch.x + t[0].clientX - pinch.sx));
+      zoom.y = Math.min(max, Math.max(-max, pinch.y + t[0].clientY - pinch.sy));
+      if (ev.cancelable) ev.preventDefault();
+      applyZoom();
+    }
+  }, { passive: false });
+  document.addEventListener('touchend', (ev) => {
+    if (!pinch) return;
+    const p = pinch, t = ev.changedTouches[0];
+    if (ev.touches.length) return;
+    pinch = null;
+    if (zoom.scale < 1.08) { zoom = { scale: 1, x: 0, y: 0 }; applyZoom(); }
+    if (p.kind === 'down' && t && t.clientY - p.sy > 110 && Math.abs(t.clientX - p.sx) < 70 && state.photoId) closePhoto();
+  }, { passive: true });
+
   function albumList() {
     const f = state.albumFilter;
     if (!f) return state.photos;
@@ -3393,6 +3698,9 @@
   }
 
   function viewAlbum() {
+    if (state.albumYear) return viewAlbumYear();
+    if (state.albumId) return viewAlbumOne();
+    if (state.albumTab === 'albums') return viewAlbumList();
     if (state.albumDay && state.albumLoaded === state.albumMonth) return viewAlbumDay();
     const [y, m] = state.albumMonth.split('-').map(Number);
     const loaded = state.albumLoaded === state.albumMonth;
@@ -3413,13 +3721,15 @@
     const totalLikes = state.photoLikes.filter((l) => all.some((p) => p.id === l.photo_id)).length;
     return `
       <header class="month-head">
-        <h1>${y}年${m}月</h1>
+        <h1><button class="album-ytitle" data-act="album-year" aria-label="${y}年${m}月，點一下看整年">${y}年${m}月<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h1>
         <div class="month-nav">
           ${state.albumMonth !== today().slice(0, 7) ? '<button class="chip-btn" data-act="album-now">回到本月</button>' : ''}
           <button class="icon-btn" data-act="album-prev" aria-label="上個月">‹</button>
           <button class="icon-btn" data-act="album-next" aria-label="下個月" ${state.albumMonth >= today().slice(0, 7) ? 'disabled' : ''}>›</button>
         </div>
       </header>
+      ${albumTabsHtml()}
+      ${state.albumMonth === today().slice(0, 7) && !state.albumFilter ? memoriesHtml() : ''}
       ${!loaded ? '<div class="skel-wrap" role="status" aria-label="讀取照片中"><div class="skel hero"></div><div class="skel line w60"></div><div class="skel row"></div><div class="skel row"></div><div class="skel row"></div></div>' : !all.length ? `
         <div class="empty big">
           <p>這個月還沒有照片。今天的晚餐、放學路上、週末出去玩，拍了就放上來，全家都能看、能留言、按愛心。</p>
@@ -3447,26 +3757,28 @@
     const dt = parse(d.date), cover = d.items.slice(0, 3), more = d.items.length - cover.length;
     const n = d.items.reduce((t, p) => t + commentsOf(p.id).length, 0), h = d.items.reduce((t, p) => t + likesOf(p.id).length, 0);
     const who = [...new Set(d.items.map((p) => p.author))];
-    const cap = (d.items.find((p) => p.caption) || {}).caption || '';
+    const cap = (d.items.find((p) => p.caption) || {}).caption || '', evt = eventTitleOf(d.items);
     return `
       <button class="album-dcard" data-act="album-day" data-date="${esc(d.date)}" aria-label="${dt.getMonth() + 1}月${dt.getDate()}日，${d.items.length} 張照片">
         <span class="album-dcov n${cover.length}">${cover.map((p, i) => `<img src="${esc(p.thumb)}" alt="" loading="lazy" decoding="async">${i === cover.length - 1 && more > 0 ? `<i>+${more}</i>` : ''}`).join('')}</span>
         <span class="album-dmeta">
           <b>${dt.getMonth() + 1}月${dt.getDate()}日<small>星期${WEEKDAYS[dt.getDay()]}${d.date === today() ? '・今天' : ''}</small></b>
-          ${cap ? `<em>${esc(cap)}</em>` : ''}
+          ${evt ? `<em class="ev">${esc(evt)}</em>` : ''}${cap && cap !== evt ? `<em>${esc(cap)}</em>` : ''}
           <span>${d.items.length} 張${h ? `<i class="album-hearts">${HEART}${h}</i>` : ''}${n ? `<i>${BUBBLE}${n}</i>` : ''}<span class="album-dwho">${who.slice(0, 4).map((u) => member(u) ? avatarHtml(member(u), 'xs') : '').join('')}</span></span>
         </span>
       </button>`;
   }
   function albumGridHtml(items) {
-    return `<div class="album-grid ${items.length >= 3 ? 'mosaic' : items.length === 2 ? 'two' : 'one'}">
+    const sel = state.albumSel;
+    return `<div class="album-grid ${state.albumDense || sel ? 'dense' : items.length >= 3 ? 'mosaic' : items.length === 2 ? 'two' : 'one'} ${sel ? 'picking' : ''}">
       ${items.map((p, idx) => {
         const n = commentsOf(p.id).length, h = likesOf(p.id).length;
         // 最後一列沒排滿時，最後一張放寬把那一列補滿，不留空格
-        const tail = items.length > 3 && idx === items.length - 1 ? ['', ' wide3', ' wide2'][items.length % 3] : '';
-        return `<button class="album-cell${tail}" data-act="open-photo" data-id="${esc(p.id)}" aria-label="${esc(nameOf(p.author))}的照片${p.caption ? '：' + esc(p.caption) : ''}">
+        const tail = !state.albumDense && !sel && items.length > 3 && idx === items.length - 1 ? ['', ' wide3', ' wide2'][items.length % 3] : '';
+        const on = sel && sel.includes(p.id);
+        return `<button class="album-cell${tail}${on ? ' picked' : ''}" data-act="${sel ? 'album-pick' : 'open-photo'}" data-id="${esc(p.id)}" ${sel ? `aria-pressed="${!!on}"` : ''} aria-label="${esc(nameOf(p.author))}的照片${p.caption ? '：' + esc(p.caption) : ''}">
           <img src="${esc(p.thumb)}" alt="" loading="lazy" decoding="async">
-          ${n || h ? `<span class="album-badges">${h ? `<i class="${likedByMe(p.id) ? 'mine' : ''}">${HEART}${h}</i>` : ''}${n ? `<i>${BUBBLE}${n}</i>` : ''}</span>` : ''}
+          ${sel ? `<span class="album-tick" aria-hidden="true">${on ? CHECK_SVG : ''}</span>` : n || h ? `<span class="album-badges">${h ? `<i class="${likedByMe(p.id) ? 'mine' : ''}">${HEART}${h}</i>` : ''}${n ? `<i>${BUBBLE}${n}</i>` : ''}</span>` : ''}
         </button>`;
       }).join('')}
     </div>`;
@@ -3481,14 +3793,15 @@
     return `
       <button class="link-btn back" data-act="album-day-back">‹ ${m}月的相簿</button>
       <header class="month-head album-dhead">
-        <h1>${dt.getMonth() + 1}月${dt.getDate()}日<small>星期${WEEKDAYS[dt.getDay()]}・${items.length} 張</small></h1>
+        <h1>${dt.getMonth() + 1}月${dt.getDate()}日<small>星期${WEEKDAYS[dt.getDay()]}・${items.length} 張${eventTitleOf(items) ? '・' + esc(eventTitleOf(items)) : ''}</small></h1>
         <div class="month-nav">
           <button class="icon-btn" data-act="album-day" data-date="${esc(older || '')}" aria-label="前一天有照片的日子" ${older ? '' : 'disabled'}>‹</button>
           <button class="icon-btn" data-act="album-day" data-date="${esc(newer || '')}" aria-label="後一天有照片的日子" ${newer ? '' : 'disabled'}>›</button>
         </div>
       </header>
-      ${items.length > 1 ? `<div class="album-stats"><span>只看這一天的 <b>${items.length}</b> 張</span><button class="album-play" data-act="album-play">${PLAY}播放</button></div>` : ''}
-      ${items.length ? albumGridHtml(items) : '<p class="hint album-wait">這一天沒有照片。</p>'}`;
+      ${albumToolsHtml(items)}
+      ${items.length ? albumGridHtml(items) : '<p class="hint album-wait">這一天沒有照片。</p>'}
+      ${albumSelBarHtml()}`;
   }
 
   // 選「照片裡有誰」的勾選列（上傳和編輯共用）
@@ -3508,11 +3821,16 @@
       body: `
       <label>照片（一次最多 10 張）<input type="file" name="photos" accept="image/*" multiple></label>
       <div class="photo-previews" id="photo-previews" hidden></div>
-      <label>說明（可不填）<input type="text" name="caption" maxlength="100" autocomplete="off" placeholder="例如：阿嬤家的年夜飯"></label>
+      <label>哪一天拍的<input type="date" name="date" value="${state.albumDay && !state.albumId ? esc(state.albumDay) : today()}" max="${today()}"></label>
+      <label hidden>是哪個行程的照片<select name="event_title"><option value="">不指定</option></select></label>
+      <label>放進相簿（可不選）<select name="album_id"><option value="">不放</option>${state.albums.map((a) => `<option value="${esc(a.id)}" ${a.id === state.albumId ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
       ${peoplePicker([])}
-      <label>哪一天拍的<input type="date" name="date" value="${today()}" max="${today()}"></label>
+      <label>說明（可不填）<input type="text" name="caption" maxlength="100" autocomplete="off" placeholder="例如：阿嬤家的年夜飯"></label>
+      <button type="button" class="btn ghost small" data-act="photo-ai">AI 幫我想說明</button>
+      <div class="photo-ai-out" id="photo-ai-out"></div>
       <p class="hint">一次選很多張時，同一句說明和標註會放在每一張上，之後可以一張一張改。</p>`
     });
+    fillPhotoEvents();
   }
   // 選好照片後先顯示小預覽
   function showPhotoPreviews(input) {
@@ -3520,7 +3838,9 @@
     if (!box) return;
     const files = Array.from(input.files || []).slice(0, 10);
     box.hidden = !files.length;
-    box.innerHTML = files.map((f) => `<img src="${URL.createObjectURL(f)}" alt="">`).join('')
+    const form = input.form;
+    if (form) form._done = new Set();
+    box.innerHTML = files.map((f, i) => `<span class="pv" data-i="${i}"><img src="${URL.createObjectURL(f)}" alt=""><i></i></span>`).join('')
       + (input.files.length > 10 ? `<span class="hint">只會放前 10 張</span>` : '');
   }
 
@@ -3532,7 +3852,9 @@
       <img class="photo-edit-thumb" src="${esc(p.thumb)}" alt="">
       <label>說明<input type="text" name="caption" value="${esc(p.caption || '')}" maxlength="100" autocomplete="off"></label>
       ${peoplePicker(p.people)}
-      <label>哪一天拍的<input type="date" name="date" value="${esc(p.date)}" max="${today()}"></label>`
+      <label>哪一天拍的<input type="date" name="date" value="${esc(p.date)}" max="${today()}"></label>
+      <label>是哪個行程的照片（可不填）<input type="text" name="event_title" value="${esc(p.event_title || '')}" maxlength="60" autocomplete="off" placeholder="例如：鋼琴發表會"></label>
+      <label>放進相簿<select name="album_id"><option value="">不放</option>${state.albums.map((a) => `<option value="${esc(a.id)}" ${a.id === p.album_id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>`
     });
   }
 
@@ -3574,6 +3896,7 @@
     const i = list.indexOf(p);
     const prev = list[i - 1], next = list[i + 1];
     const who = member(p.author);
+    zoom = { scale: 1, x: 0, y: 0 };
     document.body.classList.add('sheet-open');
     $sheet.innerHTML = `
       <div class="album-view ${state.slideshow ? 'playing' : ''}" role="dialog" aria-label="照片">
@@ -5142,7 +5465,7 @@
     const view = views[state.notesView];
     if (!view) return viewHub();
     // 旅程裡面、公車路線裡面已經有自己的「返回」，就不再多放一個
-    const inner = (state.notesView === 'album' && state.albumDay) || (state.notesView === 'notes' && state.tripId && tripOf(state.tripId)) || (state.notesView === 'transit' && state.transit.mode === 'bus' && state.transit.route);
+    const inner = (state.notesView === 'album' && (state.albumDay || state.albumId || state.albumYear)) || (state.notesView === 'notes' && state.tripId && tripOf(state.tripId)) || (state.notesView === 'transit' && state.transit.mode === 'bus' && state.transit.route);
     return (inner ? '' : '<button class="link-btn back hub-back" data-act="notes-view" data-view="hub">‹ 鍾家生活</button>') + view();
   }
 
@@ -5479,6 +5802,7 @@
           ${ev.note ? `<dt>備註</dt><dd>${esc(ev.note)}</dd>` : ''}
         </dl>
         <p class="hint">這是${esc(nameOf(ev.created_by))}新增的行程，只有${esc(nameOf(ev.created_by))}可以修改或刪除。</p>
+        ${(occDate || ev.event_date) <= today() ? `<button type="button" class="btn ghost small" data-act="album-jump" data-date="${esc(occDate || ev.event_date)}">看這天的相簿</button>` : ''}
       </div>`
     });
   }
@@ -6271,7 +6595,7 @@
       after() { render(); }
     },
     'photo-form': {
-      read: (f) => ({ files: Array.from(f.photos.files || []), caption: f.caption.value.trim(), date: f.date.value, people: Array.from(document.querySelectorAll('#photo-form input[name="people"]:checked')).map((i) => i.value) }),
+      read: (f) => ({ form: f, album_id: f.album_id.value, event_title: f.event_title.value, files: Array.from(f.photos.files || []), caption: f.caption.value.trim(), date: f.date.value, people: Array.from(document.querySelectorAll('#photo-form input[name="people"]:checked')).map((i) => i.value) }),
       check(x) {
         if (!x.files.length) return '請選擇照片';
         if (x.files.length > 10) return '一次最多 10 張，請分幾次上傳';
@@ -6281,26 +6605,72 @@
       },
       async save(x) {
         const err = document.getElementById('form-error');
-        let n = 0;
-        for (const file of x.files) {
-          n++;
-          if (err && x.files.length > 1) { err.hidden = false; err.textContent = '上傳中 ' + n + ' / ' + x.files.length + '…'; }
-          const img = await loadImage(file);
-          let full = shrink(img, 1280, 0.72);
-          for (const [side, q] of [[1024, 0.65], [800, 0.6], [640, 0.55]]) { if (full.length <= 900000) break; full = shrink(img, side, q); }
-          if (full.length > 900000) throw new Error('too-large');
-          const image_id = await Api.addDoc('chat_images', { data: full, sender: state.userId, sent_at: Date.now() });
-          await Api.addDoc('photos', {
-            month: x.date.slice(0, 7), date: x.date, caption: x.caption, people: x.people, thumb: shrink(img, 360, 0.6), image_id,
-            author: state.userId, created_by: state.userId, created_at: Date.now()
-          });
+        // 一張一張傳：每張的小預覽會顯示傳送中、完成或失敗。失敗的留著，再按一次「上傳」只會重傳沒成功的。
+        const done = x.form._done || (x.form._done = new Set());
+        const mark = (i, cls) => { const el = document.querySelector('#photo-previews .pv[data-i="' + i + '"]'); if (el) el.className = 'pv ' + cls; };
+        let failed = 0;
+        for (let i = 0; i < x.files.length; i++) {
+          if (done.has(i)) continue;
+          mark(i, 'busy');
+          if (err) { err.hidden = false; err.textContent = '上傳中 ' + (done.size + 1) + ' / ' + x.files.length + '…'; }
+          let image_id = '';
+          try {
+            const img = await loadImage(x.files[i]);
+            // 盡量保留畫質：從 1600px 開始，太大才一級一級縮（一張要小於資料庫的上限）
+            let full = shrink(img, 1600, 0.82);
+            for (const [side, q] of [[1440, 0.78], [1280, 0.72], [1024, 0.65], [800, 0.6], [640, 0.55]]) { if (full.length <= 900000) break; full = shrink(img, side, q); }
+            if (full.length > 900000) throw new Error('too-large');
+            image_id = await Api.addDoc('chat_images', { data: full, sender: state.userId, sent_at: Date.now() });
+            await Api.addDoc('photos', {
+              month: x.date.slice(0, 7), date: x.date, caption: x.caption, people: x.people, thumb: shrink(img, 360, 0.6), image_id,
+              album_id: x.album_id || '', event_title: x.event_title || '',
+              author: state.userId, created_by: state.userId, created_at: Date.now()
+            });
+            done.add(i); mark(i, 'ok');
+          } catch (e) { console.error(e); failed++; mark(i, 'bad'); if (image_id) Api.deleteDoc('chat_images', image_id).catch(() => {}); }
         }
+        if (x.album_id && done.size > (x.form._bumped || 0)) { bumpAlbum(x.album_id, done.size - (x.form._bumped || 0), ''); x.form._bumped = done.size; }
+        if (failed) { const e = new Error('upload-failed'); e.friendly = (done.size ? '已傳好 ' + done.size + ' 張，' : '') + '有 ' + failed + ' 張沒傳成功（紅框的）。再按一次「上傳」只會重傳這幾張。'; throw e; }
       },
       done: '已放進相簿',
-      after(x) { if (x) state.albumMonth = x.date.slice(0, 7); render(); loadAlbum(); }
+      after(x) { if (x && !state.albumId) { state.albumMonth = x.date.slice(0, 7); if (state.albumDay) state.albumDay = x.date; } render(); loadAlbum(); }
+    },
+    'album-form': {
+      read: (f) => ({ id: f.item_id.value, name: f.name.value.trim() }),
+      check: (x) => (!x.name ? '請幫相簿取個名字' : null),
+      async save(x) {
+        if (x.id) await Api.updateDoc('albums', x.id, { name: x.name });
+        else x.id = await Api.addDoc('albums', { name: x.name, created_by: state.userId, created_at: Date.now(), cover: '', count: 0 });
+      },
+      done: '已儲存',
+      after(x) { if (x && !state.albumId) { state.albumTab = 'albums'; state.albumId = x.id; state.albumDay = null; } render(); loadAlbum(); }
+    },
+    'album-pick-form': {
+      read: (f) => ({ album: f.album.value, name: f.name.value.trim() }),
+      check: (x) => (x.album === '+' && !x.name ? '請輸入新相簿的名字' : x.album === undefined ? '請選一本相簿' : null),
+      async save(x) {
+        let id = x.album;
+        if (id === '+') id = await Api.addDoc('albums', { name: x.name, created_by: state.userId, created_at: Date.now(), cover: '', count: 0 });
+        const moving = selPhotos().filter((p) => p.album_id !== id);
+        await Promise.all(moving.map((p) => Api.updateDoc('photos', p.id, { album_id: id })));
+        if (moving.length) bumpAlbum(id, moving.length, moving[0].thumb);
+      },
+      done: '已放好',
+      after() { state.albumSel = null; render(); }
+    },
+    'album-people-form': {
+      read: () => ({ people: Array.from(document.querySelectorAll('#album-people-form input[name="people"]:checked')).map((i) => i.value) }),
+      check: () => null,
+      async save(x) {
+        const mine = selPhotos().filter(canEditPhoto);
+        if (!mine.length) { const e = new Error('not-mine'); e.friendly = '只能標註自己放的照片'; throw e; }
+        await Promise.all(mine.map((p) => Api.updateDoc('photos', p.id, { people: x.people })));
+      },
+      done: '已標註',
+      after() { state.albumSel = null; render(); }
     },
     'photo-edit-form': {
-      read: (f) => ({ id: f.item_id.value, caption: f.caption.value.trim(), date: f.date.value, people: Array.from(document.querySelectorAll('#photo-edit-form input[name="people"]:checked')).map((i) => i.value) }),
+      read: (f) => ({ id: f.item_id.value, caption: f.caption.value.trim(), date: f.date.value, event_title: f.event_title.value.trim(), album_id: f.album_id.value, people: Array.from(document.querySelectorAll('#photo-edit-form input[name="people"]:checked')).map((i) => i.value) }),
       check(x) {
         const p = findById(state.photos, x.id);
         if (!p || !canEditPhoto(p)) return '這張照片不能修改';
@@ -6311,7 +6681,7 @@
         const p = findById(state.photos, x.id);
         const month = x.date.slice(0, 7), moved = p.month !== month;
         const comments = commentsOf(p.id).map((c) => c.id), likes = state.photoLikes.filter((l) => l.photo_id === p.id).map((l) => l.id);
-        await Api.updateDoc('photos', x.id, { caption: x.caption, people: x.people, date: x.date, month });
+        await Api.updateDoc('photos', x.id, { caption: x.caption, people: x.people, date: x.date, month, event_title: x.event_title, album_id: x.album_id });
         // 照片搬到別的月份：留言和愛心也要跟著搬，不然在新的月份看不到
         if (moved) await Promise.all(comments.map((id) => Api.updateDoc('photo_comments', id, { month }))
           .concat(likes.map((id) => Api.updateDoc('photo_likes', id, { month })))).catch((e) => console.warn(e));
@@ -6811,7 +7181,7 @@
       if (e) openEventSheet(e.series || e, el.dataset.date);
     }
     else if (act === 'skip-day') onSkipDay(el);
-    else if (act === 'notes-view') { state.notesView = el.dataset.view; state.albumDay = null; render(); scroller().scrollTop = 0; loadTab(); }
+    else if (act === 'notes-view') { state.notesView = el.dataset.view; state.albumDay = null; state.albumId = null; state.albumYear = null; state.albumSel = null; render(); scroller().scrollTop = 0; loadTab(); }
     else if (act === 'ledger-kid') { state.ledgerKid = el.dataset.id; state.ledgerDay = null; state.scoreSubject = ''; render(); }
     else if (act === 'ledger-day') { state.ledgerDay = el.dataset.date && el.dataset.date !== state.ledgerDay ? el.dataset.date : null; render(); }
     else if (act === 'req-given') onRequestGiven(el);
@@ -7038,10 +7408,30 @@
       const d = parse(state.albumMonth + '-01');
       d.setMonth(d.getMonth() + (act === 'album-prev' ? -1 : 1));
       const to = act === 'album-now' ? today().slice(0, 7) : ymd(d).slice(0, 7);
-      if (to <= today().slice(0, 7)) { state.albumMonth = to; state.albumDay = null; render(); scroller().scrollTop = 0; loadAlbum(); }
+      if (to <= today().slice(0, 7)) { state.albumMonth = to; state.albumDay = null; state.albumSel = null; render(); scroller().scrollTop = 0; loadAlbum(); }
     }
-    else if (act === 'album-day') { if (el.dataset.date) { state.albumDay = el.dataset.date; render(); scroller().scrollTop = 0; } }
-    else if (act === 'album-day-back') { const from = state.albumDay; state.albumDay = null; render(); const c = document.querySelector('.album-dcard[data-date="' + from + '"]'); if (c) c.scrollIntoView({ block: 'center' }); }
+    else if (act === 'album-tab') { state.albumTab = el.dataset.tab; state.albumDay = null; state.albumSel = null; render(); scroller().scrollTop = 0; }
+    else if (act === 'album-new') openAlbumForm(null);
+    else if (act === 'album-edit') openAlbumForm(albumOf(state.albumId));
+    else if (act === 'album-del') deleteAlbum(el);
+    else if (act === 'album-open') { state.albumId = el.dataset.id; state.albumSel = null; state.albumFilter = ''; render(); scroller().scrollTop = 0; loadAlbum(); }
+    else if (act === 'album-close') { state.albumId = null; state.albumSel = null; render(); loadAlbum(); }
+    else if (act === 'album-year') { state.albumYear = Number(state.albumMonth.slice(0, 4)); state.albumDay = null; render(); scroller().scrollTop = 0; }
+    else if (act === 'album-year-close') { state.albumYear = null; render(); }
+    else if (act === 'album-year-step') { const y = state.albumYear + Number(el.dataset.dir); if (y <= Number(today().slice(0, 4)) && y >= 2000) { state.albumYear = y; render(); } }
+    else if (act === 'album-month') { state.albumYear = null; state.albumMonth = el.dataset.month; state.albumTab = 'date'; render(); scroller().scrollTop = 0; loadAlbum(); }
+    else if (act === 'album-jump') jumpToDay(el.dataset.date);
+    else if (act === 'album-dense') { state.albumDense = !state.albumDense; try { localStorage.setItem(DENSE_KEY, state.albumDense ? '1' : '0'); } catch (e) { /* 忽略 */ } render(); }
+    else if (act === 'album-select') { state.albumSel = state.albumSel ? null : []; render(); }
+    else if (act === 'album-pick') { const i = state.albumSel.indexOf(el.dataset.id); if (i >= 0) state.albumSel.splice(i, 1); else state.albumSel.push(el.dataset.id); const y = scroller().scrollTop; render(); scroller().scrollTop = y; }
+    else if (act === 'sel-album') openAlbumPick();
+    else if (act === 'sel-people') showSheet('album-people-form', { title: '標註照片裡有誰', submit: '套用', body: peoplePicker([]) + '<p class="hint">會套用到選的每一張（只能改自己放的照片）。</p>' });
+    else if (act === 'sel-share') selShare();
+    else if (act === 'sel-del') selDelete(el);
+    else if (act === 'photo-ai') photoAi(el);
+    else if (act === 'photo-ai-pick') { const f = document.getElementById('photo-form'); if (f) f.elements.caption.value = el.textContent.slice(0, 100); }
+    else if (act === 'album-day') { if (el.dataset.date) { state.albumSel = null; state.albumDay = el.dataset.date; render(); scroller().scrollTop = 0; } }
+    else if (act === 'album-day-back') { const from = state.albumDay; state.albumDay = null; state.albumSel = null; render(); const c = document.querySelector('.album-dcard[data-date="' + from + '"]'); if (c) c.scrollIntoView({ block: 'center' }); }
     else if (act === 'posts-view') { state.postsView = el.dataset.view; render(); scroller().scrollTop = 0; }
     else if (act === 'open-polls') { state.tab = 'posts'; state.postsView = 'polls'; state.pollHistory = false; render(); }
     else if (act === 'vote') onVote(el);
@@ -7169,6 +7559,7 @@
   document.addEventListener('input', (ev) => {
     const t = ev.target;
     if (t.name === 'photos' && t.type === 'file') showPhotoPreviews(t);
+    if (t.name === 'date' && t.form && t.form.id === 'photo-form') fillPhotoEvents();
     if (t.form && t.form.id === 'bday-form') drawBdayPreview();
     if (t.id === 'chat-input') { state.draft = t.value; watchMention(t); pingTyping(t.value); }
     else if (t.id === 'chat-q') { state.chatQuery = t.value; refreshChat(false); }
@@ -7852,6 +8243,7 @@
     swipe = null;
     if (!quick || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;      // 要夠長、夠快、夠水平
     if ($sheet.querySelector('.album-view')) {
+      if (zoom.scale > 1) return;      // 放大看的時候，左右滑是移動照片，不換張
       const step = $sheet.querySelector(dx > 0 ? '.album-step.prev' : '.album-step.next');
       if (step) step.click();
       return;
