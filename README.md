@@ -162,6 +162,13 @@ firebase deploy --only functions,firestore:rules
 
 最簡單的方式：重新下載 ZIP、解壓縮，然後在資料夾裡對 `deploy.bat` 連按兩下。它會自動安裝需要的套件並部署通知程式和安全規則。
 
+用手機部署（不用電腦）：打開 GitHub App 或網頁 → 這個 repo 的 Actions →「部署 Firebase（雲端函式和安全規則）」→ Run workflow。做的事跟 `deploy.bat` 一樣，大約 3～5 分鐘，綠色勾勾就是成功。
+第一次要先在電腦上設定一次金鑰：
+1. Google Cloud 主控台 → IAM 與管理 → 服務帳戶 → 建立服務帳戶（名稱例如 github-deploy），角色給「編輯者」和「服務帳戶使用者」。
+2. 點進這個服務帳戶 → 金鑰 → 新增金鑰 → JSON，會下載一個 .json 檔。
+3. GitHub 的 repo → Settings → Secrets and variables → Actions → New repository secret，名稱 `FIREBASE_SERVICE_ACCOUNT`，內容貼上整個 .json 檔的文字。
+4. 貼好後把電腦裡的 .json 檔刪掉。這把金鑰不要傳給任何人（包括 Claude）。
+
 或者手動：
 在同一個資料夾再執行一次 `firebase deploy --only functions,firestore:rules`。
 
