@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 18:55';
+  const VERSION = '2026-11-21 19:02';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -123,7 +123,7 @@
     polls: [], votes: [],
     pollOpen: null,          // 歷史紀錄裡點開看細節的那一則
     pollHistory: false,      // 投票頁正在看「歷史紀錄」（已結束、已截止、已作廢的投票）
-    homePollId: null,        // 首頁投票區目前顯示哪一則（多則時用 1、2、3… 切換）
+    homePollId: null,        // 首頁投票區展開的那一則（null = 全部合起來）
     pollEdit: null,          // 正在投票或改票的那一則投票；其他投票的選項都是鎖住的，避免誤觸
     ledger: [],
     ledgerMonth: today().slice(0, 7),
@@ -2055,16 +2055,23 @@
     const list = state.polls.filter((p) => !p.voided && (!pollOver(p) || ymd(new Date(p.created_at)) === t || p.deadline === t))
       .sort((a, b) => a.created_at - b.created_at);
     if (!list.length) return '';
-    // 只用一個固定的位置顯示一則；有多則時，上方出現 1、2、3… 可以切換
+    // 預設全部合起來，一則一列只顯示標題和狀態；點一列展開那一則（同時只展開一則），再點一次合起來
     const needsMe = (p) => !pollOver(p) && !state.votes.some((v) => v.poll_id === p.id && v.uid === state.userId);
-    // 沒有特別選的時候：先顯示還在等我投的那一則，都投過了就顯示最新的
-    const current = list.find((p) => p.id === state.homePollId) || list.find(needsMe) || list[list.length - 1];
-    state.homePollId = current.id;
-    const pager = list.length > 1 ? `
-      <span class="pager" role="group" aria-label="切換投票">
-        ${list.map((p, i) => `<button class="${p.id === current.id ? 'on' : ''} ${needsMe(p) ? 'dot' : ''}" data-act="home-poll" data-id="${esc(p.id)}" aria-label="第 ${i + 1} 則投票${needsMe(p) ? '，等你投票' : ''}" ${p.id === current.id ? 'aria-pressed="true"' : ''}>${i + 1}</button>`).join('')}
-      </span>` : '';
-    return `<h2>投票${pager}<button class="link-btn" data-act="open-polls">看全部</button></h2>${pollCardHtml(current, true)}`;
+    if (state.homePollId && !list.some((p) => p.id === state.homePollId)) state.homePollId = null;
+    const row = (p) => {
+      const open = p.id === state.homePollId, over = pollOver(p);
+      const n = state.votes.filter((v) => v.poll_id === p.id && member(v.uid)).length;
+      const flag = over ? '<em class="hp-flag done">已結束</em>' : needsMe(p) ? '<em class="hp-flag">等你投票</em>' : '<em class="hp-flag ok">已投</em>';
+      return `<div class="hp-item ${open ? 'open' : ''}">
+        <button class="hp-row" data-act="home-poll" data-id="${esc(p.id)}" aria-expanded="${open}">
+          <svg class="hp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>
+          <b>${esc(p.question)}</b>${flag}<small>${n}/${state.members.length}</small>
+          <svg class="hp-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        ${open ? pollCardHtml(p, true) : ''}
+      </div>`;
+    };
+    return `<h2>投票<button class="link-btn" data-act="open-polls">看全部</button></h2><div class="hp-list">${list.map(row).join('')}</div>`;
   }
 
   const POLL_MAX = 12;   // 一個投票最多幾個選項
@@ -6391,7 +6398,7 @@
     else if (act === 'void-poll') onPollAction(el, 'void');
     else if (act === 'poll-open') { state.pollOpen = state.pollOpen === el.dataset.id ? null : el.dataset.id; refreshPolls(); }
     else if (act === 'poll-history') { state.pollHistory = !!el.dataset.history; state.pollEdit = null; state.pollOpen = null; refreshPolls(); scroller().scrollTop = 0; }
-    else if (act === 'home-poll') { state.homePollId = el.dataset.id; state.pollEdit = null; refreshPolls(); }
+    else if (act === 'home-poll') { state.homePollId = state.homePollId === el.dataset.id ? null : el.dataset.id; state.pollEdit = null; refreshPolls(); }
     else if (act === 'poll-edit') { state.pollEdit = state.pollEdit === el.dataset.id ? null : el.dataset.id; refreshPolls(); }
     else if (act === 'del-poll') onPollAction(el, 'del');
     else if (act === 'poll-preset') {
