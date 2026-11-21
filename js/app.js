@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 19:39';
+  const VERSION = '2026-11-21 19:41';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2951,6 +2951,7 @@
           <button class="icon-btn" data-act="album-day" data-date="${esc(newer || '')}" aria-label="後一天有照片的日子" ${newer ? '' : 'disabled'}>›</button>
         </div>
       </header>
+      ${items.length > 1 ? `<div class="album-stats"><span>只看這一天的 <b>${items.length}</b> 張</span><button class="album-play" data-act="album-play">${PLAY}播放</button></div>` : ''}
       ${items.length ? albumGridHtml(items) : '<p class="hint album-wait">這一天沒有照片。</p>'}`;
   }
 
@@ -3030,7 +3031,9 @@
   async function openPhoto(id) {
     const p = findById(state.photos, id);
     if (!p) return;
-    const list = albumList().includes(p) ? albumList() : state.photos;
+    // 在看某一天時：上一張、下一張只在這一天的照片裡切換
+    const base = state.albumDay ? albumList().filter((x) => x.date === state.albumDay) : albumList();
+    const list = base.includes(p) ? base : state.albumDay ? state.photos.filter((x) => x.date === p.date) : state.photos;
     state.photoId = id;
     const i = list.indexOf(p);
     const prev = list[i - 1], next = list[i + 1];
@@ -3088,7 +3091,7 @@
   }
   // 幻燈片：從篩選後的第一張開始，每 4 秒換一張
   function startSlideshow() {
-    const list = albumList();
+    const list = state.albumDay ? albumList().filter((x) => x.date === state.albumDay) : albumList();
     if (!list.length) return;
     state.slideshow = -1;
     if (navigator.wakeLock) navigator.wakeLock.request('screen').then((w) => { if (state.slideshow) state.slideWake = w; else w.release(); }).catch(() => {});

@@ -2278,5 +2278,6 @@ html[data-style="comic"] :is(.ci-bar, .ci-panel, .ci-card, .ci-tile) { border: 2
 .album-dwho .avatar.xs { width: 18px; height: 18px; font-size: 10px; }
 .album-dhead h1 { display: flex; flex-direction: column; }
 .album-dhead h1 small { font-size: 13px; font-weight: 500; color: var(--ink-2); margin-top: 2px; }
-.album-dhead + .album-grid { margin-top: 12px; }
+.album-dhead + .album-grid, .album-dhead + .album-stats { margin-top: 12px; }
+.album-dhead ~ .album-stats + .album-grid { margin-top: 10px; }
 .album-dwho .avatar::after { display: none; }
