@@ -2200,3 +2200,7 @@ html[data-style="comic"] :is(.vd-card, .vd-quota, .vp-more) { border: 2.5px soli
 html[data-style="comic"] :is(.ci-bar, .ci-panel, .ci-card, .ci-tile) { border: 2.5px solid #111; border-radius: 8px; box-shadow: 3px 3px 0 #111; }
 @media (max-width: 350px) { .ci-grid { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .ci-panel, .ci-wait i { animation: none; } .ci-tile { transition: none; } }
+
+/* 訊息裡的網址 */
+.bubble a.msg-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; word-break: break-all; font-weight: 600; }
+.msg:not(.mine) .bubble a.msg-link { color: var(--green); }

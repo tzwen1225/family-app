@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-21 10:46';
+  const VERSION = '2026-11-21 10:54';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1467,14 +1467,44 @@
     refreshChat(false);
   }
   // 訊息文字：跳脫後把 @名字 標出來（搜尋時改成標出關鍵字）
-  function richText(text, q) {
-    if (q) return markText(text, q);
+  // 訊息裡的網址（https://… 或 www.…）變成點得開的連結；結尾的標點不算在網址裡
+  const URL_RE = /(?:https?:\/\/|www\.)[^\s<>"'，。、；：！？「」『』（）【】]+/gi;
+  function splitUrl(raw) {
+    const m = raw.match(/[.,;:!?)\]}'"]+$/);
+    return m ? [raw.slice(0, -m[0].length), m[0]] : [raw, ''];
+  }
+  function mentionHtml(text) {
     let out = esc(text);
     if (out.indexOf('@') < 0) return out;
     state.members.map((m) => m.display_name).concat(AT_ALL).sort((a, b) => b.length - a.length).forEach((n) => {
       out = out.split('@' + esc(n)).join('<b class="at">@' + esc(n) + '</b>');
     });
     return out;
+  }
+  function richText(text, q) {
+    if (q) return markText(text, q);
+    text = String(text || '');
+    let out = '', last = 0;
+    text.replace(URL_RE, (raw, at) => {
+      const url = splitUrl(raw)[0];
+      if (!url || url.length < 5) return raw;
+      const href = /^www\./i.test(url) ? 'https://' + url : url;
+      out += mentionHtml(text.slice(last, at)) + `<a class="msg-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`;
+      last = at + url.length;
+      return raw;
+    });
+    return out + mentionHtml(text.slice(last));
+  }
+  // 複製文字：先用剪貼簿 API，不行再用舊方法
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* 改用下面的方法 */ }
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+    return ok;
   }
   // 這段文字 @ 了誰（不含自己）
   function mentionsIn(text) {
@@ -1579,7 +1609,7 @@
           ${showName ? `<div class="msg-name">${esc(nameOf(m.sender))}</div>` : ''}
           <div class="msg-row">${bubble}<span class="msg-meta"><time>${clock(m.sent_at)}</time>${m.recalled ? '' : readersHtml(m, pos)}</span></div>
           ${m.recalled ? '' : reactChipsHtml(m.id)}
-          ${state.menuMsg === m.id && !m.recalled && !q ? `${reactPickHtml(m.id)}<div class="msg-acts"><button class="reply-btn" data-act="reply-msg" data-id="${esc(m.id)}">回覆</button>${canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回</button>` : ''}</div>` : ''}
+          ${state.menuMsg === m.id && !m.recalled && !q ? `${reactPickHtml(m.id)}<div class="msg-acts"><button class="reply-btn" data-act="reply-msg" data-id="${esc(m.id)}">回覆</button>${m.text ? `<button class="reply-btn" data-act="copy-msg" data-id="${esc(m.id)}">複製</button>` : ''}${canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回</button>` : ''}</div>` : ''}
         </div>`;
       lastSender = m.sender;
     });
@@ -6061,6 +6091,7 @@
   }
 
   document.addEventListener('click', (ev) => {
+    if (ev.target.closest('a.msg-link')) return;   // 點訊息裡的連結：直接打開，不跳出訊息選單
     const el = ev.target.closest('[data-act]');
     if (!el) return;
     const act = el.dataset.act;
@@ -6143,6 +6174,10 @@
     }
     else if (act === 'msg-menu') { state.menuMsg = state.menuMsg === el.dataset.id ? null : el.dataset.id; refreshChat(false); }
     else if (act === 'recall') onRecall(el.dataset.id);
+    else if (act === 'copy-msg') {
+      const m = state.messages.find((x) => x.id === el.dataset.id);
+      if (m && m.text) copyText(m.text).then((ok) => { toast(ok ? '已複製' : '沒有複製成功，請長按文字自己選取'); if (ok) { state.menuMsg = null; refreshChat(false); } });
+    }
     else if (act === 'reply-msg') startReply(el.dataset.id);
     else if (act === 'wx-tap') onWeatherTap();
     else if (act === 'msg-react') toggleMsgReact(el.dataset.id, el.dataset.emoji);
