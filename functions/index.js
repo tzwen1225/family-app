@@ -577,7 +577,7 @@ exports.transit = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds
 let iceCache = { servers: null, until: 0 };
 const FREE_STUN = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
 // ---------- 影片 ----------
-// 查 YouTube 影片的標題和頻道（用 YouTube 公開的 oEmbed），順便知道能不能嵌入播放
+// 查 YouTube 影片的標題和頻道（用 YouTube 公開的 oEmbed），順便知道能不能嵌入播放。只有登入的家人能呼叫。
 exports.videoInfo = onCall({ region: 'asia-east1', maxInstances: 3, timeoutSeconds: 15, memory: '256MiB' }, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', 'login');
   const member = await db.doc('members/' + req.auth.uid).get();
