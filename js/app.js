@@ -23,11 +23,44 @@
     ['night', '夜間', '#1B2320', '#3FA57F']
   ];
   const THEME_KEY = 'family-theme';
-  const currentTheme = () => document.documentElement.dataset.theme || '';
-  function applyTheme(id) {
+  // 選的面板顏色存在 THEME_KEY；打開「跟著手機」時，手機是深色模式就暫時改用夜間，不會改掉原本選的顏色
+  const AUTO_NIGHT_KEY = 'family-auto-night';
+  let chosenTheme = '';
+  try { chosenTheme = localStorage.getItem(THEME_KEY) || ''; } catch (e) { /* 忽略 */ }
+  const autoNight = () => { try { return localStorage.getItem(AUTO_NIGHT_KEY) === '1'; } catch (e) { return false; } };
+  const darkMq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  const currentTheme = () => chosenTheme;
+  function paintTheme() {
+    const id = autoNight() && darkMq && darkMq.matches ? 'night' : chosenTheme;
     if (id) document.documentElement.dataset.theme = id; else delete document.documentElement.dataset.theme;
-    try { if (id) localStorage.setItem(THEME_KEY, id); else localStorage.removeItem(THEME_KEY); } catch (e) { /* 忽略 */ }
     syncThemeColor();
+  }
+  function applyTheme(id) {
+    chosenTheme = id || '';
+    try { if (id) localStorage.setItem(THEME_KEY, id); else localStorage.removeItem(THEME_KEY); } catch (e) { /* 忽略 */ }
+    paintTheme();
+  }
+  function setAutoNight(on) {
+    try { if (on) localStorage.setItem(AUTO_NIGHT_KEY, '1'); else localStorage.removeItem(AUTO_NIGHT_KEY); } catch (e) { /* 忽略 */ }
+    paintTheme();
+  }
+  if (darkMq) { try { darkMq.addEventListener('change', paintTheme); } catch (e) { darkMq.addListener(paintTheme); } }
+  // 小小的慶祝：在剛剛按下去的位置噴幾顆彩色小點（完成待辦、讀完書、投票、報平安）。系統設成「減少動態效果」就不播。
+  let lastTap = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  document.addEventListener('pointerdown', (ev) => { lastTap = { x: ev.clientX, y: ev.clientY }; }, { passive: true, capture: true });
+  function celebrate() {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const box = document.createElement('div');
+    box.className = 'burst'; box.setAttribute('aria-hidden', 'true');
+    box.style.left = lastTap.x + 'px'; box.style.top = lastTap.y + 'px';
+    const colors = ['#E8590C', '#2F6FDE', '#1F8A5F', '#D6457F', '#F2B705', '#7A4FD0'];
+    for (let i = 0; i < 10; i++) {
+      const dot = document.createElement('i'), ang = (Math.PI * 2 * i) / 10 + Math.random() * 0.5, dist = 34 + Math.random() * 26;
+      dot.style.cssText = `background:${colors[i % colors.length]};--dx:${Math.round(Math.cos(ang) * dist)}px;--dy:${Math.round(Math.sin(ang) * dist)}px`;
+      box.appendChild(dot);
+    }
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), 800);
   }
   // 介面風格：跟面板顏色分開，可以自由搭配；只存在這支手機
   const STYLES = [
@@ -1235,6 +1268,7 @@
       Api.sendMessage('【報平安】' + text, { checkin: id }).catch((e) => console.warn('報平安沒有傳到聊天室', e));
       drawCheckin();
       drawCiSent();
+      celebrate();
       clearInterval(ciTimer);
       ciTimer = setInterval(() => {
         const b = document.getElementById('ci-undo');
@@ -2443,7 +2477,7 @@
         { poll_id: p.id, uid: state.userId, choice: Number(btn.dataset.choice), voted_at: Date.now() });
       // 記下「有發起人以外的人投過票」，之後這則投票就不能刪除，只能作廢
       if (p.author !== state.userId && !p.others_voted) Api.updateDoc('polls', p.id, { others_voted: true }).catch((e) => console.warn(e));
-      toast('已投票');
+      toast('已投票'); celebrate();
       refreshPolls();
     } catch (e) { console.error(e); toast('投票沒有成功，請再試一次'); }
   }
@@ -3198,7 +3232,7 @@
           <button class="icon-btn" data-act="album-next" aria-label="下個月" ${state.albumMonth >= today().slice(0, 7) ? 'disabled' : ''}>›</button>
         </div>
       </header>
-      ${!loaded ? '<p class="hint album-wait">讀取照片中…</p>' : !all.length ? `
+      ${!loaded ? '<div class="skel-wrap" role="status" aria-label="讀取照片中"><div class="skel hero"></div><div class="skel line w60"></div><div class="skel row"></div><div class="skel row"></div><div class="skel row"></div></div>' : !all.length ? `
         <div class="empty big">
           <p>這個月還沒有照片。今天的晚餐、放學路上、週末出去玩，拍了就放上來，全家都能看、能留言、按愛心。</p>
         </div>` : `
@@ -3673,7 +3707,7 @@
             <span class="chev" aria-hidden="true">›</span>
           </button>`).join('') : '<p class="none">找不到這條路線。試試只輸入號碼，或路線名稱的前幾個字。</p>'}
       </section>`;
-    return search + (tr.loading && !tr.favEtas.length && !tr.favs.bus.length ? '<p class="hint album-wait">查詢中…</p>' : '') + (tr.favs.bus.length ? `
+    return search + (tr.loading && !tr.favEtas.length && !tr.favs.bus.length ? '<div class="skel-wrap" role="status" aria-label="查詢中"><div class="skel row sm"></div><div class="skel row sm"></div><div class="skel row sm"></div></div>' : '') + (tr.favs.bus.length ? `
       <section class="entries transit-list">
         <h2>常用站牌${updatedHtml()}<button class="link-btn" data-act="transit-refresh">${tr.loading ? '更新中…' : '更新'}</button></h2>
         ${tr.favs.bus.map((f, i) => `
@@ -3729,7 +3763,7 @@
     el.hidden = !tr.traQ.trim();
   }
   function transitTraHtml() {
-    if (!tr.stations) return tr.loading ? '<p class="hint album-wait">查詢中…</p>' : '';
+    if (!tr.stations) return tr.loading ? '<div class="skel-wrap" role="status" aria-label="查詢中"><div class="skel row sm"></div><div class="skel row sm"></div><div class="skel row sm"></div></div>' : '';
     // 常用車站排前面，後面補上新竹附近的幾個站
     const quick = tr.favs.tra.concat(TRA_DEFAULT.map((n) => tr.stations.find((s) => s.name === n)).filter((x) => x && !tr.favs.tra.some((f) => f.id === x.id)));
     const q = tr.traQ.trim();
@@ -3752,7 +3786,7 @@
         <button class="chip-btn" data-act="transit-refresh">${tr.loading ? '更新中…' : '更新'}</button>
       </header>
       <section class="entries transit-list">
-        ${!tr.board ? '<p class="none">查詢中…</p>' : trains.length ? trains.map((t) => `
+        ${!tr.board ? '<div class="skel-wrap" role="status" aria-label="查詢中"><div class="skel row sm"></div><div class="skel row sm"></div><div class="skel row sm"></div></div>' : trains.length ? trains.map((t) => `
           <div class="transit-row train">
             <span class="train-time">${esc(t.time)}</span>
             <span class="transit-main">往 ${esc(t.to)}<small>${esc(t.type)}　${esc(t.no)} 次</small></span>
@@ -3927,8 +3961,8 @@
         // 重複的待辦：不打勾，把日期推到下一次，並記下這次是誰做的
         const next = nextDue(item);
         await Api.updateDoc('shopping', id, { due: next, prev_due: todoDue(item), last_done_by: state.userId, last_done_at: Date.now() });
-        toast('完成！下次是 ' + shortDate(next));
-      } else await Api.updateDoc('shopping', id, { done: !item.done, done_by: item.done ? null : state.userId, done_at: item.done ? null : Date.now() });
+        toast('完成！下次是 ' + shortDate(next)); celebrate();
+      } else { if (!item.done) celebrate(); await Api.updateDoc('shopping', id, { done: !item.done, done_by: item.done ? null : state.userId, done_at: item.done ? null : Date.now() }); }
     } catch (e) { console.error(e); toast('沒有成功，請再試一次'); }
   }
   // 重複的待辦按錯了：把日期改回完成前的那一天
@@ -5148,6 +5182,7 @@
               <span class="swatch"></span>${name}
             </button>`).join('')}
         </div>
+        <label class="switch auto-night"><span>跟著手機的深色模式<small>手機切到深色時自動換成夜間，白天換回你選的顏色</small></span><input type="checkbox" id="auto-night" ${autoNight() ? 'checked' : ''}></label>
       </section>
       ${pushSectionHtml()}
       <h3 class="set-group">家庭設定</h3>
@@ -6494,6 +6529,7 @@
     syncHolidays([state.cursor.slice(0, 4)]);
   }
 
+  document.addEventListener('change', (ev) => { if (ev.target.id === 'auto-night') setAutoNight(ev.target.checked); });
   // 長按訊息：叫出選單（表情、回覆、複製、編輯、置頂…）。手指移動超過一點點就算是在捲動，不觸發。
   let press = null, pressFired = 0;
   const endPress = () => { if (press) { clearTimeout(press.timer); press = null; } };
@@ -6697,6 +6733,7 @@
       if (x) {
         if (!x.done && studyTimer && studyTimer.id === x.id) { finishStudyTimer(true); return; }
         el.classList.add('pop');
+        if (!x.done) celebrate();
         Api.updateDoc('study_items', x.id, x.done ? { done: false } : { done: true, done_at: Date.now() })
           .then(() => { if (!x.done && studyOf(x.kid, x.date).every((y) => y.id === x.id || y.done)) toast('這天的全部完成了，很棒！'); })
           .catch((e) => { console.error(e); toast('沒有成功，請再試一次'); });

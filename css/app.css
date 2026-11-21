@@ -2331,3 +2331,33 @@ html[data-style="comic"] :is(.ci-bar, .ci-panel, .ci-card, .ci-tile) { border: 2
 .rec-strip button { min-height: 36px; padding: 0 12px; border-radius: 18px; font-size: 14px; font-weight: 700; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); }
 .rec-strip button.strong { color: #fff; background: var(--green); box-shadow: none; }
 @media (prefers-reduced-motion: reduce) { .typing i, .rec-dot, .bubble.voice.on .wave { animation: none; } }
+
+/* ---- 慶祝小動畫、載入骨架、跟著手機深色模式 ---- */
+.burst { position: fixed; z-index: 60; width: 0; height: 0; pointer-events: none; }
+.burst i { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; animation: burst .7s cubic-bezier(.2, .7, .3, 1) forwards; }
+.burst i:nth-child(odd) { border-radius: 2px; }
+@keyframes burst { from { transform: translate(0, 0) scale(.4); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) scale(1); opacity: 0; } }
+.skel-wrap { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.skel { border-radius: 14px; background: linear-gradient(100deg, var(--line) 30%, color-mix(in srgb, var(--line) 45%, var(--sheet)) 50%, var(--line) 70%); background-size: 220% 100%; animation: skel 1.3s linear infinite; }
+.skel.hero { height: 180px; border-radius: 18px; }
+.skel.row { height: 96px; border-radius: 18px; }
+.skel.row.sm { height: 56px; border-radius: 14px; }
+.skel.line { height: 14px; border-radius: 7px; }
+.skel.w60 { width: 60%; }
+@keyframes skel { from { background-position: 120% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+.switch.auto-night { margin-top: 10px; }
+.switch.auto-night small { display: block; font-size: 12px; font-weight: 400; color: var(--ink-2); margin-top: 2px; }
+/* 夜間：近期新增的畫面 */
+html[data-theme="night"] :is(.ci-badge:not(.solid), .ci-last) { background: color-mix(in srgb, var(--c) 30%, var(--sheet)); }
+html[data-theme="night"] .ci-badge:not(.solid), html[data-theme="night"] .ci-last { color: color-mix(in srgb, var(--c) 45%, #fff); }
+html[data-theme="night"] .ci-last i { background: rgba(255, 255, 255, .14); }
+html[data-theme="night"] .ci-tile.hint > em { color: #0E1412; background: color-mix(in srgb, var(--c) 45%, #fff); }
+html[data-theme="night"] .ci-tile.hint { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--c) 45%, #fff); }
+html[data-theme="night"] :is(.chat-new, .pin-main svg, .pinned-mark svg) { color: #FF8A80; stroke: #FF8A80; }
+html[data-theme="night"] .chat-new::before, html[data-theme="night"] .chat-new::after { background: rgba(255, 138, 128, .45); }
+html[data-theme="night"] .rec-strip button.strong { color: #0E1412; }
+html[data-theme="night"] .hp-flag.ok { color: #7FD9B3; }
+/* 近期新增的卡片，圓角、邊線統一成跟其他頁面一樣的 16px */
+.ci-bar, .ci-card, .ci-panel, .hp-list, .album-dcard, .pins, .lp { border-radius: 16px; }
+.ci-tile, .lp.yt img, .album-dcov { border-radius: 12px; }
