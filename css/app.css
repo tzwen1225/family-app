@@ -2217,3 +2217,11 @@ html[data-style="comic"] :is(.ci-bar, .ci-panel, .ci-card, .ci-tile) { border: 2
 .ci-last.ci-who { height: 30px; padding-left: 3px; gap: 4px; border-radius: 15px; }
 .ci-last .ci-av { width: 24px; height: 24px; font-size: 12px; font-weight: 700; color: #fff; box-shadow: 0 0 0 2px #fff; }
 .ci-last.ci-who > i { background: transparent; width: 16px; }
+/* 爸媽合起來那一條：定位圖示、頭像、箭頭都用同一個小尺寸（24px） */
+.ci-pbar { min-height: 46px; gap: 8px; padding: 0 8px 0 10px; }
+.ci-pbar .ci-badge.solid { width: 24px; height: 24px; border-radius: 50%; }
+.ci-pbar .ci-badge.solid svg { width: 14px; height: 14px; }
+.ci-pbar .ci-last.ci-who { height: 28px; padding: 0 9px 0 2px; }
+.ci-pbar .ci-last .ci-av { width: 24px; height: 24px; font-size: 12px; box-shadow: none; }
+.ci-pbar .ci-chev { width: 24px; height: 24px; }
+.ci-pbar .ci-chev svg { width: 14px; height: 14px; }
