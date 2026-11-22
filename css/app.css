@@ -2540,3 +2540,11 @@ html[data-theme="night"] .album-selbar button.strong { color: #0E1412; }
 .benv-seal { top: 36px; }
 .benv { height: 138px; }
 .bcard footer .avatar::after, .benv-from .avatar::after { display: none; }
+/* 測試通知的結果 */
+.pt-btns { display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 8px; }
+.pt-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 12px; margin-bottom: 8px; border-radius: 12px; background: color-mix(in srgb, #1F8A5F 10%, transparent); border-left: 4px solid #1F8A5F; }
+.pt-row.warn { background: color-mix(in srgb, #E8A100 12%, transparent); border-left-color: #E8A100; }
+.pt-row.bad { background: color-mix(in srgb, #D93B30 10%, transparent); border-left-color: #D93B30; }
+.pt-row b { font-size: 15px; } .pt-row span { font-size: 12px; color: var(--ink-2); align-self: center; }
+.pt-row p { grid-column: 1 / -1; font-size: 13px; line-height: 1.5; }
+.pt-row code { grid-column: 1 / -1; font-size: 11px; color: var(--ink-2); overflow-wrap: anywhere; }

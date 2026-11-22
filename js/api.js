@@ -190,6 +190,11 @@
       editMessage: (id, text, mentions) => F.updateDoc(F.doc(db, 'messages', id), { text, mentions: mentions || [], edited_at: Date.now() }),
       // 「正在輸入」：只更新自己上線狀態裡的一個欄位（0 = 沒在打字）
       typing: (on) => F.setDoc(F.doc(db, 'presence', uid()), { typing_at: on ? Date.now() : 0 }, { merge: true }),
+      // 實際發一則測試推播，回報每個人登記了幾支手機、成功幾支、失敗原因
+      async pushTest(all) {
+        const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'pushTest');
+        return (await call({ all: !!all })).data;
+      },
       // 問雲端這個網址的標題和簡介（聊天室的連結預覽）
       async linkPreview(url) {
         const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'linkPreview');
@@ -622,6 +627,11 @@
         if (!db.user) return;
         db.presence[db.user] = { ...(db.presence[db.user] || { id: db.user }), typing_at: on ? Date.now() : 0 };
         persist(); emit('presence');
+      },
+      async pushTest(all) {
+        await new Promise((r) => setTimeout(r, 300));
+        const rows = [{ uid: 'm1', name: '爸爸', tokens: 1, ok: 1, errors: [], newest: Date.now() - 3600000 }, { uid: 'm2', name: '媽媽', tokens: 0, ok: 0, errors: [] }, { uid: 'm3', name: '姊姊', tokens: 2, ok: 1, errors: ['messaging/registration-token-not-registered'], newest: Date.now() - 20 * 86400000 }, { uid: 'm4', name: '弟弟', tokens: 1, ok: 0, errors: ['messaging/third-party-auth-error'] }];
+        return { results: all ? rows : rows.slice(0, 1), at: Date.now() };
       },
       async linkPreview(url) {
         await new Promise((r) => setTimeout(r, 200));

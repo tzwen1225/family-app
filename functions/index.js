@@ -680,6 +680,44 @@ exports.videoInfo = onCall({ region: 'asia-east1', invoker: 'public', maxInstanc
   return { ok: true, title: String(d.title || '').slice(0, 200), channel: String(d.author_name || '').slice(0, 100) };
 });
 
+// ---------- 測試通知 ----------
+// 設定頁的「測試通知」：實際發一則推播，回報每個人登記了幾支手機、送成功幾支、失敗的原因代碼。
+// 一般成員只測自己；管理員可以一次測全家。回傳的內容只有名字、數量和錯誤代碼，沒有裝置代碼。
+exports.pushTest = onCall({ region: 'asia-east1', invoker: 'public', maxInstances: 2, timeoutSeconds: 30 }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'login');
+  const members = await db.collection('members').get();
+  const meDoc = members.docs.find((d) => d.id === req.auth.uid);
+  if (!meDoc) throw new HttpsError('permission-denied', 'not-family');
+  const all = (req.data || {}).all === true && meDoc.data().admin === true;
+  const who = all ? members.docs : [meDoc];
+  const dead = ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'];
+  const out = [];
+  for (const m of who) {
+    const row = { uid: m.id, name: m.data().display_name || '家人', tokens: 0, ok: 0, errors: [] };
+    try {
+      const snap = await db.collection('push_tokens').where('uid', '==', m.id).get();
+      row.tokens = snap.size;
+      row.newest = snap.docs.reduce((t, d) => Math.max(t, d.data().updated_at || 0), 0);
+      if (snap.size) {
+        const title = '測試通知', body = (meDoc.data().display_name || '家人') + '在測試通知，收到就代表正常';
+        const result = await getMessaging().sendEachForMulticast({
+          tokens: snap.docs.map((d) => d.id), notification: { title, body }, data: { title, body, tag: 'test', url: APP_URL },
+          webpush: { headers: { Urgency: 'high', TTL: '600' }, notification: { icon: APP_URL + 'icons/icon-192.png', tag: 'test' }, fcmOptions: { link: APP_URL } }
+        });
+        row.ok = result.successCount;
+        await Promise.all(result.responses.map((r, i) => {
+          if (r.success) return null;
+          const code = (r.error && r.error.code) || 'unknown';
+          row.errors.push(code);
+          return dead.includes(code) ? snap.docs[i].ref.delete().catch(() => null) : null;
+        }));
+      }
+    } catch (e) { logger.error('測試通知失敗', e); row.errors.push(String((e && (e.code || e.message)) || 'error').slice(0, 80)); }
+    out.push(row);
+  }
+  return { results: out, at: Date.now() };
+});
+
 // ---------- 連結預覽 ----------
 // 聊天室貼了網址：抓那個網頁的標題和簡介（不抓圖片）。只有登入的家人能呼叫。
 // 為了不被拿來連到內部位址：只接受 http/https 的一般連接埠、主機解析出來的位址必須全部是公開位址、

@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-22 00:21';
+  const VERSION = '2026-11-22 13:46';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1444,6 +1444,44 @@
     });
     try { localStorage.setItem(NOTICE_SEEN_KEY + '-' + state.userId, String(Date.now())); } catch (e) { /* 忽略 */ }
     drawBell();
+  }
+  // 測試通知：請伺服器實際發一則，逐人列出結果和該怎麼處理
+  function pushTestRow(r) {
+    const codes = [...new Set(r.errors || [])];
+    let cls = 'ok', text = '送出了，請看手機有沒有跳出「測試通知」';
+    if (!r.tokens) { cls = 'bad'; text = '這個帳號沒有任何手機開啟通知。請' + esc(r.name) + '在自己的手機打開 App →「設定 → 通知」→ 按「開啟這支手機的通知」。'; }
+    else if (!r.ok) {
+      cls = 'bad';
+      text = codes.some((c) => /not-registered|invalid-registration/.test(c)) ? '登記的手機都失效了（例如重裝過 App、關過通知）。請' + esc(r.name) + '到「設定 → 通知」先關閉再重新開啟。'
+        : codes.some((c) => /third-party-auth|mismatched-credential|authentication|permission/i.test(c)) ? '伺服器沒有權限送出通知（Firebase 的推播設定或金鑰有問題），請把這個畫面截圖給 Claude。'
+        : '送不出去，請把這個畫面截圖給 Claude。';
+    } else if (r.ok < r.tokens) { cls = 'warn'; text = r.ok + ' 支手機送出了，另外 ' + (r.tokens - r.ok) + ' 支已經失效（已自動清掉）。'; }
+    return `<div class="pt-row ${cls}"><b>${esc(r.name)}</b><span>${r.tokens} 支手機・成功 ${r.ok}</span><p>${text}</p>${codes.length ? `<code>${esc(codes.join(', '))}</code>` : ''}</div>`;
+  }
+  async function runPushTest(btn) {
+    const out = document.getElementById('pt-out');
+    if (!out || btn.disabled) return;
+    const all = btn.dataset.all === '1', label = btn.textContent;
+    btn.disabled = true; btn.textContent = '測試中…';
+    try {
+      const r = await Api.pushTest(all);
+      out.innerHTML = (r.results || []).map(pushTestRow).join('')
+        + '<p class="hint">顯示「送出了」但手機沒跳通知：請確認 iPhone「設定 → 通知 → 鍾家大宅」有允許通知、沒有開專注模式或勿擾；App 要是「加入主畫面」的那一個。</p>';
+    } catch (e) {
+      console.error(e);
+      const code = String((e && (e.code || e.message)) || '');
+      out.innerHTML = `<div class="pt-row bad"><p>${/not-found|unimplemented|internal/i.test(code) ? '測試功能還沒部署：請到 GitHub → Actions →「部署 Firebase」按一次 Run workflow。' : '測試沒有完成，請確認網路後再試。'}</p><code>${esc(code.slice(0, 80))}</code></div>`;
+    }
+    btn.disabled = false; btn.textContent = label;
+  }
+  function pushTestHtml() {
+    return `
+      <section class="card-list">
+        <h2>測試通知<small>檢查通知有沒有正常送出</small></h2>
+        <p class="hint">會真的發一則「測試通知」到手機，並列出每個人登記了幾支手機、有沒有送成功。</p>
+        <div class="pt-btns"><button class="btn ghost small" data-act="push-test">測試我的手機</button>${isAdmin() ? '<button class="btn ghost small" data-act="push-test" data-all="1">測試全家</button>' : ''}</div>
+        <div id="pt-out" aria-live="polite"></div>
+      </section>`;
   }
   // 設定頁：我不想收哪幾種推播
   function notifyPrefsHtml() {
@@ -5778,6 +5816,7 @@
         <label class="switch auto-night"><span>跟著手機的深色模式<small>手機切到深色時自動換成夜間，白天換回你選的顏色</small></span><input type="checkbox" id="auto-night" ${autoNight() ? 'checked' : ''}></label>
       </section>
       ${pushSectionHtml()}
+      ${pushTestHtml()}
       ${notifyPrefsHtml()}
       <h3 class="set-group">家庭設定</h3>
       <section class="card-list">
@@ -7318,6 +7357,7 @@
     else if (act === 'outbox-drop') dropOutbox(el.dataset.id);
     else if (act === 'gs-open') openSearch();
     else if (act === 'notices') openNotices();
+    else if (act === 'push-test') runPushTest(el);
     else if (act === 'notice-go') { closeSheet(); goTab(noticeTab(el.dataset.tag)); }
     else if (act === 'notify-kind') toggleNotifyKind(el.dataset.kind);
     else if (act === 'gs-event' || act === 'gs-msg' || act === 'gs-go') searchGo(el);
