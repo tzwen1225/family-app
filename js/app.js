@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-23 17:38';
+  const VERSION = '2026-11-23 18:01';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -382,7 +382,9 @@
   function beat(online) {
     const mine = state.presence[state.userId];
     const readAt = Math.max(state.lastRead, (mine && mine.read_at) || 0);
-    Api.beat(online, readAt).catch((e) => console.warn('上線狀態更新失敗', e));
+    // 正開著聊天室在看（畫面在前景、不是在搜尋舊訊息）：告訴伺服器不用再推播聊天通知給我
+    const inChat = online && state.tab === 'chat' && !state.chatSearch && document.visibilityState === 'visible';
+    Api.beat(online, readAt, inChat).catch((e) => console.warn('上線狀態更新失敗', e));
   }
 
   // ---------- 啟動快取 ----------
@@ -2016,12 +2018,14 @@
     if (n + 5 > state.chatShown) state.chatShown = n + 10;
     if (n) setTimeout(() => { state.unreadJump = false; }, 700);
     markRead();
+    setTimeout(() => beat(true), 0);      // 進聊天室：馬上回報「正在看」（這時分頁已經切過去了）
   }
   function leaveChat() {
     state.unreadFrom = null; state.unreadJump = false; state.editMsg = null;
     pingTyping('');
     if (rec) stopVoice(false);
     stopPlaying();
+    setTimeout(() => beat(document.visibilityState === 'visible'), 0);   // 離開聊天室：之後的訊息要照常通知
   }
   // 正在輸入：打字時每 3 秒回報一次；別人 6 秒內回報過就顯示
   let typingSent = 0, typingTimer = null;

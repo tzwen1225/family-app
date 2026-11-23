@@ -93,7 +93,11 @@ exports.onChatMessage = onDocumentCreated('messages/{id}', async (event) => {
   // 被 @ 的人、被引用回覆的人，通知標題不一樣
   const at = (Array.isArray(m.mentions) ? m.mentions : []).filter((uid) => others.includes(uid));
   const replied = m.reply_to && others.includes(m.reply_to.sender) && !at.includes(m.reply_to.sender) ? [m.reply_to.sender] : [];
-  const awake = (list) => list.filter((uid) => !muted.includes(uid));
+  // 正開著聊天室在看的人不用再跳通知（App 每 60 秒回報一次；超過 90 秒沒回報就當作已經離開）
+  const watching = await db.collection('presence').get()
+    .then((snap) => snap.docs.filter((d) => { const p = d.data(); return p.online === true && p.in_chat === true && Date.now() - (p.last_seen || 0) < 90000; }).map((d) => d.id))
+    .catch((e) => { logger.warn('讀不到上線狀態', e); return []; });
+  const awake = (list) => list.filter((uid) => !muted.includes(uid) && !watching.includes(uid));
   await Promise.all([
     notify(awake(at), who + '提到了你', body, 'chat'),
     notify(awake(replied), who + '回覆了你', body, 'chat'),

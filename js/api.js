@@ -251,8 +251,9 @@
         onlyKid ? F.query(col('requests'), F.where('kid', '==', onlyKid)) : col('requests'), cb),
 
       // readAt：這個人聊天室讀到哪個時間點（給「已讀」用），跟上線狀態存在同一份文件裡
-      async beat(online, readAt) {
-        await F.setDoc(F.doc(db, 'presence', uid()), { last_seen: Date.now(), online: !!online, read_at: readAt || 0 });
+      // inChat：現在正開著聊天室在看（伺服器看到就不再推播聊天通知給這個人）
+      async beat(online, readAt, inChat) {
+        await F.setDoc(F.doc(db, 'presence', uid()), { last_seen: Date.now(), online: !!online, read_at: readAt || 0, in_chat: !!(online && inChat) });
       },
       watchPresence: (cb) => watch('上線狀態', col('presence'), (rows) => cb(toMap(rows))),
 
@@ -674,10 +675,10 @@
         return watch('requests')((rows) => cb(rows.filter((r) => !onlyKid || r.kid === onlyKid)));
       },
 
-      async beat(online, readAt) {
+      async beat(online, readAt, inChat) {
         const db = load();
         if (!db.user) return;
-        db.presence[db.user] = { id: db.user, last_seen: Date.now(), online: !!online, read_at: readAt || 0 };
+        db.presence[db.user] = { id: db.user, last_seen: Date.now(), online: !!online, read_at: readAt || 0, in_chat: !!(online && inChat) };
         persist(); emit('presence');
       },
       watchPresence: watch('presence'),
