@@ -86,6 +86,7 @@ async function notify(uids, title, body, tag) {
 exports.onChatMessage = onDocumentCreated('messages/{id}', async (event) => {
   const m = event.data.data();
   if (m.checkin) return;     // 報平安順便貼到聊天室的那一則：爸媽已經有報平安的通知了，不再多跳一次
+  if (m.call_log && !m.call_log.missed) return;   // 講完電話的通話紀錄不用通知（未接來電照常通知）
   const names = await memberNames();
   const others = Object.keys(names).filter((uid) => uid !== m.sender);
   const who = names[m.sender] || '家人', body = m.image_id ? '傳了一張照片' : m.audio_id ? '傳了一則語音訊息' : clip(m.text);
@@ -436,7 +437,11 @@ exports.onVideoCall = onDocumentCreated('calls/{id}', async (event) => {
   // 每個人收到的內容不同：多人時告訴他還有誰
   await Promise.all(to.map((uid) => {
     const others = to.filter((u) => u !== uid).map((u) => names[u] || '家人');
-    return notify([uid], (names[c.from] || '家人') + (others.length ? '邀請你和' + others.join('、') + '一起視訊' : '邀請你視訊'), '點這裡接聽', 'call-' + event.params.id);
+    const who = names[c.from] || '家人';
+    const title = c.kind === 'voice'
+      ? who + (others.length ? '打語音電話給你和' + others.join('、') : '打語音電話給你')
+      : who + (others.length ? '邀請你和' + others.join('、') + '一起視訊' : '邀請你視訊');
+    return notify([uid], title, '點這裡打開 App 接聽', 'call-' + event.params.id);
   }));
 });
 

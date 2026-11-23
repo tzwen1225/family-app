@@ -2555,3 +2555,44 @@ html[data-theme="night"] .album-selbar button.strong { color: #0E1412; }
 .chat-field textarea:placeholder-shown + .chat-clear { display: none; }
 .chat-field .chat-clear { top: auto; bottom: 5px; transform: none; }
 html[data-style="cute"] .chat-bar textarea.grow { border-radius: 22px; }
+
+/* ---- 語音通話 ---- */
+button.pres { background: none; padding: 0; border: 0; color: inherit; cursor: pointer; border-radius: 50%; }
+button.pres:active .avatar { transform: scale(.92); }
+.mc-head { display: flex; align-items: center; gap: 14px; margin: 2px 0 16px; }
+.mc-head .avatar { width: 64px; height: 64px; font-size: 28px; }
+.mc-head h2 { font-size: 22px; font-weight: 900; }
+.mc-head p { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.mc-head p.on { color: #1B7A4F; font-weight: 700; }
+.mc-head small { display: block; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.mc-acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.mc-act { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 92px; border-radius: 18px; color: var(--green); background: color-mix(in srgb, var(--green) 11%, transparent); }
+.mc-act.main { color: #fff; background: var(--green); }
+html[data-theme="night"] .mc-act.main { color: #0E1412; }
+.mc-act svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mc-act b { font-size: 15px; }
+.mc-act small { font-size: 11px; opacity: .8; }
+.mc-acts + .hint { margin-top: 12px; }
+.call-btn svg path[fill="currentColor"] { stroke: none; }
+.call-view.voice { background: radial-gradient(circle at 50% 30%, #2C5546, #0F1C17 72%); }
+.call-view.voice #call-local, .call-view.voice .vo-hide { display: none; }
+.call-view.voice .call-wait { background: transparent; }
+.call-view.voice .call-grid { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+.call-view.voice .call-wait-faces .call-avatar { box-shadow: 0 0 0 14px rgba(255, 255, 255, .08), 0 0 0 30px rgba(255, 255, 255, .04); }
+.call-view.voice .call-top { text-align: center; }
+.tile-face { position: absolute; left: 50%; top: 50%; width: 96px; height: 96px; margin: -48px 0 0 -48px; font-size: 42px; }
+.call-tile video { background: transparent; }
+.call-kind { margin-bottom: 8px; }
+.call-kind span { display: inline-flex; align-items: center; gap: 6px; }
+.call-kind svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.call-start-btn svg { stroke-linecap: round; }
+.bubble.callrec { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 8px; min-width: 210px; }
+.cr-ico { flex: none; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, currentColor 14%, transparent); }
+.cr-ico svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.callrec.missed .cr-ico { color: #D93B30; background: color-mix(in srgb, #D93B30 14%, transparent); }
+.cr-main { flex: 1; display: flex; flex-direction: column; }
+.cr-main b { font-size: 15px; } .cr-main small { font-size: 12px; opacity: .8; }
+.cr-again { flex: none; min-height: 34px; padding: 0 12px; border-radius: 17px; font-size: 13px; font-weight: 700; color: #fff; background: var(--green); }
+.msg.mine .cr-again { color: var(--green); background: #fff; }
+.msg.mine .bubble.callrec { background: var(--sheet); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.msg.mine .cr-again { color: #fff; background: var(--green); }

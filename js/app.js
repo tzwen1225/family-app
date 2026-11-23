@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-23 20:41';
+  const VERSION = '2026-11-23 23:50';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -243,12 +243,16 @@
     return `<span class="avatar ${cls || ''} ${isOnline(m.id) ? 'online' : ''}" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>`;
   }
   // short：聊天室標題列用，只有頭像不顯示名字
+  // 家人的頭像：點別人的頭像會跳出「語音通話／視訊通話／傳訊息」
   function presenceHtml(short) {
-    return state.members.map((m) => `
-      <div class="pres ${isOnline(m.id) ? 'on' : ''}" role="img" aria-label="${esc(m.display_name)}：${statusText(m.id)}" title="${esc(m.display_name)}：${statusText(m.id)}">
+    return state.members.map((m) => {
+      const tag = m.id === state.userId ? 'div' : 'button';
+      return `
+      <${tag} class="pres ${isOnline(m.id) ? 'on' : ''}" ${tag === 'button' ? `data-act="member-card" data-id="${esc(m.id)}" aria-label="${esc(m.display_name)}：${statusText(m.id)}，點一下打電話或傳訊息"` : `role="img" aria-label="${esc(m.display_name)}：${statusText(m.id)}"`} title="${esc(m.display_name)}：${statusText(m.id)}">
         ${avatarHtml(m, 'sm')}
         ${short ? '' : `<span class="pres-name">${esc(m.display_name)}</span>`}
-      </div>`).join('');
+      </${tag}>`;
+    }).join('');
   }
   function refreshPresence() {
     const el = document.getElementById('presence');
@@ -2274,6 +2278,7 @@
       const thumb = m.thumb && String(m.thumb).startsWith('data:image/') ? m.thumb : '';
       if (!m.recalled && thumb) bubble = `<button class="bubble photo" data-act="view-image" data-id="${esc(m.id)}" aria-label="照片，點一下放大"><img src="${esc(thumb)}" alt="照片"></button>`;
       else if (!m.recalled && m.audio_id) bubble = voiceBubble(m);
+      else if (!m.recalled && m.call_log && !q) bubble = callLogBubble(m);
       else if (m.recalled) bubble = `<div class="bubble recalled">${mine ? '你' : esc(nameOf(m.sender))}收回了訊息</div>`;
       else if (!q) bubble = `<div class="bubble" role="button" tabindex="0" data-act="msg-menu" data-id="${esc(m.id)}">${m.reply_to && m.reply_to.id ? quoteHtml(m.reply_to) : ''}${richText(m.text)}</div>`;
       else bubble = `<div class="bubble">${markText(m.text, q)}</div>`;
@@ -2297,7 +2302,7 @@
       <div class="chat-top">
       <header class="plain-head with-action">
         <h1>聊天</h1><div class="presence chat-pres" id="chat-presence" aria-label="家人上線狀態">${presenceHtml(true)}</div>
-        <button class="icon-btn call-start-btn" data-act="call-pick" aria-label="視訊通話">${CALL_ICON.video}</button>
+        <button class="icon-btn call-start-btn" data-act="call-pick" aria-label="打電話（語音或視訊）">${PHONE_SVG}</button>
         <button class="icon-btn ${state.chatSearch ? 'on' : ''}" data-act="chat-search" aria-label="${state.chatSearch ? '關閉搜尋' : '搜尋訊息'}" aria-pressed="${state.chatSearch}">${ICON.search}</button>
       </header>
       <div id="call-banner">${callBannerHtml()}</div>
@@ -7536,8 +7541,13 @@
     else if (act === 'call-end') { if (call.id) leaveCall(); else if (!call.preparing) endLocal(); }
     else if (act === 'call-again') {
       const d = state.calls.find((x) => x.id === el.dataset.id);
-      if (d) { closeSheet(); startCall(callPeople(d).filter((u) => u !== state.userId)); }
+      if (d) { closeSheet(); startCall(callPeople(d).filter((u) => u !== state.userId), callKind(d)); }
     }
+    else if (act === 'call-accept-video') joinCall(call.incoming, true);
+    else if (act === 'call-back') { const to = (el.dataset.to || '').split(',').filter((u) => member(u)); if (to.length) startCall(to, el.dataset.kind); }
+    else if (act === 'member-card') openMemberCard(el.dataset.id);
+    else if (act === 'mc-call') { closeSheet(); startCall([el.dataset.id], el.dataset.kind); }
+    else if (act === 'mc-chat') { closeSheet(); goTab('chat'); const i = document.getElementById('chat-input'); const m = member(el.dataset.id); if (i && m && !i.value) { i.value = '@' + m.display_name + ' '; state.draft = i.value; } }
     else if (act === 'call-mute') toggleMute();
     else if (act === 'call-cam') toggleCam();
     else if (act === 'call-flip') flipCamera();
@@ -7843,7 +7853,8 @@
   // 行動網路連不上時，影像經 Cloudflare 的中繼伺服器（TURN）轉送；帳密由雲端函式 callIce 臨時發給。
   const RING_MS = 60000;                  // 邀請後多久沒接就算未接
   const MAX_CALL = 4;
-  const call = { id: null, local: null, peers: new Map(), servers: null, started: 0, tick: null, muted: false, camOff: false,
+  // kind：voice（語音，只有聲音）或 video。語音通話中可以按「改成視訊」，通話資料的 kind 會改成 video，大家的畫面一起切換。
+  const call = { id: null, kind: 'video', local: null, peers: new Map(), servers: null, started: 0, tick: null, muted: false, camOff: false,
     facing: 'user', incoming: null, unsubSig: null, wake: null, ending: false, seen: new Set() };
   const dismissedCalls = new Set();
   let staleChecked = false;
@@ -7865,6 +7876,27 @@
     in: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7L7 17M15 17H7V9"/></svg>'
   };
 
+  const PHONE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.500 3.500h3.500l2 5-2.500 1.500a11 11 0 0 0 5.500 5.500l1.500-2.500 5 2v3.500a2 2 0 0 1-2 2A17 17 0 0 1 3.500 5.500a2 2 0 0 1 2-2z"/></svg>';
+  // 首頁、聊天室點家人的頭像：語音通話／視訊通話／傳訊息
+  function openMemberCard(id) {
+    const m = member(id);
+    if (!m || id === state.userId) return;
+    const ci = m.child && !amChild() ? ciList().find((c) => c.kid === id && ciDate(c) === today()) : null;
+    const busy = state.calls.some((d) => liveCall(d) && inCallIds(d).includes(id));
+    showSheet('member-card', {
+      title: m.display_name, readonly: true,
+      body: `
+        <div class="mc-head">${avatarHtml(m)}<div><h2>${esc(m.display_name)}</h2>
+          <p class="${isOnline(id) ? 'on' : ''}">${busy ? '正在通話中' : esc(statusText(id))}</p>
+          ${ci ? `<small>今天 ${clock(ci.at)} 報平安：${esc(ci.text)}</small>` : ''}</div></div>
+        <div class="mc-acts">
+          <button class="mc-act main" data-act="mc-call" data-kind="voice" data-id="${esc(id)}">${PHONE_SVG}<b>語音通話</b><small>只有聲音</small></button>
+          <button class="mc-act" data-act="mc-call" data-kind="video" data-id="${esc(id)}">${CALL_ICON.video}<b>視訊通話</b><small>看得到臉</small></button>
+          <button class="mc-act" data-act="mc-chat" data-id="${esc(id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><b>傳訊息</b><small>到聊天室</small></button>
+        </div>
+        <p class="hint">${isOnline(id) ? '' : esc(m.display_name) + '現在不在 App 裡也可以打，手機會收到來電通知，點開 App 就能接。'}通話時 App 要停在畫面上，切到別的 App 或鎖定畫面可能會中斷。</p>`
+    });
+  }
   // 這通電話的人：撥打的人＋被邀請的人；現在在通話裡的：加入了、還沒離開的
   const callPeople = (d) => [d.from].concat(d.to || []);
   const inCallIds = (d) => Object.keys(d.joined || {}).filter((u) => !(d.left || {})[u] || (d.left[u] < d.joined[u]));
@@ -7878,15 +7910,19 @@
     catch (e) { console.warn('拿不到中繼伺服器', e); }
     return [{ urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }];
   }
+  const callKind = (d) => (d && d.kind === 'voice' ? 'voice' : 'video');
+  const kindWord = (k) => (k === 'voice' ? '語音' : '視訊');
   function getMedia() {
     return navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
-      video: { facingMode: call.facing, width: { ideal: 640 }, height: { ideal: 480 } }
+      video: call.kind === 'voice' ? false : { facingMode: call.facing, width: { ideal: 640 }, height: { ideal: 480 } }
     });
   }
   const mediaError = (e) => (e && e.name === 'NotAllowedError'
-    ? '沒有相機或麥克風的權限。請到 iPhone 的「設定」允許這個 App 使用相機和麥克風。'
-    : '打不開相機或麥克風，請確認沒有其他 App 正在使用。');
+    ? (call.kind === 'voice' ? '沒有麥克風的權限。請到 iPhone 的「設定」允許這個 App 使用麥克風。' : '沒有相機或麥克風的權限。請到 iPhone 的「設定」允許這個 App 使用相機和麥克風。')
+    : (call.kind === 'voice' ? '打不開麥克風，請確認沒有其他 App 正在使用。' : '打不開相機或麥克風，請確認沒有其他 App 正在使用。'));
+  // 語音通話也先留一條影像通道（沒有畫面），之後「改成視訊」時直接把鏡頭放上去，不用重新連線
+  const videoSender = (pc) => { const t = pc.getTransceivers().find((x) => x.receiver && x.receiver.track && x.receiver.track.kind === 'video'); return t ? t.sender : null; };
   const canVideo = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection);
 
   function sendSignal(to, kind, data) {
@@ -7902,7 +7938,8 @@
     p = { pc, stream: null, pending: [], state: 'connecting' };
     call.peers.set(uid, p);
     call.local.getTracks().forEach((t) => pc.addTrack(t, call.local));
-    pc.ontrack = (ev) => { p.stream = ev.streams[0] || new MediaStream([ev.track]); drawTiles(); };
+    // 聲音和影像可能分兩次進來（語音通話預留的影像通道沒有附 stream）：每次都把全部的軌道放進一個新的 stream，畫面才會重新接上
+    pc.ontrack = (ev) => { const old = p.stream ? p.stream.getTracks() : []; if (!old.includes(ev.track)) p.stream = new MediaStream(old.concat(ev.track)); drawTiles(); };
     pc.onicecandidate = (ev) => { if (ev.candidate) sendSignal(uid, 'cand', ev.candidate.toJSON()); };
     pc.onconnectionstatechange = () => {
       if (call.peers.get(uid) !== p) return;
@@ -7924,6 +7961,7 @@
   async function offerTo(uid) {
     const p = peerFor(uid);
     try {
+      if (!videoSender(p.pc)) p.pc.addTransceiver('video', { direction: 'sendrecv', streams: [call.local] });
       const offer = await p.pc.createOffer();
       await p.pc.setLocalDescription(offer);
       sendSignal(uid, 'offer', { type: offer.type, sdp: offer.sdp });
@@ -7946,6 +7984,7 @@
         if (s.kind === 'offer') {
           const p = peerFor(s.from);
           await p.pc.setRemoteDescription(data);
+          p.pc.getTransceivers().forEach((t) => { if (t.receiver.track && t.receiver.track.kind === 'video' && t.direction === 'recvonly') t.direction = 'sendrecv'; });
           const answer = await p.pc.createAnswer();
           await p.pc.setLocalDescription(answer);
           sendSignal(s.from, 'answer', { type: answer.type, sdp: answer.sdp });
@@ -7979,24 +8018,25 @@
   }
 
   async function prepareCall() {
-    if (!canVideo()) { toast('這支手機不支援視訊通話'); return false; }
+    if (!canVideo()) { toast('這支手機不支援' + kindWord(call.kind) + '通話'); return false; }
     Object.assign(call, { peers: new Map(), started: 0, muted: false, camOff: false, ending: false, seen: new Set() });
     try { call.local = await getMedia(); } catch (e) { console.warn(e); toast(mediaError(e)); return false; }
     call.servers = await iceServers();
     return true;
   }
 
-  async function startCall(uids) {
+  async function startCall(uids, kind) {
     if (call.id || call.preparing) return;
     const to = uids.filter((u) => u !== state.userId).slice(0, MAX_CALL - 1);
     if (!to.length) return;
+    call.kind = kind === 'voice' ? 'voice' : 'video';
     call.preparing = true;
     buildCallView(to);
     const ok = await prepareCall();
     if (!ok) { call.preparing = false; return endLocal(); }
     try {
       const now = Date.now();
-      call.id = await Api.addDoc('calls', { from: state.userId, to, status: 'live', joined: { [state.userId]: now }, left: {}, declined: {}, created_at: now });
+      call.id = await Api.addDoc('calls', { from: state.userId, to, kind: call.kind, status: 'live', joined: { [state.userId]: now }, left: {}, declined: {}, created_at: now });
       watchSignals();
       attachLocal();
     } catch (e) { console.error(e); toast('撥不出去，請確認網路後再試一次'); endLocal(); }
@@ -8004,11 +8044,13 @@
   }
 
   // 接聽來電，或加入正在進行的通話
-  async function joinCall(id) {
+  // withVideo：語音來電選「用視訊接」，接起來就把整通改成視訊
+  async function joinCall(id, withVideo) {
     const d = state.calls.find((x) => x.id === id);
     if (!d || !liveCall(d) || !inCallIds(d).length) { hideIncoming(); return toast('通話已經結束了'); }
     if (call.id || call.preparing) return;
     hideIncoming();
+    call.kind = withVideo ? 'video' : callKind(d);
     call.preparing = true;
     buildCallView(callPeople(d).filter((u) => u !== state.userId));
     const ok = await prepareCall();
@@ -8026,6 +8068,7 @@
       const now = Date.now();
       const change = { ['joined.' + state.userId]: now };
       if (!d.answered_at) change.answered_at = now;
+      if (withVideo && callKind(d) === 'voice') change.kind = 'video';
       await Api.updateDoc('calls', id, change);
     } catch (e) { console.error(e); toast('加入不了，請再試一次'); endLocal(); }
     call.preparing = false;
@@ -8058,10 +8101,28 @@
     clearSignals(id, over ? null : state.userId);
   }
   // 撥出去沒有人接：在聊天室留一句，對方會收到通知
+  // 通話結束時由撥打的人在聊天室留一則紀錄：沒接到是「未接來電」（對方會收到通知、可以回撥），講完的記通話時間
+  // （講完的由最後掛斷、把通話標成結束的那個人留；沒接到的由撥打的人留）
   function noteMissed(d) {
-    if (d.from !== state.userId || d.answered_at) return;
-    const missed = (d.to || []).filter((u) => !(d.declined || {})[u]);
-    if (missed.length) Api.sendMessage('打視訊給' + callNames(missed) + '，沒有接到').catch(() => {});
+    const k = callKind(d), people = (d.to || []).slice();
+    if (d.answered_at) {
+      const sec = Math.max(1, Math.round((Date.now() - d.answered_at) / 1000));
+      Api.sendMessage(kindWord(k) + '通話・' + callDur(sec), { call_log: { kind: k, sec, missed: false, to: people, with: callPeople(d) } }).catch(() => {});
+      return;
+    }
+    if (d.from !== state.userId) return;
+    const missed = people.filter((u) => !(d.declined || {})[u]);
+    if (missed.length) Api.sendMessage('打' + kindWord(k) + '給' + callNames(missed) + '，沒有接到', { call_log: { kind: k, sec: 0, missed: true, to: missed } }).catch(() => {});
+  }
+  const callDur = (sec) => (sec >= 60 ? Math.floor(sec / 60) + ' 分 ' : '') + (sec % 60) + ' 秒';
+  // 聊天室裡的通話紀錄泡泡
+  function callLogBubble(m) {
+    const c = m.call_log, mine = m.sender === state.userId, ic = c.kind === 'voice' ? PHONE_SVG : CALL_ICON.video;
+    const peer = Array.isArray(c.with) ? c.with : mine ? (c.to || []) : [m.sender];
+    const title = c.missed ? (mine ? '沒有接到' : '未接來電') : kindWord(c.kind) + '通話';
+    const sub = c.missed ? kindWord(c.kind) + '・' + clock(m.sent_at) + (mine ? '・' + callNames(c.to || []) : '') : '通話時間 ' + callDur(c.sec || 0);
+    return `<div class="bubble callrec ${c.missed ? 'missed' : ''}"><span class="cr-ico">${ic}</span><span class="cr-main"><b>${esc(title)}</b><small>${esc(sub)}</small></span>`
+      + `<button class="cr-again" data-act="call-back" data-kind="${c.kind === 'voice' ? 'voice' : 'video'}" data-to="${esc(peer.filter((u) => u !== state.userId && member(u)).join(','))}">${c.missed && !mine ? '回撥' : '再打一次'}</button></div>`;
   }
   // 清掉連線資訊：只清自己送出的（還有人在通話），或整通的（通話結束）
   async function clearSignals(id, onlyFrom) {
@@ -8073,6 +8134,7 @@
 
   function endLocal() {
     clearInterval(call.tick);
+    document.querySelectorAll('#call-root audio, #call-root video').forEach((v) => { try { v.srcObject = null; } catch (e) { /* 忽略 */ } });
     if (call.local) call.local.getTracks().forEach((t) => t.stop());
     call.peers.forEach((p) => { try { p.pc.close(); } catch (e) { /* 已經關了 */ } });
     if (call.unsubSig) call.unsubSig();
@@ -8110,6 +8172,7 @@
     if (call.id) {
       const d = list.find((x) => x.id === call.id);
       if (!d || d.status === 'ended') { if (!call.ending) { call.ending = true; toast('通話結束'); endLocal(); } return; }
+      if (callKind(d) !== call.kind) switchKind(callKind(d));
       syncPeers(d);
       checkAlone(d);
       updateCallView();
@@ -8138,15 +8201,16 @@
     const who = member(d.from);
     const others = (d.to || []).filter((u) => u !== state.userId);
     callRoot().innerHTML = `
-      <div class="call-incoming" role="alertdialog" aria-label="${esc(nameOf(d.from))}邀請你視訊">
+      <div class="call-incoming" role="alertdialog" aria-label="${esc(nameOf(d.from))}${callKind(d) === 'voice' ? '打語音電話給你' : '邀請你視訊'}">
         <div class="call-who">
           ${who ? `<span class="avatar call-avatar ring" style="background:${esc(who.color)}">${esc(faceOf(who))}</span>` : ''}
           <b>${esc(nameOf(d.from))}</b>
-          <span>${others.length ? '邀請你和' + esc(callNames(others)) + '一起視訊' : '邀請你視訊'}</span>
+          <span>${callKind(d) === 'voice' ? (others.length ? '打語音電話給你和' + esc(callNames(others)) : '打語音電話給你') : (others.length ? '邀請你和' + esc(callNames(others)) + '一起視訊' : '邀請你視訊')}</span>
         </div>
         <div class="call-answer">
           <button class="call-btn end" data-act="call-decline" aria-label="拒絕">${CALL_ICON.end}<small>拒絕</small></button>
-          <button class="call-btn ok" data-act="call-accept" aria-label="接聽">${CALL_ICON.video}<small>接聽</small></button>
+          ${callKind(d) === 'voice' ? `<button class="call-btn" data-act="call-accept-video" aria-label="用視訊接">${CALL_ICON.video}<small>用視訊接</small></button>` : ''}
+          <button class="call-btn ok" data-act="call-accept" aria-label="接聽">${callKind(d) === 'voice' ? PHONE_SVG : CALL_ICON.video}<small>接聽</small></button>
         </div>
       </div>`;
     document.body.classList.add('in-call');
@@ -8159,7 +8223,7 @@
   // ---- 通話畫面 ----
   function buildCallView(others) {
     callRoot().innerHTML = `
-      <div class="call-view" role="dialog" aria-label="視訊通話">
+      <div class="call-view ${call.kind === 'voice' ? 'voice' : ''}" id="call-view" role="dialog" aria-label="${kindWord(call.kind)}通話">
         <div class="call-grid" id="call-grid"></div>
         <div class="call-wait" id="call-wait">
           <div class="call-wait-faces">${others.map((u) => { const m = member(u); return m ? `<span class="avatar call-avatar" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>` : ''; }).join('')}</div>
@@ -8169,7 +8233,7 @@
         <div class="call-ctrls">
           <button class="call-btn" data-act="call-mute" id="call-mute"></button>
           <button class="call-btn" data-act="call-cam" id="call-cam"></button>
-          <button class="call-btn" data-act="call-flip" aria-label="切換前後鏡頭">${CALL_ICON.flip}<small>翻轉</small></button>
+          <button class="call-btn vo-hide" data-act="call-flip" aria-label="切換前後鏡頭">${CALL_ICON.flip}<small>翻轉</small></button>
           <button class="call-btn end" data-act="call-end" aria-label="離開通話">${CALL_ICON.end}<small>掛斷</small></button>
         </div>
       </div>`;
@@ -8201,7 +8265,8 @@
       if (!tile) {
         tile = document.createElement('div');
         tile.className = 'call-tile'; tile.dataset.uid = u;
-        tile.innerHTML = `<video autoplay playsinline></video><span class="call-name">${esc(nameOf(u))}</span>`;
+        const m = member(u);
+        tile.innerHTML = `${m ? `<span class="avatar call-avatar tile-face" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>` : ''}<video autoplay playsinline></video><span class="call-name">${esc(nameOf(u))}</span>`;
         grid.appendChild(tile);
       }
       const v = tile.querySelector('video');
@@ -8218,6 +8283,7 @@
     const sec = call.started ? Math.floor((Date.now() - call.started) / 1000) : 0;
     const waiting = d ? waitingFor(d) : [];
     let text = '準備中…';
+    if (!call.id && call.kind === 'voice') text = '正在撥號…';
     if (call.id && live) text = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') + (waiting.length ? '　等' + callNames(waiting) + '加入…' : '');
     else if (call.id && d && inCallIds(d).length > 1) text = '連線中…';
     else if (call.id && waiting.length) text = '正在等' + callNames(waiting) + '接聽…';
@@ -8225,12 +8291,17 @@
     const top = document.querySelector('.call-top b');
     if (top && d) top.textContent = callNames(callPeople(d).filter((u) => u !== state.userId));
     const wait = document.getElementById('call-wait');
-    if (wait) wait.hidden = live > 0;
+    if (wait) wait.hidden = live > 0 && call.kind !== 'voice';      // 語音通話一直顯示對方的頭像
     const mute = document.getElementById('call-mute'), cam = document.getElementById('call-cam');
     mute.innerHTML = (call.muted ? CALL_ICON.micOff : CALL_ICON.mic) + `<small>${call.muted ? '取消靜音' : '靜音'}</small>`;
     mute.classList.toggle('on', call.muted); mute.setAttribute('aria-pressed', call.muted);
-    cam.innerHTML = (call.camOff ? CALL_ICON.camOff : CALL_ICON.video) + `<small>${call.camOff ? '開鏡頭' : '關鏡頭'}</small>`;
-    cam.classList.toggle('on', call.camOff); cam.setAttribute('aria-pressed', call.camOff);
+    if (call.kind === 'voice') {
+      cam.innerHTML = CALL_ICON.video + '<small>改成視訊</small>';
+      cam.classList.remove('on'); cam.removeAttribute('aria-pressed');
+    } else {
+      cam.innerHTML = (call.camOff ? CALL_ICON.camOff : CALL_ICON.video) + `<small>${call.camOff ? '開鏡頭' : '關鏡頭'}</small>`;
+      cam.classList.toggle('on', call.camOff); cam.setAttribute('aria-pressed', call.camOff);
+    }
     const l = document.getElementById('call-local');
     if (l) { l.hidden = call.camOff || !call.local; l.classList.toggle('mirror', call.facing === 'user'); }
   }
@@ -8240,8 +8311,41 @@
     updateCallView();
   }
   function toggleCam() {
+    if (call.kind === 'voice') { upgradeToVideo(); return; }
+    if (call.local && !call.local.getVideoTracks().length) { cameraOn(); return; }      // 從語音改成視訊的：自己還沒開過鏡頭
     call.camOff = !call.camOff;
     if (call.local) call.local.getVideoTracks().forEach((t) => { t.enabled = !call.camOff; });
+    updateCallView();
+  }
+  // 打開自己的鏡頭，放到已經留好的影像通道上
+  async function cameraOn() {
+    if (!call.local) return false;
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: call.facing, width: { ideal: 640 }, height: { ideal: 480 } } });
+      const track = s.getVideoTracks()[0];
+      await Promise.all([...call.peers.values()].map((p) => { const snd = videoSender(p.pc); return snd ? snd.replaceTrack(track) : null; }));
+      call.local.addTrack(track);
+      call.camOff = false;
+      const l = document.getElementById('call-local');
+      if (l) { l.srcObject = null; l.srcObject = call.local; }
+      updateCallView();
+      return true;
+    } catch (e) { console.warn(e); toast(e && e.name === 'NotAllowedError' ? '沒有相機的權限。請到 iPhone 的「設定」允許這個 App 使用相機。' : '打不開相機'); return false; }
+  }
+  // 語音 → 視訊：我先開鏡頭，再把通話改成視訊（其他人的畫面跟著切換，鏡頭由他們自己決定要不要開）
+  async function upgradeToVideo() {
+    if (!call.id) return;
+    switchKind('video');
+    if (await cameraOn()) Api.updateDoc('calls', call.id, { kind: 'video' }).catch((e) => console.warn(e));
+    else switchKind('voice');
+  }
+  function switchKind(kind) {
+    if (call.kind === kind) return;
+    call.kind = kind;
+    if (kind === 'video' && call.local && !call.local.getVideoTracks().length) call.camOff = true;
+    const v = document.getElementById('call-view');
+    if (v) { v.classList.toggle('voice', kind === 'voice'); v.setAttribute('aria-label', kindWord(kind) + '通話'); }
+    if (kind === 'video') toast('改成視訊了' + (call.camOff ? '，要讓大家看到你就按「開鏡頭」' : ''));
     updateCallView();
   }
   async function flipCamera() {
@@ -8274,7 +8378,7 @@
   function callBannerHtml() {
     const d = !call.id && joinableCall();
     if (!d) return '';
-    return `<button class="call-banner" data-act="call-join" data-id="${esc(d.id)}">${CALL_ICON.video}<span><b>視訊通話進行中</b><small>${esc(callNames(inCallIds(d)))}</small></span><em>加入</em></button>`;
+    return `<button class="call-banner" data-act="call-join" data-id="${esc(d.id)}">${callKind(d) === 'voice' ? PHONE_SVG : CALL_ICON.video}<span><b>${kindWord(callKind(d))}通話進行中</b><small>${esc(callNames(inCallIds(d)))}</small></span><em>加入</em></button>`;
   }
   function refreshCallBanner() {
     const el = document.getElementById('call-banner');
@@ -8300,7 +8404,7 @@
       return `
         <button class="call-log-row" data-act="call-again" data-id="${esc(d.id)}" aria-label="再打一次給${esc(callNames(others))}">
           <span class="call-dir ${out ? 'out' : bad ? 'missed' : 'in'}" aria-label="${out ? '撥出' : '來電'}">${out ? CALL_ICON.out : CALL_ICON.in}</span>
-          <span class="call-log-main"><b class="${bad ? 'missed' : ''}">${esc(callNames(others))}</b><small>${result}</small></span>
+          <span class="call-log-main"><b class="${bad ? 'missed' : ''}">${esc(callNames(others))}</b><small>${kindWord(callKind(d))}・${result}</small></span>
           <time>${stamp(d.created_at)}</time>
         </button>`;
     }).join('')}</div>`;
@@ -8308,9 +8412,13 @@
   function openCallPicker() {
     const others = state.members.filter((m) => m.id !== state.userId);
     showSheet('call-form', {
-      title: '視訊通話', submit: '開始視訊',
+      title: '打電話', submit: '開始通話',
       body: `
-      <p class="hint">選要一起視訊的人，可以選好幾個（最多 ${MAX_CALL} 個人一起）。</p>
+      <fieldset class="seg call-kind"><legend>通話方式</legend>
+        <label><input type="radio" name="call_kind" value="voice"><span>${PHONE_SVG}語音</span></label>
+        <label><input type="radio" name="call_kind" value="video" checked><span>${CALL_ICON.video}視訊</span></label>
+      </fieldset>
+      <p class="hint">選要一起通話的人，可以選好幾個（最多 ${MAX_CALL} 個人一起）。</p>
       <div class="call-pick">
         ${others.map((m) => `
           <label class="call-pick-row">
@@ -8328,8 +8436,9 @@
     const to = checkedValues(form, 'call_to');
     const err = form.querySelector('#form-error');
     if (!to.length) { err.textContent = '請選一個以上的人'; err.hidden = false; return; }
+    const kind = (form.querySelector('input[name="call_kind"]:checked') || {}).value;
     closeSheet();
-    startCall(to);
+    startCall(to, kind);
   }
 
   function openTurnSheet() {
