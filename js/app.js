@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-23 18:01';
+  const VERSION = '2026-11-23 20:41';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -1034,9 +1034,12 @@
     if (el.innerHTML !== html) el.innerHTML = html;
     el.hidden = !html;
   }
+  // 卡片只有壽星生日當天可以寫、改、刪（伺服器的規則也是這樣檔）
+  const bdayToday = (to) => { const b = birthdayOf(to, Number(today().slice(0, 4))); return !!b && b.date === today(); };
   function openBdaySheet(to) {
     const m = member(to), year = Number(today().slice(0, 4));
     if (!m || m.id === state.userId) return;
+    if (!bdayToday(to)) { toast('生日已經過了，卡片不能再修改'); drawBday(); return; }
     const c = state.bdayCards.find((x) => x.id === bdayCardId(to, year, state.userId)) || {};
     showSheet('bday-form', {
       title: '給' + m.display_name + '的生日卡片', submit: c.id ? '儲存' : '送出卡片', focus: false, footer: c.id ? DELETE_BTN : '',
@@ -1054,7 +1057,7 @@
       </fieldset>
       <label>想說的話<textarea name="text" rows="4" maxlength="300" placeholder="生日快樂！…">${esc(c.text || '')}</textarea></label>
       <div class="jr-chips">${BDAY_PHRASES.map((q) => `<button type="button" data-act="bday-phrase" data-text="${esc(q)}">${esc(q)}</button>`).join('')}</div>
-      <p class="hint">${esc(m.display_name)}會收到通知，卡片會出現在${esc(m.display_name)}首頁的最上面。只有你和${esc(m.display_name)}看得到內容。</p>`
+      <p class="hint">${esc(m.display_name)}會收到通知，卡片會出現在${esc(m.display_name)}首頁的最上面。只有你和${esc(m.display_name)}看得到內容。<br>只有今天（生日當天）可以修改或刪除，過了今天就會永久保存、不能再改。</p>`
     });
   }
   // ---------- 生日卡片收藏 ----------
@@ -6679,12 +6682,16 @@
     'bday-form': {
       done: '卡片送出了',
       read: (f) => ({ to: f.to.value, text: f.text.value.trim(), sticker: f.sticker.value, paper: f.paper.value }),
-      check: (x) => (!x.text ? '寫幾句話給壽星吧' : null),
+      check: (x) => (!x.text ? '寫幾句話給壽星吧' : !bdayToday(x.to) ? '生日已經過了，卡片不能再修改' : null),
       save(x) {
         const year = Number(today().slice(0, 4));
         return Api.setDoc('birthday_cards', bdayCardId(x.to, year, state.userId), { to: x.to, from: state.userId, year, text: x.text, sticker: x.sticker, paper: x.paper, created_at: Date.now() });
       },
-      remove: (id) => Api.deleteDoc('birthday_cards', id),
+      remove(id) {
+        const c = state.bdayCards.find((x) => x.id === id);
+        if (c && !bdayToday(c.to) && !isAdmin()) { const e = new Error('locked'); e.friendly = '生日已經過了，卡片不能再刪除'; return Promise.reject(e); }
+        return Api.deleteDoc('birthday_cards', id);
+      },
       after() { drawBday(); }
     },
     'day-form': {
@@ -7198,7 +7205,7 @@
     } catch (e) {
       console.error(e);
       btn.disabled = false;
-      toast('刪除失敗，請再試一次');
+      toast(e.friendly || '刪除失敗，請再試一次');
     }
   }
 

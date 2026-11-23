@@ -55,6 +55,13 @@ service cloud.firestore {
       return int(s[0:4]) * 10000 + int(s[5:7]) * 100 + int(s[8:10]);
     }
 
+    // 生日卡片只能在壽星生日當天（含之前）寫、改、刪；過了那一天就鎖住（台灣時間）
+    function bdayOpen(to, year) {
+      let b = get(/databases/$(database)/documents/profiles/$(to)).data.get('birthday', '');
+      return b is string && b.size() == 10
+        && todayNum() <= year * 10000 + int(b[5:7]) * 100 + int(b[8:10]);
+    }
+
     function pollOpen(pollId) {
       let p = get(/databases/$(database)/documents/polls/$(pollId)).data;
       return p.closed == false && p.get('voided', false) == false
@@ -489,8 +496,12 @@ service cloud.firestore {
         && request.resource.data.year is int
         && request.resource.data.text is string && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 300
         && request.resource.data.sticker is string && request.resource.data.sticker.size() <= 8
-        && id == request.resource.data.to + '_' + string(request.resource.data.year) + '_' + request.auth.uid;
-      allow delete: if isFamily() && (resource.data.from == request.auth.uid || isAdmin());
+        && id == request.resource.data.to + '_' + string(request.resource.data.year) + '_' + request.auth.uid
+        && bdayOpen(request.resource.data.to, request.resource.data.year)
+        && (resource == null || bdayOpen(resource.data.to, resource.data.year));
+      // 寫的人只能在生日當天刪；管理員隨時可以刪（清理用）
+      allow delete: if isFamily()
+        && ((resource.data.from == request.auth.uid && bdayOpen(resource.data.to, resource.data.year)) || isAdmin());
     }
 
     // 旅遊日誌的表情回應：每個人每則一個（文件 id 是「日誌id_自己的UID」），只能加、換、收回自己的

@@ -2,7 +2,7 @@
 // 策略：程式檔先用手機上存的那一份（馬上顯示），同時在背景向伺服器拿新的，存起來給下次用。
 // 有新版本時，App 會比對 version.txt，通知這裡把檔案全部換新，再重新載入。
 // 只處理本站的檔案，Firebase 的資料請求完全不經過這裡。
-const CACHE = 'family-shell-v151';
+const CACHE = 'family-shell-v152';
 const SHELL = [
   './', 'index.html', 'css/app.css',
   'js/config.js', 'js/holidays.js', 'js/api.js', 'js/app.js', 'vendor/firebase.js',
