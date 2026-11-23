@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-22 13:46';
+  const VERSION = '2026-11-23 17:38';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -781,6 +781,24 @@
     return true;
   }
 
+  // 聊天、小管家的輸入框：字多了自動換行、跟著長高（最多約 5 行，再多就在框裡捲動）
+  function growInputs() {
+    document.querySelectorAll('textarea.grow').forEach((el) => {
+      el.style.height = 'auto';
+      const h = Math.min(el.scrollHeight, 132);
+      el.style.height = h + 'px';
+      el.style.overflowY = el.scrollHeight > 132 ? 'auto' : 'hidden';
+    });
+  }
+  // 程式改了輸入框的內容（送出、清除、編輯、選 @）之後也要重算高度
+  ['input', 'click', 'submit'].forEach((type) => document.addEventListener(type, () => setTimeout(growInputs, 0), true));
+  // 按 Enter（手機鍵盤的「傳送」）＝送出；電腦上 Shift+Enter 才是換行。選字中的 Enter 不算。
+  document.addEventListener('keydown', (ev) => {
+    const t = ev.target;
+    if (ev.key !== 'Enter' || ev.shiftKey || ev.isComposing || ev.keyCode === 229 || !t || !t.classList || !t.classList.contains('grow')) return;
+    ev.preventDefault();
+    if (t.form) t.form.requestSubmit ? t.form.requestSubmit() : t.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
   function render() {
     if (!state.userId) return;
     if (holdForIme($app, render)) return;
@@ -806,12 +824,12 @@
             ${ICON.photo}
           </label>
           <button type="button" class="attach mic" data-act="voice-start" aria-label="錄語音訊息">${MIC_SVG}</button>
-          <span class="chat-field"><input id="chat-input" name="text" type="text" placeholder="輸入訊息" value="${esc(state.draft)}" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息"><button type="button" class="chat-clear" data-act="input-clear" data-for="chat-input" aria-label="清除輸入的文字"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button></span>
+          <span class="chat-field"><textarea id="chat-input" class="grow" name="text" rows="1" placeholder="輸入訊息" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-label="訊息">${esc(state.draft)}</textarea><button type="button" class="chat-clear" data-act="input-clear" data-for="chat-input" aria-label="清除輸入的文字"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button></span>
           <button type="submit" class="send" aria-label="傳送">${ICON.send}</button>
         </form>` : ''}
       ${state.tab === 'notes' && state.notesView === 'butler' ? `
         <form class="chat-bar" id="butler-form">
-          <span class="chat-field"><input id="butler-input" name="text" type="text" placeholder="${state.butler.msgs.length ? '繼續問' : '想問什麼都可以'}" maxlength="${amChild() ? 1000 : 4000}" autocomplete="off" enterkeyhint="send" aria-label="問小管家"><button type="button" class="chat-clear" data-act="input-clear" data-for="butler-input" aria-label="清除輸入的文字"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button></span>
+          <span class="chat-field"><textarea id="butler-input" class="grow" name="text" rows="1" placeholder="${state.butler.msgs.length ? '繼續問' : '想問什麼都可以'}" maxlength="${amChild() ? 1000 : 4000}" autocomplete="off" enterkeyhint="send" aria-label="問小管家"></textarea><button type="button" class="chat-clear" data-act="input-clear" data-for="butler-input" aria-label="清除輸入的文字"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button></span>
           <button type="submit" class="send" aria-label="送出">${ICON.send}</button>
         </form>` : ''}
       ${fabLabel() ? `<div class="addbar"><button class="fab" data-act="new" aria-label="${fabLabel()}"><span class="fab-plus" aria-hidden="true">${ICON.plus}</span>${fabLabel()}</button></div>` : ''}
@@ -830,6 +848,7 @@
       scroller().style.animationDelay = -played + 'ms';
     }
 
+    growInputs();
     // 重畫後恢復捲動位置與輸入焦點
     if (state.tab === 'chat' && !sameTab) scrollChat(); else scroller().scrollTop = keepTop;
     const el = focusId && document.getElementById(focusId);
