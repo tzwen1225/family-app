@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-23 23:50';
+  const VERSION = '2026-11-24 23:26';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -176,7 +176,7 @@
     pins: [], pinsOpen: false,   // 聊天室置頂的訊息
     unreadFrom: null, unreadJump: false,   // 進聊天室時上次讀到的時間點（畫「以下是新訊息」用）
     quiet: null,             // 聊天免打擾時段 { on, start, end }
-    notices: [], notifyOff: null,   // App 裡的通知紀錄；我關掉的推播種類（null = 還沒讀）
+    notices: [], notifyOff: null, share: null,   // App 裡的通知紀錄；我關掉的推播種類（null = 還沒讀）
     previews: {},            // 連結預覽
     replyTo: null,           // 正在引用回覆哪一則訊息
     mentionQ: null,          // 正在打 @ 後面的字（null 代表沒有在選人）
@@ -1510,6 +1510,78 @@
         <div class="pt-btns"><button class="btn ghost small" data-act="push-test">測試我的手機</button>${isAdmin() ? '<button class="btn ghost small" data-act="push-test" data-all="1">測試全家</button>' : ''}</div>
         <div id="pt-out" aria-live="polite"></div>
       </section>`;
+  }
+  // ---- 從其他 App 分享連結到聊天室（iPhone 捷徑）----
+  const SHARE_URL = 'https://asia-east1-chuang-e5b8e.cloudfunctions.net/shareLink';
+  function shareHtml() {
+    const sh = state.share;
+    if (sh === null) {
+      state.share = undefined;
+      Api.shareKey('status').then((r) => { state.share = r || { on: false }; }, (e) => { console.warn('讀不到分享碼', e); state.share = false; })
+        .then(() => { if (state.tab === 'me' && !$sheet.innerHTML) render(); });
+    }
+    const copyRow = (label, value, what) => `<div class="sh-copy"><span>${label}</span><code>${esc(value)}</code><button class="btn ghost small" data-act="share-copy" data-what="${what}">複製</button></div>`;
+    let body;
+    if (sh === false) body = '<p class="hint">這個功能還沒開通，需要先部署一次（GitHub → Actions →「部署 Firebase」→ Run workflow）。</p>';
+    else if (!sh) body = '<div class="skel line w60"></div>';
+    else if (sh.key) body = `
+        <p class="hint ok">分享碼產生好了。<b>只會顯示這一次</b>，請照下面的步驟放進捷徑。</p>
+        ${copyRow('分享碼', sh.key, 'key')}
+        ${copyRow('網址', SHARE_URL, 'url')}
+        ${shareStepsHtml(true)}
+        <button class="btn ghost small" data-act="share-hide">我設定好了</button>`;
+    else if (sh.on) body = `
+        <p class="hint">已經設定好（${esc(shortDate(ymd(new Date(sh.at))))}產生）。在 FB、YouTube、Safari 按「分享」，選「傳到鍾家大宅」就會貼進聊天室。</p>
+        ${shareStepsHtml(false)}
+        <div class="pt-btns"><button class="btn ghost small" data-act="share-new">重新產生</button><button class="btn ghost small danger" data-act="share-off">作廢</button></div>
+        <p class="hint">換手機或分享碼外流時，按「重新產生」，舊的會立刻失效。</p>`;
+    else body = `
+        <p class="hint">在 FB、YouTube、Safari 看到好連結，按「分享」就能直接傳進家庭聊天室，不用打開 App。需要先在 iPhone 的「捷徑」App 裝一次。</p>
+        <button class="btn small" data-act="share-new">開始設定</button>`;
+    return `
+      <section class="card-list" id="share-set">
+        <h2>分享到聊天室<small>iPhone 捷徑</small></h2>
+        ${body}
+      </section>`;
+  }
+  function shareStepsHtml(open) {
+    return `
+        <details class="sh-steps" ${open ? 'open' : ''}><summary>捷徑設定步驟</summary>
+          <ol>
+            <li>打開 iPhone 的「捷徑」App，按右上角「＋」，名稱改成「傳到鍾家大宅」。</li>
+            <li>按下方的 <b>ⓘ</b>，打開「在分享表單中顯示」。回到編輯畫面，最上面會出現「接收 <b>任何</b> 輸入」，點「任何」，只勾「URL」和「文字」。</li>
+            <li>搜尋並加入「<b>要求輸入</b>」，提示改成「要說什麼？（可以空白）」。不想每次打字可以略過這步。</li>
+            <li>加入「<b>取得 URL 內容</b>」，網址貼上上面的「網址」。點「顯示更多」：方法選 <b>POST</b>，要求主體選 <b>JSON</b>，新增三個「文字」欄位：
+              <ul><li><code>key</code>：貼上分享碼</li><li><code>url</code>：選「捷徑輸入」</li><li><code>text</code>：選「提供的輸入」（第 3 步略過就不用加）</li></ul></li>
+            <li>加入「<b>顯示通知</b>」，內容選「URL 的內容」。傳成功會跳「已傳到鍾家大宅聊天室」。</li>
+          </ol>
+          <p class="hint">FB 裡要按「分享」→「更多選項」或「分享到…」，才會出現 iPhone 的分享選單。分享碼只能用來傳連結，不能看家裡的任何資料。</p>
+        </details>`;
+  }
+  async function shareAct(act, el) {
+    if (act === 'share-copy') {
+      const v = el.dataset.what === 'key' ? (state.share && state.share.key) : SHARE_URL;
+      if (v) toast((await copyText(v)) ? '已複製' : '複製失敗，請長按文字選取');
+      return;
+    }
+    if (act === 'share-hide') { state.share = { ...state.share, key: '' }; render(); return; }
+    if (el.disabled) return;
+    if (act === 'share-new' && state.share && state.share.on && el.dataset.sure !== '1') {
+      el.dataset.sure = '1'; el.textContent = '確定重新產生？舊的會失效'; return;
+    }
+    if (act === 'share-off' && el.dataset.sure !== '1') { el.dataset.sure = '1'; el.textContent = '確定作廢？'; return; }
+    el.disabled = true;
+    try {
+      state.share = await Api.shareKey(act === 'share-new' ? 'new' : 'off');
+      toast(act === 'share-new' ? '分享碼產生好了' : '已作廢，捷徑不能再傳了');
+    } catch (e) {
+      console.error(e);
+      const code = String((e && (e.code || e.message)) || '');
+      toast(/not-found|unimplemented|internal/i.test(code) ? '這個功能還沒部署，請先部署一次' : '沒有完成，請確認網路後再試');
+    }
+    render();
+    const box = document.getElementById('share-set');
+    if (box && act === 'share-new') box.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
   // 設定頁：我不想收哪幾種推播
   function notifyPrefsHtml() {
@@ -5849,6 +5921,7 @@
       ${pushSectionHtml()}
       ${pushTestHtml()}
       ${notifyPrefsHtml()}
+      ${shareHtml()}
       <h3 class="set-group">家庭設定</h3>
       <section class="card-list">
         <h2>聊天免打擾<small>小朋友在這段時間不收聊天通知</small></h2>
@@ -7393,6 +7466,7 @@
     else if (act === 'gs-open') openSearch();
     else if (act === 'notices') openNotices();
     else if (act === 'push-test') runPushTest(el);
+    else if (/^share-(new|off|copy|hide)$/.test(act)) shareAct(act, el);
     else if (act === 'notice-go') { closeSheet(); goTab(noticeTab(el.dataset.tag)); }
     else if (act === 'notify-kind') toggleNotifyKind(el.dataset.kind);
     else if (act === 'gs-event' || act === 'gs-msg' || act === 'gs-go') searchGo(el);

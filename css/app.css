@@ -2596,3 +2596,16 @@ html[data-theme="night"] .mc-act.main { color: #0E1412; }
 .msg.mine .cr-again { color: var(--green); background: #fff; }
 .msg.mine .bubble.callrec { background: var(--sheet); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
 .msg.mine .cr-again { color: #fff; background: var(--green); }
+
+/* 分享到聊天室（iPhone 捷徑） */
+.sh-copy { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin: 8px 0; }
+.sh-copy span { font-size: 13px; color: var(--muted, #777); }
+.sh-copy code { font-size: 12px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, currentColor 7%, transparent); overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
+.sh-steps { margin: 10px 0; }
+.sh-steps summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.sh-steps ol { margin: 6px 0 8px; padding-left: 20px; line-height: 1.6; }
+.sh-steps li { margin-bottom: 6px; }
+.sh-steps ul { margin: 4px 0; padding-left: 18px; }
+.sh-steps code { font-size: 12px; padding: 1px 5px; border-radius: 5px; background: color-mix(in srgb, currentColor 8%, transparent); }
+.hint.ok { color: #1F8A5F; }
+.sh-copy .btn { margin: 0; align-self: center; white-space: nowrap; padding: 6px 12px; height: auto; min-height: 0; }

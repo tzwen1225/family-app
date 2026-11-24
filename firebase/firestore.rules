@@ -650,6 +650,10 @@ service cloud.firestore {
     match /secrets/{id} {
       allow read, write: if isAdmin();
     }
+    // 分享到聊天室的分享碼（只存雜湊）：只有雲端函式能讀寫
+    match /share_keys/{id} {
+      allow read, write: if false;
+    }
 
     // 採買清單：全家都可以新增、打勾、清除
     match /shopping/{id} {

@@ -449,7 +449,7 @@ exports.onVideoCall = onDocumentCreated('calls/{id}', async (event) => {
 // 資料來自交通部 TDX 平臺（https://tdx.transportdata.tw）。
 // TDX 的金鑰放在資料庫的 secrets/tdx 文件（管理員在 App 的「設定」裡填），
 // 那份文件只有管理員和這支在伺服器上的程式讀得到；其他家人的手機只會拿到查詢結果。
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 
 const TDX = 'https://tdx.transportdata.tw/api/basic';
 const TDX_TOKEN_URL = 'https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token';
@@ -811,6 +811,62 @@ exports.linkPreview = onCall({ region: 'asia-east1', invoker: 'public', maxInsta
   const result = await fetchPreview(url);
   await ref.set({ url, result, at: Date.now() }).catch((e) => logger.warn('預覽沒存到', e));
   return result;
+});
+
+// ---------- 從其他 App 分享連結到聊天室（iPhone 捷徑） ----------
+// 每個人在設定裡產生自己的「分享碼」，放進 iPhone 的捷徑。捷徑把連結 POST 到 shareLink，就用那個人的名字貼進聊天室。
+// 分享碼只存雜湊（share_keys/{sha256}），原文只在產生當下顯示一次；只能拿來傳連結，不能讀任何資料。重新產生或作廢，舊的就失效。
+const sha256 = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+async function dropShareKeys(uid) {
+  const old = await db.collection('share_keys').where('uid', '==', uid).get();
+  await Promise.all(old.docs.map((d) => d.ref.delete()));
+  return old.docs.reduce((t, d) => Math.max(t, d.data().at || 0), 0);
+}
+exports.shareKey = onCall({ region: 'asia-east1', invoker: 'public', maxInstances: 2, timeoutSeconds: 15 }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'login');
+  const uid = req.auth.uid;
+  if (!(await db.doc('members/' + uid).get()).exists) throw new HttpsError('permission-denied', 'not-family');
+  const action = String((req.data || {}).action || 'status');
+  if (action === 'status') {
+    const snap = await db.collection('share_keys').where('uid', '==', uid).get();
+    const d = snap.docs[0];
+    return d ? { on: true, at: d.data().at || 0, used: d.data().used || 0 } : { on: false };
+  }
+  await dropShareKeys(uid);
+  if (action === 'off') return { on: false };
+  if (action !== 'new') throw new HttpsError('invalid-argument', 'action');
+  const key = 'fam_' + crypto.randomBytes(24).toString('base64url');
+  const at = Date.now();
+  await db.doc('share_keys/' + sha256(key)).set({ uid, at, used: 0, hour: 0, count: 0 });
+  return { on: true, at, key };
+});
+const URL_IN = /https?:\/\/[^\s<>"'`]+/i;
+exports._urlIn = URL_IN;
+exports.shareLink = onRequest({ region: 'asia-east1', invoker: 'public', maxInstances: 2, timeoutSeconds: 15, cors: false }, async (req, res) => {
+  const reply = (code, text) => res.status(code).type('text/plain; charset=utf-8').send(text);
+  if (req.method !== 'POST') return reply(405, '請用捷徑傳送');
+  const b = typeof req.body === 'object' && req.body ? req.body : {};
+  const key = String(b.key || '').trim();
+  if (!/^fam_[A-Za-z0-9_-]{20,64}$/.test(key)) return reply(401, '分享碼不對，請到 App「設定 → 分享到聊天室」重新產生');
+  const ref = db.doc('share_keys/' + sha256(key));
+  const kd = await ref.get();
+  if (!kd.exists) return reply(401, '分享碼已經失效，請到 App「設定 → 分享到聊天室」重新產生');
+  const uid = kd.data().uid;
+  if (!(await db.doc('members/' + uid).get()).exists) return reply(403, '這個帳號不是家人');
+  // 捷徑送來的可能是「一段文字＋網址」，抓第一個網址出來
+  const raw = String(b.url || '').slice(0, 3000);
+  const m = URL_IN.exec(raw);
+  if (!m) return reply(400, '沒有找到連結');
+  const url = m[0].replace(/[)\]】」。，、.,!?！？]+$/, '').slice(0, 1000);
+  const note = String(b.text || '').replace(/\s+$/, '').slice(0, 500);
+  // 防止捷徑跑錯一直重送：每人每小時最多 30 則
+  const hour = Math.floor(Date.now() / 3600000);
+  const k = kd.data();
+  const count = k.hour === hour ? (k.count || 0) : 0;
+  if (count >= 30) return reply(429, '這一小時分享太多次了，晚點再試');
+  await ref.update({ hour, count: count + 1, used: Date.now() });
+  await db.collection('messages').add({ text: (note ? note + '\n' : '') + url, sender: uid, sent_at: Date.now(), shared: true, mentions: [], reply_to: {} });
+  return reply(200, '已傳到鍾家大宅聊天室');
 });
 
 // 爸媽加了影片：通知要看的小朋友；小朋友申請想看：通知爸媽

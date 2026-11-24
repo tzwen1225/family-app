@@ -195,6 +195,11 @@
         const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'pushTest');
         return (await call({ all: !!all })).data;
       },
+      // 分享到聊天室的分享碼：status / new / off
+      async shareKey(action) {
+        const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'shareKey');
+        return (await call({ action })).data;
+      },
       // 問雲端這個網址的標題和簡介（聊天室的連結預覽）
       async linkPreview(url) {
         const call = F.httpsCallable(F.getFunctions(app, 'asia-east1'), 'linkPreview');
@@ -633,6 +638,15 @@
         await new Promise((r) => setTimeout(r, 300));
         const rows = [{ uid: 'm1', name: '爸爸', tokens: 1, ok: 1, errors: [], newest: Date.now() - 3600000 }, { uid: 'm2', name: '媽媽', tokens: 0, ok: 0, errors: [] }, { uid: 'm3', name: '姊姊', tokens: 2, ok: 1, errors: ['messaging/registration-token-not-registered'], newest: Date.now() - 20 * 86400000 }, { uid: 'm4', name: '弟弟', tokens: 1, ok: 0, errors: ['messaging/third-party-auth-error'] }];
         return { results: all ? rows : rows.slice(0, 1), at: Date.now() };
+      },
+      async shareKey(action) {
+        await new Promise((r) => setTimeout(r, 200));
+        const db = load(); db.shareKey = db.shareKey || {};
+        const k = db.shareKey[db.user];
+        if (action === 'status') return k ? { on: true, at: k.at, used: 0 } : { on: false };
+        if (action === 'off') { delete db.shareKey[db.user]; persist(); return { on: false }; }
+        db.shareKey[db.user] = { at: Date.now() }; persist();
+        return { on: true, at: db.shareKey[db.user].at, key: 'fam_DEMO' + Math.random().toString(36).slice(2, 14) + 'abcdefghij' };
       },
       async linkPreview(url) {
         await new Promise((r) => setTimeout(r, 200));
