@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-25 14:48';
+  const VERSION = '2026-11-25 14:54';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2585,75 +2585,124 @@
   // 點兩下放大／還原、兩指放大、放大後拖曳；往下滑關閉；點一下藏起上下的按鈕。
   let cg = null;      // { ids: 這個聊天室所有照片訊息的 id, i: 目前第幾張, ui: 是否顯示按鈕 }
   const cgZoom = { s: 1, x: 0, y: 0 };
+  const CG_GAP = 16;  // 照片之間的空隙
+  let cgAnim = null, cgDrag = null, cgRaf = 0, cgTap = { at: 0, timer: 0 };
   const chatPhotos = () => state.messages.filter((m) => m.image_id && m.thumb && !m.recalled);
+  const cgMsg = (k) => (cg && cg.ids[k] ? findById(state.messages, cg.ids[k]) : null);
+  const cgTrack = () => $sheet.querySelector('.cg-track');
+  const cgW = () => { const st = $sheet.querySelector('.cg-stage'); return (st && st.clientWidth) || window.innerWidth || 390; };
+  const cgBase = () => -(cgW() + CG_GAP);
+  function cgSetX(x, ms) {
+    const t = cgTrack();
+    if (!t) return;
+    t.style.transition = ms ? `transform ${ms}ms cubic-bezier(.2,.8,.25,1)` : 'none';
+    t.style.transform = `translate3d(${x}px,0,0)`;
+  }
   function openImage(id) {
     const ids = chatPhotos().map((m) => m.id);
     const i = ids.indexOf(id);
     if (i < 0) return;
     cg = { ids, i, ui: true };
+    cgAnim = null;
     document.body.classList.add('sheet-open');
-    renderCg();
-  }
-  function cgSlide(m, pos) {
-    if (!m) return `<div class="cg-slide ${pos}"></div>`;
-    const full = fullImages.get(m.image_id);
-    return `<div class="cg-slide ${pos}"><img src="${esc(full || m.thumb)}" alt="照片" class="${full ? '' : 'loading'}" draggable="false"></div>`;
-  }
-  function renderCg() {
-    if (!cg) return;
-    const msgs = cg.ids.map((x) => findById(state.messages, x));
-    const m = msgs[cg.i];
-    if (!m || m.recalled) { closeCg(); return; }
     Object.assign(cgZoom, { s: 1, x: 0, y: 0 });
     $sheet.innerHTML = `
-      <div class="viewer cg ${cg.ui ? '' : 'ui-off'}" role="dialog" aria-label="照片">
-        <div class="cg-stage">
-          <div class="cg-track">${cgSlide(msgs[cg.i - 1], 'prev')}${cgSlide(m, 'cur')}${cgSlide(msgs[cg.i + 1], 'next')}</div>
-        </div>
+      <div class="viewer cg" role="dialog" aria-label="照片">
+        <div class="cg-stage"><div class="cg-track"><div class="cg-slide"></div><div class="cg-slide"></div><div class="cg-slide"></div></div></div>
         <div class="cg-top">
           <button class="cg-x" data-act="cg-close" aria-label="關閉">×</button>
-          <span class="cg-pos">${cg.i + 1} / ${cg.ids.length}</span>
+          <span class="cg-pos"></span>
           <span class="cg-gap"></span>
         </div>
-        ${cg.i > 0 ? '<button class="cg-step prev" data-act="cg-step" data-d="-1" aria-label="上一張">‹</button>' : ''}
-        ${cg.i < cg.ids.length - 1 ? '<button class="cg-step next" data-act="cg-step" data-d="1" aria-label="下一張">›</button>' : ''}
+        <button class="cg-step prev" data-act="cg-step" data-d="-1" aria-label="上一張">‹</button>
+        <button class="cg-step next" data-act="cg-step" data-d="1" aria-label="下一張">›</button>
+        <div class="cg-bot"></div>
+      </div>`;
+    const slides = cgTrack().children;
+    [-1, 0, 1].forEach((k, n) => cgFill(slides[n], cgMsg(i + k)));
+    cgSetX(cgBase(), 0);
+    cgChrome();
+  }
+  // 把一張照片放進某一格（格子會重複使用，換張時不用重畫整個畫面）
+  function cgFill(slide, m) {
+    slide.dataset.id = m ? m.id : '';
+    if (!m) { slide.innerHTML = ''; return; }
+    const full = fullImages.get(m.image_id);
+    slide.innerHTML = `<img src="${esc(full || m.thumb)}" alt="照片" class="${full ? '' : 'loading'}" draggable="false" decoding="async">`;
+    if (!full) loadCgFull(m);
+  }
+  // 上方的張數、左右按鈕、下方的表情和回覆：跟著目前這張更新
+  function cgChrome() {
+    if (!cg) return;
+    const m = cgMsg(cg.i);
+    if (!m || m.recalled) { closeCg(); return; }
+    const v = $sheet.querySelector('.cg');
+    if (!v) return;
+    v.classList.toggle('ui-off', !cg.ui);
+    v.querySelector('.cg-pos').textContent = `${cg.i + 1} / ${cg.ids.length}`;
+    v.querySelector('.cg-step.prev').hidden = cg.i === 0;
+    v.querySelector('.cg-step.next').hidden = cg.i >= cg.ids.length - 1;
+    [...cgTrack().children].forEach((el, n) => { el.className = 'cg-slide ' + ['prev', 'cur', 'next'][n]; });
+    v.querySelector('.cg-bot').innerHTML = `
         ${reactPickHtml(m.id)}
         <div class="viewer-bar">
           <span>${esc(nameOf(m.sender))}　${stamp(m.sent_at)}</span>
           <button class="reply-btn" data-act="reply-msg" data-id="${esc(m.id)}">回覆</button>
           ${canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回</button>` : ''}
-        </div>
-      </div>`;
-    [cg.i, cg.i - 1, cg.i + 1, cg.i + 2, cg.i - 2].forEach((k) => loadCgFull(msgs[k]));
+        </div>`;
+    [2, -2].forEach((k) => loadCgFull(cgMsg(cg.i + k)));
   }
   async function loadCgFull(m) {
-    if (!m || fullImages.has(m.image_id)) return;
+    if (!m || fullImages.has(m.image_id) || loadCgFull.busy.has(m.image_id)) return;
+    loadCgFull.busy.add(m.image_id);
     try {
       const doc = await Api.getDoc('chat_images', m.image_id);
       if (!doc || !String(doc.data).startsWith('data:image/')) return;
+      // 先在背景解碼好再換上去，換的瞬間才不會卡一下
+      const pre = new Image();
+      pre.src = doc.data;
+      if (pre.decode) await pre.decode().catch(() => {});
       fullImages.set(m.image_id, doc.data);
-      if (!cg) return;
-      const k = cg.ids.indexOf(m.id) - cg.i;
-      const img = Math.abs(k) <= 1 && $sheet.querySelector('.cg-slide.' + (k < 0 ? 'prev' : k > 0 ? 'next' : 'cur') + ' img');
+      const slide = cg && [...(cgTrack() || { children: [] }).children].find((el) => el.dataset.id === m.id);
+      const img = slide && slide.querySelector('img');
       if (img) { img.src = doc.data; img.classList.remove('loading'); }
-    } catch (e) { console.warn('原圖讀取失敗', e); }
+    } catch (e) { console.warn('原圖讀取失敗', e); } finally { loadCgFull.busy.delete(m.image_id); }
   }
+  loadCgFull.busy = new Set();
   function closeCg() {
-    cg = null; cgDrag = null;
+    cg = null; cgDrag = null; cgAnim = null;
     if ($sheet.querySelector('.cg')) closeSheet();
   }
-  // 換到上一張（-1）或下一張（1），有滑動的動畫
-  function cgGo(d) {
+  // 換到上一張（-1）或下一張（1）。動畫時間看還要滑多遠，手指甩得快就跑得快。
+  function cgGo(d, speed) {
     if (!cg || !cg.ids[cg.i + d]) return;
-    const track = $sheet.querySelector('.cg-track');
-    if (!track) return;
-    track.style.transition = 'transform .22s ease-out';
-    track.style.transform = `translateX(${d > 0 ? -200 : 0}%)`;
-    setTimeout(() => { if (cg) { cg.i += d; renderCg(); } }, 220);
+    if (cgAnim) cgFinish();
+    const t = cgTrack();
+    if (!t) return;
+    const step = cgW() + CG_GAP, target = cgBase() - d * step;
+    const now = new DOMMatrixReadOnly(getComputedStyle(t).transform).m41;
+    const left = Math.abs(target - now);
+    const ms = Math.round(Math.max(140, Math.min(320, speed ? left / Math.max(speed, 0.8) : left / step * 300)));
+    cgSetX(target, ms);
+    cgAnim = { d, timer: setTimeout(cgFinish, ms + 20) };
+  }
+  function cgFinish() {
+    if (!cgAnim || !cg) { cgAnim = null; return; }
+    const d = cgAnim.d;
+    clearTimeout(cgAnim.timer); cgAnim = null;
+    const t = cgTrack();
+    if (!t) return;
+    cg.i += d;
+    Object.assign(cgZoom, { s: 1, x: 0, y: 0 });
+    if (d > 0) { const el = t.firstElementChild; t.appendChild(el); cgFill(el, cgMsg(cg.i + 1)); }
+    else { const el = t.lastElementChild; t.insertBefore(el, t.firstElementChild); cgFill(el, cgMsg(cg.i - 1)); }
+    t.querySelectorAll('img').forEach((img) => { img.style.transform = ''; img.style.transition = ''; });
+    cgSetX(cgBase(), 0);
+    cgChrome();
   }
   function cgApplyZoom() {
     const img = $sheet.querySelector('.cg-slide.cur img');
-    if (img) img.style.transform = cgZoom.s > 1 ? `translate(${cgZoom.x}px, ${cgZoom.y}px) scale(${cgZoom.s})` : '';
+    if (img) img.style.transform = cgZoom.s > 1 ? `translate3d(${cgZoom.x}px, ${cgZoom.y}px, 0) scale(${cgZoom.s})` : '';
   }
   function cgToggleUi() {
     if (!cg) return;
@@ -2661,12 +2710,27 @@
     const v = $sheet.querySelector('.cg');
     if (v) v.classList.toggle('ui-off', !cg.ui);
   }
-  let cgDrag = null, cgTap = { at: 0, timer: 0 };
+  // 手指移動時，每一個畫面更新只畫一次
+  function cgPaint() {
+    cgRaf = 0;
+    const g = cgDrag;
+    if (!g || !cg) return;
+    if (g.dir === 'h') {
+      const edge = !cg.ids[cg.i + (g.dx < 0 ? 1 : -1)];
+      cgSetX(cgBase() + (edge ? g.dx * 0.3 : g.dx), 0);
+    } else if (g.dir === 'v') {
+      const img = $sheet.querySelector('.cg-slide.cur img'), v = $sheet.querySelector('.cg'), dy = Math.max(0, g.dy);
+      if (img) { img.style.transition = 'none'; img.style.transform = `translate3d(${g.dx * 0.5}px, ${dy}px, 0) scale(${Math.max(0.7, 1 - dy / 900)})`; }
+      if (v) v.style.background = `rgba(0,0,0,${Math.max(0.3, 1 - dy / 500)})`;
+    } else cgApplyZoom();
+  }
+  const cgPaintSoon = () => { if (!cgRaf) cgRaf = requestAnimationFrame(cgPaint); };
   document.addEventListener('touchstart', (ev) => {
     if (!cg || !ev.target.closest || !ev.target.closest('.cg-stage')) { cgDrag = null; return; }
+    if (cgAnim) cgFinish();     // 動畫還沒跑完又按下去：直接完成，馬上可以再滑
     const t = ev.touches;
     if (t.length === 2) cgDrag = { kind: 'pinch', d: dist(t[0], t[1]), s: cgZoom.s };
-    else if (t.length === 1) cgDrag = { kind: cgZoom.s > 1 ? 'pan' : 'swipe', sx: t[0].clientX, sy: t[0].clientY, x: cgZoom.x, y: cgZoom.y, dx: 0, dy: 0, dir: '', at: Date.now() };
+    else if (t.length === 1) cgDrag = { kind: cgZoom.s > 1 ? 'pan' : 'swipe', sx: t[0].clientX, sy: t[0].clientY, x: cgZoom.x, y: cgZoom.y, dx: 0, dy: 0, dir: '', at: Date.now(), lx: t[0].clientX, lt: Date.now(), vx: 0 };
   }, { passive: true });
   document.addEventListener('touchmove', (ev) => {
     if (!cg || !cgDrag) return;
@@ -2674,46 +2738,41 @@
     if (g.kind === 'pinch' && t.length === 2) {
       cgZoom.s = Math.min(4, Math.max(1, g.s * dist(t[0], t[1]) / g.d));
       if (cgZoom.s === 1) { cgZoom.x = 0; cgZoom.y = 0; }
-      cgApplyZoom();
     } else if (g.kind === 'pan' && t.length === 1) {
       const max = 160 * cgZoom.s;
       cgZoom.x = Math.min(max, Math.max(-max, g.x + t[0].clientX - g.sx));
       cgZoom.y = Math.min(max, Math.max(-max, g.y + t[0].clientY - g.sy));
-      cgApplyZoom();
     } else if (g.kind === 'swipe' && t.length === 1) {
-      g.dx = t[0].clientX - g.sx; g.dy = t[0].clientY - g.sy;
-      if (!g.dir && Math.hypot(g.dx, g.dy) > 8) g.dir = Math.abs(g.dx) > Math.abs(g.dy) ? 'h' : g.dy > 0 ? 'v' : 'x';
-      if (g.dir === 'h') {
-        const edge = !cg.ids[cg.i + (g.dx < 0 ? 1 : -1)];
-        const track = $sheet.querySelector('.cg-track');
-        if (track) { track.style.transition = 'none'; track.style.transform = `translateX(calc(-100% + ${edge ? g.dx * 0.3 : g.dx}px))`; }
-      } else if (g.dir === 'v') {
-        const img = $sheet.querySelector('.cg-slide.cur img'), v = $sheet.querySelector('.cg');
-        if (img) { img.style.transition = 'none'; img.style.transform = `translateY(${Math.max(0, g.dy)}px) scale(${Math.max(0.7, 1 - Math.max(0, g.dy) / 900)})`; }
-        if (v) v.style.background = `rgba(0,0,0,${Math.max(0.3, 1 - Math.max(0, g.dy) / 500)})`;
-      } else return;
+      const now = Date.now(), x = t[0].clientX;
+      if (now > g.lt) { g.vx = 0.6 * ((x - g.lx) / (now - g.lt)) + 0.4 * g.vx; g.lx = x; g.lt = now; }
+      g.dx = x - g.sx; g.dy = t[0].clientY - g.sy;
+      if (!g.dir && Math.hypot(g.dx, g.dy) > 6) g.dir = Math.abs(g.dx) > Math.abs(g.dy) ? 'h' : g.dy > 0 ? 'v' : 'x';
+      if (g.dir !== 'h' && g.dir !== 'v') return;
     } else return;
     if (ev.cancelable) ev.preventDefault();
+    cgPaintSoon();
   }, { passive: false });
   document.addEventListener('touchend', (ev) => {
     if (!cg || !cgDrag || ev.touches.length) return;
     const g = cgDrag;
     cgDrag = null;
+    if (cgRaf) { cancelAnimationFrame(cgRaf); cgRaf = 0; if (g.kind !== 'swipe') cgApplyZoom(); }
     if (cgZoom.s < 1.08 && cgZoom.s !== 1) { Object.assign(cgZoom, { s: 1, x: 0, y: 0 }); cgApplyZoom(); }
     if (g.kind !== 'swipe' && g.kind !== 'pan') return;
-    const w = window.innerWidth || 390, fast = Date.now() - g.at < 300;
+    const w = cgW();
     if (g.dir === 'h') {
       const d = g.dx < 0 ? 1 : -1;
-      if (cg.ids[cg.i + d] && (Math.abs(g.dx) > w * 0.22 || (fast && Math.abs(g.dx) > 40))) { cgGo(d); return; }
-      const track = $sheet.querySelector('.cg-track');
-      if (track) { track.style.transition = 'transform .2s ease-out'; track.style.transform = 'translateX(-100%)'; }
+      if (Date.now() - g.lt > 80) g.vx = 0;     // 停住一下才放開：不算甩
+      const flick = Math.abs(g.vx) > 0.3 && Math.sign(g.vx) === -d;
+      if (cg.ids[cg.i + d] && (Math.abs(g.dx) > w * 0.25 || (flick && Math.abs(g.dx) > 20))) { cgGo(d, Math.abs(g.vx)); return; }
+      cgSetX(cgBase(), 260);
       return;
     }
     if (g.dir === 'v') {
-      if (g.dy > 110 || (fast && g.dy > 50)) { closeCg(); return; }
+      if (g.dy > 110 || (Date.now() - g.at < 300 && g.dy > 50)) { closeCg(); return; }
       const img = $sheet.querySelector('.cg-slide.cur img'), v = $sheet.querySelector('.cg');
-      if (img) { img.style.transition = 'transform .2s ease-out'; img.style.transform = ''; }
-      if (v) v.style.background = '';
+      if (img) { img.style.transition = 'transform .25s cubic-bezier(.2,.8,.25,1)'; img.style.transform = ''; }
+      if (v) { v.style.transition = 'background .25s'; v.style.background = ''; }
       return;
     }
     // 沒有移動＝點一下：點兩下放大／還原，點一下藏起按鈕
@@ -2727,13 +2786,14 @@
         Object.assign(cgZoom, { s: 2.5, x: (r.width / 2 - (t.clientX - r.left)) * 1.5, y: (r.height / 2 - (t.clientY - r.top)) * 1.5 });
       }
       const img = $sheet.querySelector('.cg-slide.cur img');
-      if (img) img.style.transition = 'transform .2s ease-out';
+      if (img) img.style.transition = 'transform .22s cubic-bezier(.2,.8,.25,1)';
       cgApplyZoom();
       return;
     }
     cgTap.at = now;
-    cgTap.timer = setTimeout(() => { cgTap.at = 0; cgToggleUi(); }, 300);
+    cgTap.timer = setTimeout(() => { cgTap.at = 0; cgToggleUi(); }, 280);
   }, { passive: true });
+  window.addEventListener('resize', () => { if (cg && !cgAnim) cgSetX(cgBase(), 0); });
   document.addEventListener('keydown', (ev) => {
     if (!cg || !$sheet.querySelector('.cg')) return;
     if (ev.key === 'ArrowLeft') cgGo(-1);
