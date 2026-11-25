@@ -2630,3 +2630,5 @@ html[data-theme="night"] .mc-act.main { color: #0E1412; }
 .viewer.cg.ui-off .cg-top, .viewer.cg.ui-off .cg-step, .viewer.cg.ui-off .viewer-bar, .viewer.cg.ui-off .react-pick { opacity: 0; pointer-events: none; }
 
 .cg-step[hidden] { display: none; }
+.call-sound { position: absolute; left: 50%; top: calc(var(--safe-t) + 92px); transform: translateX(-50%); z-index: 5; margin: 0; padding: 10px 18px; border: 0; border-radius: 999px; background: #fff; color: #10231C; font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
+.call-sound[hidden] { display: none; }

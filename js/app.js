@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-25 22:45';
+  const VERSION = '2026-11-25 22:52';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -7819,6 +7819,7 @@
     else if (act === 'mc-call') { closeSheet(); startCall([el.dataset.id], el.dataset.kind); }
     else if (act === 'mc-chat') { closeSheet(); goTab('chat'); const i = document.getElementById('chat-input'); const m = member(el.dataset.id); if (i && m && !i.value) { i.value = '@' + m.display_name + ' '; state.draft = i.value; } }
     else if (act === 'call-mute') toggleMute();
+    else if (act === 'call-sound') callSoundOn();
     else if (act === 'call-cam') toggleCam();
     else if (act === 'call-flip') flipCamera();
     else if (act === 'chat-older') {
@@ -8502,6 +8503,7 @@
         </div>
         <div class="call-top"><b>${esc(callNames(others))}</b><span id="call-status">準備中…</span></div>
         <video id="call-local" autoplay playsinline muted></video>
+        <button class="call-sound" id="call-sound" data-act="call-sound" hidden>🔊 聽不到聲音？點這裡</button>
         <div class="call-ctrls">
           <button class="call-btn" data-act="call-mute" id="call-mute"></button>
           <button class="call-btn" data-act="call-cam" id="call-cam"></button>
@@ -8538,11 +8540,16 @@
         tile = document.createElement('div');
         tile.className = 'call-tile'; tile.dataset.uid = u;
         const m = member(u);
-        tile.innerHTML = `${m ? `<span class="avatar call-avatar tile-face" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>` : ''}<video autoplay playsinline></video><span class="call-name">${esc(nameOf(u))}</span>`;
+        tile.innerHTML = `${m ? `<span class="avatar call-avatar tile-face" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>` : ''}<video autoplay playsinline muted></video><audio autoplay></audio><span class="call-name">${esc(nameOf(u))}</span>`;
         grid.appendChild(tile);
       }
-      const v = tile.querySelector('video');
+      // 畫面和聲音分開放：語音通話沒有畫面時，iPhone 的影像播放器不會開始播，聲音也就出不來
+      const v = tile.querySelector('video'), a = tile.querySelector('audio');
+      v.muted = true;
       if (v.srcObject !== p.stream) { v.srcObject = p.stream; v.play().catch(() => {}); }
+      const tracks = p.stream.getAudioTracks(), key = tracks.map((t) => t.id).join(',');
+      if (a.dataset.k !== key) { a.dataset.k = key; a.srcObject = tracks.length ? new MediaStream(tracks) : null; }
+      if (tracks.length && a.paused) a.play().catch(() => {});
       tile.classList.toggle('weak', p.state === 'disconnected');
     });
     updateCallView();
@@ -8563,7 +8570,11 @@
     const top = document.querySelector('.call-top b');
     if (top && d) top.textContent = callNames(callPeople(d).filter((u) => u !== state.userId));
     const wait = document.getElementById('call-wait');
-    if (wait) wait.hidden = live > 0 && call.kind !== 'voice';      // 語音通話一直顯示對方的頭像
+    if (wait) wait.hidden = live > 0 && call.kind !== 'voice';
+    // 對方的聲音被手機擋住沒播：顯示「開啟聲音」按鈕，點一下就能播
+    const quiet = [...document.querySelectorAll('#call-grid audio')].some((a) => a.srcObject && a.paused);
+    const snd = document.getElementById('call-sound');
+    if (snd) snd.hidden = !quiet;      // 語音通話一直顯示對方的頭像
     const mute = document.getElementById('call-mute'), cam = document.getElementById('call-cam');
     mute.innerHTML = (call.muted ? CALL_ICON.micOff : CALL_ICON.mic) + `<small>${call.muted ? '取消靜音' : '靜音'}</small>`;
     mute.classList.toggle('on', call.muted); mute.setAttribute('aria-pressed', call.muted);
@@ -8577,6 +8588,14 @@
     const l = document.getElementById('call-local');
     if (l) { l.hidden = call.camOff || !call.local; l.classList.toggle('mirror', call.facing === 'user'); }
   }
+  function callSoundOn() {
+    document.querySelectorAll('#call-grid audio, #call-grid video').forEach((el) => { if (el.srcObject && el.paused) el.play().catch((e) => console.warn('播不出聲音', e)); });
+    setTimeout(updateCallView, 300);
+  }
+  // 通話中點畫面任何地方：順便把被擋住的聲音播出來（iPhone 要使用者點過才肯播）
+  document.addEventListener('touchend', (ev) => {
+    if (ev.target.closest && ev.target.closest('#call-view') && document.querySelector('#call-grid audio')) callSoundOn();
+  }, { passive: true });
   function toggleMute() {
     call.muted = !call.muted;
     if (call.local) call.local.getAudioTracks().forEach((t) => { t.enabled = !call.muted; });
