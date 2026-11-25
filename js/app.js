@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-25 22:55';
+  const VERSION = '2026-11-25 23:01';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -8544,12 +8544,31 @@
       applyOutput();
     } catch (e) { console.warn('讀不到聲音輸出裝置', e); }
   }
-  function applyOutput() {
-    if (!call.outId) return;
-    document.querySelectorAll('#call-grid audio').forEach((a) => {
-      if (a.sinkId !== call.outId) a.setSinkId(call.outId).catch((e) => console.warn('切換聲音輸出失敗', e));
-    });
+  // 換聲音裝置：iOS 對已經在播的通話聲音呼叫 setSinkId 常常「說成功但沒換」，
+  // 所以每次都換一個新的播放器：先指定裝置，再接上對方的聲音，最後才播放。
+  async function attachAudio(tile, tracks) {
+    const seq = (tile.audioSeq = (tile.audioSeq || 0) + 1);
+    tile.dataset.ak = tracks.map((t) => t.id).join(',');
+    const a = document.createElement('audio');
+    a.autoplay = true; a.setAttribute('playsinline', '');
+    let err = '';
+    if (call.outId && a.setSinkId) { try { await a.setSinkId(call.outId); } catch (e) { err = (e && e.name) || 'error'; console.warn('指定聲音裝置失敗', e); } }
+    if (seq !== tile.audioSeq || !tile.isConnected) return err;     // 這中間又換了一次：用最新那次的
+    a.srcObject = tracks.length ? new MediaStream(tracks) : null;
+    tile.querySelectorAll('audio').forEach((old) => { old.pause(); old.srcObject = null; old.remove(); });
+    tile.appendChild(a);
+    if (tracks.length) a.play().catch(() => {});
+    return err;
+  }
+  async function applyOutput() {
+    if (!call.outId) return '';
+    let err = '';
+    for (const tile of document.querySelectorAll('#call-grid .call-tile')) {
+      const p = call.peers.get(tile.dataset.uid);
+      if (p && p.stream) err = (await attachAudio(tile, p.stream.getAudioTracks())) || err;
+    }
     updateCallView();
+    return err;
   }
   function outLabel(d) {
     const k = outKind(d);
@@ -8558,13 +8577,15 @@
     const l = (d.label || '').replace(/\s*\(.*\)\s*$/, '').trim();
     return /airpods|headphone|耳機|bluetooth|藍牙/i.test(l) ? '耳機' : (l.slice(0, 6) || '其他');
   }
-  function cycleOutput() {
+  async function cycleOutput() {
     const outs = call.outs || [];
     if (outs.length < 2) return;
     const i = outs.findIndex((d) => d.deviceId === call.outId);
-    call.outId = outs[(i + 1) % outs.length].deviceId;
-    applyOutput();
-    toast('聲音改從「' + outLabel(outs.find((d) => d.deviceId === call.outId)) + '」出來');
+    const d = outs[(i + 1) % outs.length];
+    call.outId = d.deviceId;
+    const err = await applyOutput();
+    // 診斷：顯示 iPhone 回報的裝置原名，方便對照
+    toast(err ? `這支手機不讓 App 切換聲音（${err}）` : `聲音改從「${outLabel(d)}」出來（${(d.label || '未命名').slice(0, 24)}・共 ${outs.length} 個）`);
   }
   if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', () => { if (call.local) setupOutputs(); });
   function attachLocal() {
@@ -8587,7 +8608,7 @@
         tile = document.createElement('div');
         tile.className = 'call-tile'; tile.dataset.uid = u;
         const m = member(u);
-        tile.innerHTML = `${m ? `<span class="avatar call-avatar tile-face" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>` : ''}<video autoplay playsinline muted></video><audio autoplay></audio><span class="call-name">${esc(nameOf(u))}</span>`;
+        tile.innerHTML = `${m ? `<span class="avatar call-avatar tile-face" style="background:${esc(m.color)}">${esc(faceOf(m))}</span>` : ''}<video autoplay playsinline muted></video><span class="call-name">${esc(nameOf(u))}</span>`;
         grid.appendChild(tile);
       }
       // 畫面和聲音分開放：語音通話沒有畫面時，iPhone 的影像播放器不會開始播，聲音也就出不來
@@ -8595,9 +8616,8 @@
       v.muted = true;
       if (v.srcObject !== p.stream) { v.srcObject = p.stream; v.play().catch(() => {}); }
       const tracks = p.stream.getAudioTracks(), key = tracks.map((t) => t.id).join(',');
-      if (a.dataset.k !== key) { a.dataset.k = key; a.srcObject = tracks.length ? new MediaStream(tracks) : null; }
-      if (call.outId && a.setSinkId && a.sinkId !== call.outId) a.setSinkId(call.outId).catch(() => {});
-      if (tracks.length && a.paused) a.play().catch(() => {});
+      if (tile.dataset.ak !== key) attachAudio(tile, tracks);
+      else if (tracks.length && a && a.paused) a.play().catch(() => {});
       tile.classList.toggle('weak', p.state === 'disconnected');
     });
     updateCallView();
