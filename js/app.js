@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-25 23:11';
+  const VERSION = '2026-11-25 23:15';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -8188,11 +8188,12 @@
   }
   const callKind = (d) => (d && d.kind === 'voice' ? 'voice' : 'video');
   const kindWord = (k) => (k === 'voice' ? '語音' : '視訊');
-  // 聲音從哪裡出來：iPhone 會依麥克風的設定決定。關掉回音消除時走「聽筒」，開著時走「擴音」。
-  // （網頁的 setSinkId 對通話聲音沒有作用，所以改用這個方式）語音通話預設聽筒，視訊通話預設擴音。
+  // 聲音從哪裡出來：iPhone 會依麥克風的設定決定（實測 iOS 27）：開著回音消除走「聽筒」，關掉回音消除走「擴音」。
+  // 網頁的 setSinkId 對通話聲音沒有作用，所以用這個方式。語音通話預設聽筒；視訊通話固定擴音（開著鏡頭 iPhone 會自己用喇叭）。
   function micConstraints() {
-    if (!call.route) call.route = call.kind === 'voice' ? 'ear' : 'spk';
-    return call.route === 'ear' ? { echoCancellation: false, noiseSuppression: true, autoGainControl: true } : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    if (!call.route) call.route = 'ear';
+    const ec = !(call.kind === 'voice' && call.route === 'spk');
+    return { echoCancellation: ec, noiseSuppression: true, autoGainControl: true };
   }
   function getMedia() {
     return navigator.mediaDevices.getUserMedia({
@@ -8547,21 +8548,24 @@
   }
   // 切換聽筒／擴音：重新開一次麥克風（換回音消除的設定），把新的聲音換給每個人
   let routeBusy = false;
+  async function reMic() {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
+    const track = s.getAudioTracks()[0];
+    track.enabled = !call.muted;
+    await Promise.all([...call.peers.values()].map((p) => {
+      const snd = p.pc.getSenders().find((x) => x.track && x.track.kind === 'audio');
+      return snd ? snd.replaceTrack(track) : null;
+    }));
+    call.local.getAudioTracks().forEach((t) => { call.local.removeTrack(t); t.stop(); });
+    call.local.addTrack(track);
+  }
   async function switchRoute() {
-    if (!call.local || routeBusy) return;
+    if (!call.local || routeBusy || call.kind !== 'voice') return;
     routeBusy = true;
     const prev = call.route;
-    call.route = prev === 'ear' ? 'spk' : 'ear';
+    call.route = prev === 'spk' ? 'ear' : 'spk';
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
-      const track = s.getAudioTracks()[0];
-      track.enabled = !call.muted;
-      await Promise.all([...call.peers.values()].map((p) => {
-        const snd = p.pc.getSenders().find((x) => x.track && x.track.kind === 'audio');
-        return snd ? snd.replaceTrack(track) : null;
-      }));
-      call.local.getAudioTracks().forEach((t) => { call.local.removeTrack(t); t.stop(); });
-      call.local.addTrack(track);
+      await reMic();
       toast(call.route === 'ear' ? '改用聽筒，請把手機貼近耳朵' : '改用擴音');
     } catch (e) {
       console.warn('切換聽筒／擴音失敗', e);
@@ -8627,7 +8631,7 @@
     if (snd) snd.hidden = !quiet;      // 語音通話一直顯示對方的頭像
     const route = document.getElementById('call-route');
     if (route) {
-      route.hidden = !call.local;
+      route.hidden = !call.local || call.kind !== 'voice';
       const lab = call.route === 'ear' ? '聽筒' : '擴音';
       route.innerHTML = (call.route === 'ear' ? CALL_ICON.ear : CALL_ICON.speaker) + `<small>${lab}</small>`;
       route.classList.toggle('on', call.route !== 'ear');
@@ -8692,6 +8696,8 @@
     if (call.kind === kind) return;
     call.kind = kind;
     if (kind === 'video' && call.local && !call.local.getVideoTracks().length) call.camOff = true;
+    // 語音時用擴音（沒有回音消除）→ 改成視訊時把回音消除開回來，免得對方聽到回音
+    if (kind === 'video' && call.local && call.route === 'spk') reMic().catch((e) => console.warn(e));
     const v = document.getElementById('call-view');
     if (v) { v.classList.toggle('voice', kind === 'voice'); v.setAttribute('aria-label', kindWord(kind) + '通話'); }
     if (kind === 'video') toast('改成視訊了' + (call.camOff ? '，要讓大家看到你就按「開鏡頭」' : ''));
