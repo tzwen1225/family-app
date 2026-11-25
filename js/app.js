@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-25 14:54';
+  const VERSION = '2026-11-25 22:45';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -876,7 +876,7 @@
   // ---------- 生日 ----------
   // 生日當天：壽星的首頁最上面是「生日快樂」和大家寫的卡片；其他人看到的是「今天是誰的生日」和寫卡片的按鈕。
   //   卡片 birthday_cards/{壽星UID_年份_寫的人UID} = { to, from, year, text, sticker, created_at }，每人每年一張，可以改
-  //   壽星在生日後一週內都還看得到卡片。
+  //   生日過完，卡片就從首頁收進「我收到的卡片」。
   let bdayTo = [], bdayFrom = [];
   const BDAY_STICKERS = ['🎂', '🎁', '🎈', '🎉', '🌟', '💖', '🧸', '🍰'];
   function birthdayOf(id, year) {
@@ -1020,12 +1020,7 @@
         </div>`;
       }
     });
-    // 自己的生日剛過一週內：卡片還留在首頁
-    const mineB = [birthdayOf(state.userId, year), birthdayOf(state.userId, year - 1)].filter((b) => b && b.date < t && b.date >= addDays(t, -7))[0];
-    if (mineB) {
-      const cards = cardsFor(state.userId, Number(mineB.date.slice(0, 4)));
-      if (cards.length) html += `<h3 class="bday-sub">你的生日卡片（${shortDate(mineB.date)}）</h3>${bdayCardsHtml(cards, true)}`;
-    }
+    // 生日過完（隔天起）首頁就不再顯示卡片，全部收在「設定 → 生日卡片收藏 → 我收到的卡片」
     return html;
   }
   function drawBday() {
