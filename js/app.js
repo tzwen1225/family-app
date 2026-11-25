@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-25 23:01';
+  const VERSION = '2026-11-25 23:11';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -7820,7 +7820,7 @@
     else if (act === 'mc-chat') { closeSheet(); goTab('chat'); const i = document.getElementById('chat-input'); const m = member(el.dataset.id); if (i && m && !i.value) { i.value = '@' + m.display_name + ' '; state.draft = i.value; } }
     else if (act === 'call-mute') toggleMute();
     else if (act === 'call-sound') callSoundOn();
-    else if (act === 'call-route') cycleOutput();
+    else if (act === 'call-route') switchRoute();
     else if (act === 'call-cam') toggleCam();
     else if (act === 'call-flip') flipCamera();
     else if (act === 'chat-older') {
@@ -8188,9 +8188,15 @@
   }
   const callKind = (d) => (d && d.kind === 'voice' ? 'voice' : 'video');
   const kindWord = (k) => (k === 'voice' ? '語音' : '視訊');
+  // 聲音從哪裡出來：iPhone 會依麥克風的設定決定。關掉回音消除時走「聽筒」，開著時走「擴音」。
+  // （網頁的 setSinkId 對通話聲音沒有作用，所以改用這個方式）語音通話預設聽筒，視訊通話預設擴音。
+  function micConstraints() {
+    if (!call.route) call.route = call.kind === 'voice' ? 'ear' : 'spk';
+    return call.route === 'ear' ? { echoCancellation: false, noiseSuppression: true, autoGainControl: true } : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+  }
   function getMedia() {
     return navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true },
+      audio: micConstraints(),
       video: call.kind === 'voice' ? false : { facingMode: call.facing, width: { ideal: 640 }, height: { ideal: 480 } }
     });
   }
@@ -8295,7 +8301,7 @@
 
   async function prepareCall() {
     if (!canVideo()) { toast('這支手機不支援' + kindWord(call.kind) + '通話'); return false; }
-    Object.assign(call, { peers: new Map(), started: 0, muted: false, camOff: false, ending: false, seen: new Set(), outs: [], outId: '' });
+    Object.assign(call, { peers: new Map(), started: 0, muted: false, camOff: false, ending: false, seen: new Set(), outs: [], outId: '', route: '' });
     try { call.local = await getMedia(); } catch (e) { console.warn(e); toast(mediaError(e)); return false; }
     call.servers = await iceServers();
     return true;
@@ -8415,7 +8421,7 @@
     call.peers.forEach((p) => { try { p.pc.close(); } catch (e) { /* 已經關了 */ } });
     if (call.unsubSig) call.unsubSig();
     if (call.wake) call.wake.release().catch(() => {});
-    Object.assign(call, { id: null, local: null, peers: new Map(), tick: null, unsubSig: null, wake: null, started: 0, preparing: false, outs: [], outId: '' });
+    Object.assign(call, { id: null, local: null, peers: new Map(), tick: null, unsubSig: null, wake: null, started: 0, preparing: false, outs: [], outId: '', route: '' });
     if ($call && !call.incoming) { $call.innerHTML = ''; document.body.classList.remove('in-call'); }
     refreshCallBanner();
   }
@@ -8525,34 +8531,13 @@
     }, 1000);
     updateCallView();
   }
-  // ---- 聲音從哪裡出來：聽筒或擴音 ----
-  // iOS 26 起，網頁可以用 setSinkId 指定播放的裝置。語音通話預設聽筒，視訊通話預設擴音；按鈕可以切換。
-  // 手機不支援時（舊版 iOS）不顯示按鈕，聲音由 iPhone 自己決定。
-  const OUT_SPK = /speaker|揚聲器|扬声器|喇叭|擴音|扩音/i, OUT_EAR = /receiver|earpiece|handset|聽筒|听筒|^iphone$/i;
-  function outKind(d) { const l = (d.label || '').trim(); return OUT_SPK.test(l) ? 'spk' : OUT_EAR.test(l) ? 'ear' : 'other'; }
-  async function setupOutputs() {
-    if (!window.HTMLMediaElement || !HTMLMediaElement.prototype.setSinkId || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
-    try {
-      const outs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput' && d.deviceId);
-      call.outs = outs;
-      if (outs.length < 2) { call.outId = ''; updateCallView(); return; }
-      if (!call.outId || !outs.some((d) => d.deviceId === call.outId)) {
-        const want = call.kind === 'voice' ? 'ear' : 'spk';
-        const pick = outs.find((d) => outKind(d) === want) || outs.find((d) => d.deviceId === 'default') || outs[0];
-        call.outId = pick.deviceId;
-      }
-      applyOutput();
-    } catch (e) { console.warn('讀不到聲音輸出裝置', e); }
-  }
-  // 換聲音裝置：iOS 對已經在播的通話聲音呼叫 setSinkId 常常「說成功但沒換」，
-  // 所以每次都換一個新的播放器：先指定裝置，再接上對方的聲音，最後才播放。
+  // 對方的聲音用獨立的播放器播（換了聲音來源時換一個新的）
   async function attachAudio(tile, tracks) {
     const seq = (tile.audioSeq = (tile.audioSeq || 0) + 1);
     tile.dataset.ak = tracks.map((t) => t.id).join(',');
     const a = document.createElement('audio');
     a.autoplay = true; a.setAttribute('playsinline', '');
     let err = '';
-    if (call.outId && a.setSinkId) { try { await a.setSinkId(call.outId); } catch (e) { err = (e && e.name) || 'error'; console.warn('指定聲音裝置失敗', e); } }
     if (seq !== tile.audioSeq || !tile.isConnected) return err;     // 這中間又換了一次：用最新那次的
     a.srcObject = tracks.length ? new MediaStream(tracks) : null;
     tile.querySelectorAll('audio').forEach((old) => { old.pause(); old.srcObject = null; old.remove(); });
@@ -8560,36 +8545,33 @@
     if (tracks.length) a.play().catch(() => {});
     return err;
   }
-  async function applyOutput() {
-    if (!call.outId) return '';
-    let err = '';
-    for (const tile of document.querySelectorAll('#call-grid .call-tile')) {
-      const p = call.peers.get(tile.dataset.uid);
-      if (p && p.stream) err = (await attachAudio(tile, p.stream.getAudioTracks())) || err;
+  // 切換聽筒／擴音：重新開一次麥克風（換回音消除的設定），把新的聲音換給每個人
+  let routeBusy = false;
+  async function switchRoute() {
+    if (!call.local || routeBusy) return;
+    routeBusy = true;
+    const prev = call.route;
+    call.route = prev === 'ear' ? 'spk' : 'ear';
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
+      const track = s.getAudioTracks()[0];
+      track.enabled = !call.muted;
+      await Promise.all([...call.peers.values()].map((p) => {
+        const snd = p.pc.getSenders().find((x) => x.track && x.track.kind === 'audio');
+        return snd ? snd.replaceTrack(track) : null;
+      }));
+      call.local.getAudioTracks().forEach((t) => { call.local.removeTrack(t); t.stop(); });
+      call.local.addTrack(track);
+      toast(call.route === 'ear' ? '改用聽筒，請把手機貼近耳朵' : '改用擴音');
+    } catch (e) {
+      console.warn('切換聽筒／擴音失敗', e);
+      call.route = prev;
+      toast('切換失敗，請再試一次');
     }
+    routeBusy = false;
     updateCallView();
-    return err;
   }
-  function outLabel(d) {
-    const k = outKind(d);
-    if (k === 'spk') return '擴音';
-    if (k === 'ear') return '聽筒';
-    const l = (d.label || '').replace(/\s*\(.*\)\s*$/, '').trim();
-    return /airpods|headphone|耳機|bluetooth|藍牙/i.test(l) ? '耳機' : (l.slice(0, 6) || '其他');
-  }
-  async function cycleOutput() {
-    const outs = call.outs || [];
-    if (outs.length < 2) return;
-    const i = outs.findIndex((d) => d.deviceId === call.outId);
-    const d = outs[(i + 1) % outs.length];
-    call.outId = d.deviceId;
-    const err = await applyOutput();
-    // 診斷：顯示 iPhone 回報的裝置原名，方便對照
-    toast(err ? `這支手機不讓 App 切換聲音（${err}）` : `聲音改從「${outLabel(d)}」出來（${(d.label || '未命名').slice(0, 24)}・共 ${outs.length} 個）`);
-  }
-  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', () => { if (call.local) setupOutputs(); });
   function attachLocal() {
-    setupOutputs();
     const l = document.getElementById('call-local');
     if (l && call.local && l.srcObject !== call.local) l.srcObject = call.local;
     updateCallView();
@@ -8643,11 +8625,13 @@
     const quiet = [...document.querySelectorAll('#call-grid audio')].some((a) => a.srcObject && a.paused);
     const snd = document.getElementById('call-sound');
     if (snd) snd.hidden = !quiet;      // 語音通話一直顯示對方的頭像
-    const route = document.getElementById('call-route'), outs = call.outs || [];
-    const cur = outs.find((d) => d.deviceId === call.outId);
+    const route = document.getElementById('call-route');
     if (route) {
-      route.hidden = outs.length < 2 || !cur;
-      if (cur) { const lab = outLabel(cur); route.innerHTML = (lab === '擴音' ? CALL_ICON.speaker : CALL_ICON.ear) + `<small>${esc(lab)}</small>`; route.classList.toggle('on', lab === '擴音'); route.setAttribute('aria-label', '聲音從' + lab + '出來，點一下切換'); }
+      route.hidden = !call.local;
+      const lab = call.route === 'ear' ? '聽筒' : '擴音';
+      route.innerHTML = (call.route === 'ear' ? CALL_ICON.ear : CALL_ICON.speaker) + `<small>${lab}</small>`;
+      route.classList.toggle('on', call.route !== 'ear');
+      route.setAttribute('aria-label', '聲音從' + lab + '出來，點一下切換');
     }
     const mute = document.getElementById('call-mute'), cam = document.getElementById('call-cam');
     mute.innerHTML = (call.muted ? CALL_ICON.micOff : CALL_ICON.mic) + `<small>${call.muted ? '取消靜音' : '靜音'}</small>`;
