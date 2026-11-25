@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-24 23:43';
+  const VERSION = '2026-11-25 14:48';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2581,26 +2581,165 @@
     scrollChat();
   }
 
-  async function openImage(id) {
-    const m = findById(state.messages, id);
-    if (!m) return;
+  // ---- 聊天室看照片：像 LINE 一樣左右滑看上一張、下一張 ----
+  // 點兩下放大／還原、兩指放大、放大後拖曳；往下滑關閉；點一下藏起上下的按鈕。
+  let cg = null;      // { ids: 這個聊天室所有照片訊息的 id, i: 目前第幾張, ui: 是否顯示按鈕 }
+  const cgZoom = { s: 1, x: 0, y: 0 };
+  const chatPhotos = () => state.messages.filter((m) => m.image_id && m.thumb && !m.recalled);
+  function openImage(id) {
+    const ids = chatPhotos().map((m) => m.id);
+    const i = ids.indexOf(id);
+    if (i < 0) return;
+    cg = { ids, i, ui: true };
+    document.body.classList.add('sheet-open');
+    renderCg();
+  }
+  function cgSlide(m, pos) {
+    if (!m) return `<div class="cg-slide ${pos}"></div>`;
+    const full = fullImages.get(m.image_id);
+    return `<div class="cg-slide ${pos}"><img src="${esc(full || m.thumb)}" alt="照片" class="${full ? '' : 'loading'}" draggable="false"></div>`;
+  }
+  function renderCg() {
+    if (!cg) return;
+    const msgs = cg.ids.map((x) => findById(state.messages, x));
+    const m = msgs[cg.i];
+    if (!m || m.recalled) { closeCg(); return; }
+    Object.assign(cgZoom, { s: 1, x: 0, y: 0 });
     $sheet.innerHTML = `
-      <div class="viewer" data-act="close">
-        <img src="${esc(m.thumb)}" alt="照片" class="loading">
+      <div class="viewer cg ${cg.ui ? '' : 'ui-off'}" role="dialog" aria-label="照片">
+        <div class="cg-stage">
+          <div class="cg-track">${cgSlide(msgs[cg.i - 1], 'prev')}${cgSlide(m, 'cur')}${cgSlide(msgs[cg.i + 1], 'next')}</div>
+        </div>
+        <div class="cg-top">
+          <button class="cg-x" data-act="cg-close" aria-label="關閉">×</button>
+          <span class="cg-pos">${cg.i + 1} / ${cg.ids.length}</span>
+          <span class="cg-gap"></span>
+        </div>
+        ${cg.i > 0 ? '<button class="cg-step prev" data-act="cg-step" data-d="-1" aria-label="上一張">‹</button>' : ''}
+        ${cg.i < cg.ids.length - 1 ? '<button class="cg-step next" data-act="cg-step" data-d="1" aria-label="下一張">›</button>' : ''}
         ${reactPickHtml(m.id)}
         <div class="viewer-bar">
           <span>${esc(nameOf(m.sender))}　${stamp(m.sent_at)}</span>
           <button class="reply-btn" data-act="reply-msg" data-id="${esc(m.id)}">回覆</button>
           ${canRecall(m) ? `<button class="recall" data-act="recall" data-id="${esc(m.id)}">收回</button>` : ''}
-          <button class="link-btn" data-act="close">關閉</button>
         </div>
       </div>`;
+    [cg.i, cg.i - 1, cg.i + 1, cg.i + 2, cg.i - 2].forEach((k) => loadCgFull(msgs[k]));
+  }
+  async function loadCgFull(m) {
+    if (!m || fullImages.has(m.image_id)) return;
     try {
       const doc = await Api.getDoc('chat_images', m.image_id);
-      const el = $sheet.querySelector('.viewer img');
-      if (el && doc && String(doc.data).startsWith('data:image/')) { el.src = doc.data; el.classList.remove('loading'); }
-    } catch (e) { console.error(e); toast('原圖讀取失敗'); }
+      if (!doc || !String(doc.data).startsWith('data:image/')) return;
+      fullImages.set(m.image_id, doc.data);
+      if (!cg) return;
+      const k = cg.ids.indexOf(m.id) - cg.i;
+      const img = Math.abs(k) <= 1 && $sheet.querySelector('.cg-slide.' + (k < 0 ? 'prev' : k > 0 ? 'next' : 'cur') + ' img');
+      if (img) { img.src = doc.data; img.classList.remove('loading'); }
+    } catch (e) { console.warn('原圖讀取失敗', e); }
   }
+  function closeCg() {
+    cg = null; cgDrag = null;
+    if ($sheet.querySelector('.cg')) closeSheet();
+  }
+  // 換到上一張（-1）或下一張（1），有滑動的動畫
+  function cgGo(d) {
+    if (!cg || !cg.ids[cg.i + d]) return;
+    const track = $sheet.querySelector('.cg-track');
+    if (!track) return;
+    track.style.transition = 'transform .22s ease-out';
+    track.style.transform = `translateX(${d > 0 ? -200 : 0}%)`;
+    setTimeout(() => { if (cg) { cg.i += d; renderCg(); } }, 220);
+  }
+  function cgApplyZoom() {
+    const img = $sheet.querySelector('.cg-slide.cur img');
+    if (img) img.style.transform = cgZoom.s > 1 ? `translate(${cgZoom.x}px, ${cgZoom.y}px) scale(${cgZoom.s})` : '';
+  }
+  function cgToggleUi() {
+    if (!cg) return;
+    cg.ui = !cg.ui;
+    const v = $sheet.querySelector('.cg');
+    if (v) v.classList.toggle('ui-off', !cg.ui);
+  }
+  let cgDrag = null, cgTap = { at: 0, timer: 0 };
+  document.addEventListener('touchstart', (ev) => {
+    if (!cg || !ev.target.closest || !ev.target.closest('.cg-stage')) { cgDrag = null; return; }
+    const t = ev.touches;
+    if (t.length === 2) cgDrag = { kind: 'pinch', d: dist(t[0], t[1]), s: cgZoom.s };
+    else if (t.length === 1) cgDrag = { kind: cgZoom.s > 1 ? 'pan' : 'swipe', sx: t[0].clientX, sy: t[0].clientY, x: cgZoom.x, y: cgZoom.y, dx: 0, dy: 0, dir: '', at: Date.now() };
+  }, { passive: true });
+  document.addEventListener('touchmove', (ev) => {
+    if (!cg || !cgDrag) return;
+    const t = ev.touches, g = cgDrag;
+    if (g.kind === 'pinch' && t.length === 2) {
+      cgZoom.s = Math.min(4, Math.max(1, g.s * dist(t[0], t[1]) / g.d));
+      if (cgZoom.s === 1) { cgZoom.x = 0; cgZoom.y = 0; }
+      cgApplyZoom();
+    } else if (g.kind === 'pan' && t.length === 1) {
+      const max = 160 * cgZoom.s;
+      cgZoom.x = Math.min(max, Math.max(-max, g.x + t[0].clientX - g.sx));
+      cgZoom.y = Math.min(max, Math.max(-max, g.y + t[0].clientY - g.sy));
+      cgApplyZoom();
+    } else if (g.kind === 'swipe' && t.length === 1) {
+      g.dx = t[0].clientX - g.sx; g.dy = t[0].clientY - g.sy;
+      if (!g.dir && Math.hypot(g.dx, g.dy) > 8) g.dir = Math.abs(g.dx) > Math.abs(g.dy) ? 'h' : g.dy > 0 ? 'v' : 'x';
+      if (g.dir === 'h') {
+        const edge = !cg.ids[cg.i + (g.dx < 0 ? 1 : -1)];
+        const track = $sheet.querySelector('.cg-track');
+        if (track) { track.style.transition = 'none'; track.style.transform = `translateX(calc(-100% + ${edge ? g.dx * 0.3 : g.dx}px))`; }
+      } else if (g.dir === 'v') {
+        const img = $sheet.querySelector('.cg-slide.cur img'), v = $sheet.querySelector('.cg');
+        if (img) { img.style.transition = 'none'; img.style.transform = `translateY(${Math.max(0, g.dy)}px) scale(${Math.max(0.7, 1 - Math.max(0, g.dy) / 900)})`; }
+        if (v) v.style.background = `rgba(0,0,0,${Math.max(0.3, 1 - Math.max(0, g.dy) / 500)})`;
+      } else return;
+    } else return;
+    if (ev.cancelable) ev.preventDefault();
+  }, { passive: false });
+  document.addEventListener('touchend', (ev) => {
+    if (!cg || !cgDrag || ev.touches.length) return;
+    const g = cgDrag;
+    cgDrag = null;
+    if (cgZoom.s < 1.08 && cgZoom.s !== 1) { Object.assign(cgZoom, { s: 1, x: 0, y: 0 }); cgApplyZoom(); }
+    if (g.kind !== 'swipe' && g.kind !== 'pan') return;
+    const w = window.innerWidth || 390, fast = Date.now() - g.at < 300;
+    if (g.dir === 'h') {
+      const d = g.dx < 0 ? 1 : -1;
+      if (cg.ids[cg.i + d] && (Math.abs(g.dx) > w * 0.22 || (fast && Math.abs(g.dx) > 40))) { cgGo(d); return; }
+      const track = $sheet.querySelector('.cg-track');
+      if (track) { track.style.transition = 'transform .2s ease-out'; track.style.transform = 'translateX(-100%)'; }
+      return;
+    }
+    if (g.dir === 'v') {
+      if (g.dy > 110 || (fast && g.dy > 50)) { closeCg(); return; }
+      const img = $sheet.querySelector('.cg-slide.cur img'), v = $sheet.querySelector('.cg');
+      if (img) { img.style.transition = 'transform .2s ease-out'; img.style.transform = ''; }
+      if (v) v.style.background = '';
+      return;
+    }
+    // 沒有移動＝點一下：點兩下放大／還原，點一下藏起按鈕
+    if (g.dir || Math.hypot(g.dx || 0, g.dy || 0) > 8 || (g.kind === 'pan' && (cgZoom.x !== g.x || cgZoom.y !== g.y))) return;
+    const now = Date.now();
+    if (now - cgTap.at < 300) {
+      clearTimeout(cgTap.timer); cgTap.at = 0;
+      if (cgZoom.s > 1) Object.assign(cgZoom, { s: 1, x: 0, y: 0 });
+      else {
+        const t = ev.changedTouches[0], r = ($sheet.querySelector('.cg-stage') || document.body).getBoundingClientRect();
+        Object.assign(cgZoom, { s: 2.5, x: (r.width / 2 - (t.clientX - r.left)) * 1.5, y: (r.height / 2 - (t.clientY - r.top)) * 1.5 });
+      }
+      const img = $sheet.querySelector('.cg-slide.cur img');
+      if (img) img.style.transition = 'transform .2s ease-out';
+      cgApplyZoom();
+      return;
+    }
+    cgTap.at = now;
+    cgTap.timer = setTimeout(() => { cgTap.at = 0; cgToggleUi(); }, 300);
+  }, { passive: true });
+  document.addEventListener('keydown', (ev) => {
+    if (!cg || !$sheet.querySelector('.cg')) return;
+    if (ev.key === 'ArrowLeft') cgGo(-1);
+    else if (ev.key === 'ArrowRight') cgGo(1);
+    else if (ev.key === 'Escape') closeCg();
+  });
 
   async function onRecall(id) {
     state.menuMsg = null;
@@ -5999,6 +6138,7 @@
   function closeSheet() {
     if (sendingPhotos) { cancelPhotos = true; return; }   // 照片傳送中：改成取消剩下的，傳完這張才關
     pendingPhotos = [];
+    cg = null;
     $sheet.innerHTML = '';
     document.body.classList.remove('sheet-open');
     if (studyDirty) setTimeout(refreshStudy, 0);     // 表單開著時讀書計畫有變動：關掉後補畫
@@ -7722,6 +7862,8 @@
     else if (act === 'open-todos') { Object.assign(state, { tab: 'notes', notesView: 'shop' }); render(); scroller().scrollTop = 0; }
     else if (act === 'edit-card') { const c = findById(state.cards, el.dataset.id); if (c && canEditCard(c)) openCardSheet(c); }
     else if (act === 'view-image') openImage(el.dataset.id);
+    else if (act === 'cg-close') closeCg();
+    else if (act === 'cg-step') cgGo(Number(el.dataset.d));
     else if (act === 'tray-cancel') closeSheet();
     else if (act === 'tray-remove') { pendingPhotos.splice(Number(el.dataset.i), 1); if (pendingPhotos.length) renderTray(); else closeSheet(); }
     else if (act === 'tray-send') sendPendingPhotos();
