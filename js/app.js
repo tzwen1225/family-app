@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-25 22:52';
+  const VERSION = '2026-11-25 22:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -7820,6 +7820,7 @@
     else if (act === 'mc-chat') { closeSheet(); goTab('chat'); const i = document.getElementById('chat-input'); const m = member(el.dataset.id); if (i && m && !i.value) { i.value = '@' + m.display_name + ' '; state.draft = i.value; } }
     else if (act === 'call-mute') toggleMute();
     else if (act === 'call-sound') callSoundOn();
+    else if (act === 'call-route') cycleOutput();
     else if (act === 'call-cam') toggleCam();
     else if (act === 'call-flip') flipCamera();
     else if (act === 'chat-older') {
@@ -8139,6 +8140,8 @@
     return $call;
   }
   const CALL_ICON = {
+    ear: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9.5a5 5 0 0 1 10 0c0 3-2.5 4-3 6.500-.4 2-1.800 3.500-3.800 3.500A3.200 3.200 0 0 1 7 16.300"/><path d="M10 9.500a2 2 0 0 1 4 0c0 1.200-1 1.700-1.500 2.500"/></svg>',
+    speaker: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.500h3.500L12 5.500v13l-4.500-4H4z"/><path d="M15.500 9a4 4 0 0 1 0 6M18 6.500a7.500 7.500 0 0 1 0 11"/></svg>',
     video: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6.500" width="12.500" height="11" rx="2.500"/><path d="M15.500 10.500l5-3v9l-5-3z"/></svg>',
     mic: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.500" width="6" height="11" rx="3"/><path d="M5.500 11.500a6.500 6.500 0 0 0 13 0M12 18v2.500"/></svg>',
     micOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.500" width="6" height="11" rx="3"/><path d="M5.500 11.500a6.500 6.500 0 0 0 13 0M12 18v2.500M4 4l16 16"/></svg>',
@@ -8292,7 +8295,7 @@
 
   async function prepareCall() {
     if (!canVideo()) { toast('這支手機不支援' + kindWord(call.kind) + '通話'); return false; }
-    Object.assign(call, { peers: new Map(), started: 0, muted: false, camOff: false, ending: false, seen: new Set() });
+    Object.assign(call, { peers: new Map(), started: 0, muted: false, camOff: false, ending: false, seen: new Set(), outs: [], outId: '' });
     try { call.local = await getMedia(); } catch (e) { console.warn(e); toast(mediaError(e)); return false; }
     call.servers = await iceServers();
     return true;
@@ -8412,7 +8415,7 @@
     call.peers.forEach((p) => { try { p.pc.close(); } catch (e) { /* 已經關了 */ } });
     if (call.unsubSig) call.unsubSig();
     if (call.wake) call.wake.release().catch(() => {});
-    Object.assign(call, { id: null, local: null, peers: new Map(), tick: null, unsubSig: null, wake: null, started: 0, preparing: false });
+    Object.assign(call, { id: null, local: null, peers: new Map(), tick: null, unsubSig: null, wake: null, started: 0, preparing: false, outs: [], outId: '' });
     if ($call && !call.incoming) { $call.innerHTML = ''; document.body.classList.remove('in-call'); }
     refreshCallBanner();
   }
@@ -8506,6 +8509,7 @@
         <button class="call-sound" id="call-sound" data-act="call-sound" hidden>🔊 聽不到聲音？點這裡</button>
         <div class="call-ctrls">
           <button class="call-btn" data-act="call-mute" id="call-mute"></button>
+          <button class="call-btn" data-act="call-route" id="call-route" hidden></button>
           <button class="call-btn" data-act="call-cam" id="call-cam"></button>
           <button class="call-btn vo-hide" data-act="call-flip" aria-label="切換前後鏡頭">${CALL_ICON.flip}<small>翻轉</small></button>
           <button class="call-btn end" data-act="call-end" aria-label="離開通話">${CALL_ICON.end}<small>掛斷</small></button>
@@ -8521,7 +8525,50 @@
     }, 1000);
     updateCallView();
   }
+  // ---- 聲音從哪裡出來：聽筒或擴音 ----
+  // iOS 26 起，網頁可以用 setSinkId 指定播放的裝置。語音通話預設聽筒，視訊通話預設擴音；按鈕可以切換。
+  // 手機不支援時（舊版 iOS）不顯示按鈕，聲音由 iPhone 自己決定。
+  const OUT_SPK = /speaker|揚聲器|扬声器|喇叭|擴音|扩音/i, OUT_EAR = /receiver|earpiece|handset|聽筒|听筒|^iphone$/i;
+  function outKind(d) { const l = (d.label || '').trim(); return OUT_SPK.test(l) ? 'spk' : OUT_EAR.test(l) ? 'ear' : 'other'; }
+  async function setupOutputs() {
+    if (!window.HTMLMediaElement || !HTMLMediaElement.prototype.setSinkId || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    try {
+      const outs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput' && d.deviceId);
+      call.outs = outs;
+      if (outs.length < 2) { call.outId = ''; updateCallView(); return; }
+      if (!call.outId || !outs.some((d) => d.deviceId === call.outId)) {
+        const want = call.kind === 'voice' ? 'ear' : 'spk';
+        const pick = outs.find((d) => outKind(d) === want) || outs.find((d) => d.deviceId === 'default') || outs[0];
+        call.outId = pick.deviceId;
+      }
+      applyOutput();
+    } catch (e) { console.warn('讀不到聲音輸出裝置', e); }
+  }
+  function applyOutput() {
+    if (!call.outId) return;
+    document.querySelectorAll('#call-grid audio').forEach((a) => {
+      if (a.sinkId !== call.outId) a.setSinkId(call.outId).catch((e) => console.warn('切換聲音輸出失敗', e));
+    });
+    updateCallView();
+  }
+  function outLabel(d) {
+    const k = outKind(d);
+    if (k === 'spk') return '擴音';
+    if (k === 'ear') return '聽筒';
+    const l = (d.label || '').replace(/\s*\(.*\)\s*$/, '').trim();
+    return /airpods|headphone|耳機|bluetooth|藍牙/i.test(l) ? '耳機' : (l.slice(0, 6) || '其他');
+  }
+  function cycleOutput() {
+    const outs = call.outs || [];
+    if (outs.length < 2) return;
+    const i = outs.findIndex((d) => d.deviceId === call.outId);
+    call.outId = outs[(i + 1) % outs.length].deviceId;
+    applyOutput();
+    toast('聲音改從「' + outLabel(outs.find((d) => d.deviceId === call.outId)) + '」出來');
+  }
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', () => { if (call.local) setupOutputs(); });
   function attachLocal() {
+    setupOutputs();
     const l = document.getElementById('call-local');
     if (l && call.local && l.srcObject !== call.local) l.srcObject = call.local;
     updateCallView();
@@ -8549,6 +8596,7 @@
       if (v.srcObject !== p.stream) { v.srcObject = p.stream; v.play().catch(() => {}); }
       const tracks = p.stream.getAudioTracks(), key = tracks.map((t) => t.id).join(',');
       if (a.dataset.k !== key) { a.dataset.k = key; a.srcObject = tracks.length ? new MediaStream(tracks) : null; }
+      if (call.outId && a.setSinkId && a.sinkId !== call.outId) a.setSinkId(call.outId).catch(() => {});
       if (tracks.length && a.paused) a.play().catch(() => {});
       tile.classList.toggle('weak', p.state === 'disconnected');
     });
@@ -8575,6 +8623,12 @@
     const quiet = [...document.querySelectorAll('#call-grid audio')].some((a) => a.srcObject && a.paused);
     const snd = document.getElementById('call-sound');
     if (snd) snd.hidden = !quiet;      // 語音通話一直顯示對方的頭像
+    const route = document.getElementById('call-route'), outs = call.outs || [];
+    const cur = outs.find((d) => d.deviceId === call.outId);
+    if (route) {
+      route.hidden = outs.length < 2 || !cur;
+      if (cur) { const lab = outLabel(cur); route.innerHTML = (lab === '擴音' ? CALL_ICON.speaker : CALL_ICON.ear) + `<small>${esc(lab)}</small>`; route.classList.toggle('on', lab === '擴音'); route.setAttribute('aria-label', '聲音從' + lab + '出來，點一下切換'); }
+    }
     const mute = document.getElementById('call-mute'), cam = document.getElementById('call-cam');
     mute.innerHTML = (call.muted ? CALL_ICON.micOff : CALL_ICON.mic) + `<small>${call.muted ? '取消靜音' : '靜音'}</small>`;
     mute.classList.toggle('on', call.muted); mute.setAttribute('aria-pressed', call.muted);
