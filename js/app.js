@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-26 21:05';
+  const VERSION = '2026-11-26 21:21';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -20,7 +20,9 @@
     ['sakura', '櫻花粉', '#D6457F', '#7A4B8C'],
     ['sunset', '暖陽橘', '#E0701A', '#7A5A1E'],
     ['lavender', '薰衣草紫', '#7A4FD0', '#3F5BB5'],
-    ['matcha', '抹茶', '#6E9B4E', '#DDEBCB'],
+    ['matcha', '抹茶拿鐵', '#7FA94A', '#F7F5EA'],
+    ['straw', '草莓牛奶', '#D23B62', '#FFDCE4'],
+    ['boba', '珍珠奶茶', '#8A5532', '#F4E9DA'],
     ['night', '夜間', '#1B2320', '#3FA57F']
   ];
   const THEME_KEY = 'family-theme';
