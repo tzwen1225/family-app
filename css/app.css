@@ -733,7 +733,7 @@ em.past { color: var(--ink-2); font-weight: 500; }
 /* ---------- 採買清單 ---------- */
 .shop-add { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .shop-add input { margin: 0; border-radius: 99px; padding: 11px 16px; }
-.send svg path { fill: none; }
+.send svg:not(.i3s) path { fill: none; }
 .shop-items { margin-top: 12px; background: var(--sheet); border-radius: 16px; padding: 2px 16px; }
 .shop-item { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: center; width: 100%; text-align: left; padding: 13px 0; }
 .shop-item + .shop-item { border-top: 1px solid var(--line); }
@@ -2644,7 +2644,7 @@ svg.i3 { display: block; fill: none; stroke: none; overflow: visible; }
 .tab .tab-3d { display: flex; height: 34px; align-items: flex-end; }
 .tab .tab-3d svg.i3 { width: 28px; height: 28px; stroke: none; filter: saturate(.25) brightness(1.06); opacity: .72; transition: transform .2s cubic-bezier(.3, 1.5, .5, 1), width .2s, height .2s; }
 .tab.on .tab-3d svg.i3 { width: 34px; height: 34px; filter: none; opacity: 1; transform: translateY(-3px); }
-html[data-icons="3d"] .tab.on { color: var(--ink); font-weight: 700; }
+html[data-icons] .tab.on { color: var(--ink); font-weight: 700; }
 .hub-3d { margin-top: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .hub-tile { background: var(--sheet); border-radius: 20px; padding: 12px 6px 10px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; color: var(--ink); box-shadow: 0 3px 0 var(--line); min-height: 44px; }
 .hub-tile svg.i3 { width: 56px; height: 56px; margin-bottom: 2px; transition: transform .15s; }
@@ -2652,8 +2652,8 @@ html[data-icons="3d"] .tab.on { color: var(--ink); font-weight: 700; }
 .hub-tile b { font-size: 14px; }
 .hub-tile small { font-size: 11px; line-height: 1.3; color: var(--ink-2); overflow-wrap: anywhere; }
 .hub-tile small em { font-style: normal; color: var(--red); font-weight: 700; }
-.icon-styles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 6px 0 12px; }
-.icon-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px; border-radius: 18px; background: var(--paper); box-shadow: inset 0 0 0 1.5px var(--line); text-align: left; color: var(--ink); }
+.icon-styles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 6px 0 12px; }
+.icon-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px; border-radius: 18px; background: var(--paper); box-shadow: inset 0 0 0 1.5px var(--line); text-align: left; color: var(--ink); }
 .icon-opt.on { box-shadow: inset 0 0 0 2.5px var(--red); }
 .icon-opt b { font-size: 15px; }
 .icon-opt small { font-size: 12px; color: var(--ink-2); }
@@ -2662,3 +2662,33 @@ html[data-icons="3d"] .tab.on { color: var(--ink); font-weight: 700; }
 .icon-demo.line i { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; }
 .icon-demo.line svg { width: 20px; height: 20px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 @media (prefers-reduced-motion: reduce) { .tab .tab-3d svg.i3, .hub-tile svg.i3 { transition: none; } }
+
+/* ---------- 3D 向量圖示、兩種 3D 風格的小圖示 ---------- */
+svg.i3, svg.i3s { stroke: none !important; fill: none; overflow: visible; }
+svg.i3s { display: block; width: 28px; height: 28px; }
+.send svg.i3s { width: 30px; height: 30px; }
+html[data-icons] .send:has(svg.i3s), html[data-icons] .fab-plus:has(svg.i3s) { background: none; box-shadow: none; }
+html[data-icons] .fab-plus:has(svg.i3s) { width: 32px; height: 32px; }
+html[data-icons] .fab-plus svg.i3s { width: 32px; height: 32px; }
+.attach svg.i3s { width: 30px; height: 30px; }
+.icon-btn svg.i3s { width: 26px; height: 26px; }
+html[data-icons] .icon-btn:has(svg.i3s) { background: var(--sheet); box-shadow: 0 3px 0 var(--line); }
+.ci-card svg.i3s, .ci-quick svg.i3s, h2 > svg.i3s { width: 26px; height: 26px; flex: none; display: inline-block; vertical-align: -7px; margin-right: 4px; }
+/* 九宮格：簡約線條也用方格 */
+.hub-tile .hub-icon { width: 52px; height: 52px; border-radius: 16px; margin-bottom: 4px; }
+.hub-tile .hub-icon svg { width: 30px; height: 30px; }
+
+/* ---------- 頭像：兩種 3D 風格 ---------- */
+html[data-icons="vec"] .avatar {
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, .42), rgba(255, 255, 255, 0) 58%), radial-gradient(ellipse 30% 16% at 30% 22%, rgba(255, 255, 255, .55), transparent 70%) !important;
+  box-shadow: inset -2px -3px 0 rgba(0, 0, 0, .14), 0 3px 0 rgba(0, 0, 0, .18);
+  text-shadow: 0 1.5px 0 rgba(0, 0, 0, .22);
+}
+html[data-icons="3d"] .avatar {
+  background-image: radial-gradient(ellipse 16% 10% at 20% 66%, rgba(245, 154, 174, .9), transparent 80%), radial-gradient(ellipse 16% 10% at 80% 66%, rgba(245, 154, 174, .9), transparent 80%),
+    radial-gradient(ellipse 34% 14% at 36% 16%, rgba(255, 255, 255, .6), transparent 70%), linear-gradient(rgba(255, 255, 255, .32), rgba(255, 255, 255, .08)) !important;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .1), 0 3px 0 rgba(0, 0, 0, .12);
+  text-shadow: 0 0 2px rgba(0, 0, 0, .25), 0 1px 0 rgba(0, 0, 0, .2);
+}
+html[data-icons] .avatar.online::after { background: radial-gradient(circle at 35% 30%, #B4F0C6, #2DB57A 60%, #1B7F53); }
+html[data-icons] .avatar.xs { box-shadow: none; }
