@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" href="icons/icon-192.png">
   <!-- 先套用這支手機選的面板顏色，避免畫面先閃一下預設色 -->
-  <script>try { var t = localStorage.getItem('family-theme'); if (localStorage.getItem('family-auto-night') === '1' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) t = 'night'; if (t) document.documentElement.dataset.theme = t; var s = localStorage.getItem('family-style'); if (s) document.documentElement.dataset.style = s; var ic = localStorage.getItem('family-icon-style'); if (ic === '3d' || ic === 'vec') document.documentElement.dataset.icons = ic; } catch (e) {}</script>
+  <script>try { var t = localStorage.getItem('family-theme'); if (localStorage.getItem('family-auto-night') === '1' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) t = 'night'; if (t) document.documentElement.dataset.theme = t; var s = localStorage.getItem('family-style'); if (s) document.documentElement.dataset.style = s; document.documentElement.dataset.icons = localStorage.getItem('family-icon-style') === '3d' ? '3d' : 'vec'; } catch (e) { document.documentElement.dataset.icons = 'vec'; }</script>
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>

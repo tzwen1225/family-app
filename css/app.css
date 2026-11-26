@@ -2652,7 +2652,7 @@ html[data-icons] .tab.on { color: var(--ink); font-weight: 700; }
 .hub-tile b { font-size: 14px; }
 .hub-tile small { font-size: 11px; line-height: 1.3; color: var(--ink-2); overflow-wrap: anywhere; }
 .hub-tile small em { font-style: normal; color: var(--red); font-weight: 700; }
-.icon-styles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 6px 0 12px; }
+.icon-styles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 6px 0 12px; }
 .icon-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px; border-radius: 18px; background: var(--paper); box-shadow: inset 0 0 0 1.5px var(--line); text-align: left; color: var(--ink); }
 .icon-opt.on { box-shadow: inset 0 0 0 2.5px var(--red); }
 .icon-opt b { font-size: 15px; }
