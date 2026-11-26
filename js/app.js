@@ -91,7 +91,6 @@
   const SM_FACE = {"bell": [23, 33, 24], "heart": [22, 34, 27], "cloud": [22, 30, 33], "pin": [24, 32, 22], "comment": [23, 33, 22]};
   // 圖示風格：'vec'＝3D 向量（大家的預設）、'3d'＝3D 可愛（存在 <html data-icons>）
   const ICON_STYLE_KEY = 'family-icon-style';
-  const ICON_STYLES = ['vec', '3d'];
   const iconStyle = () => document.documentElement.dataset.icons || 'vec';
   const is3d = () => true;
   const isVec = () => iconStyle() !== '3d';
