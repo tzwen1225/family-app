@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-26 21:33';
+  const VERSION = '2026-11-26 21:39';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -28,6 +28,13 @@
   const THEME_KEY = 'family-theme';
   // 選的面板顏色存在 THEME_KEY；打開「跟著手機」時，手機是深色模式就暫時改用夜間，不會改掉原本選的顏色
   const AUTO_NIGHT_KEY = 'family-auto-night';
+  // 一次性的新預設：大家先換成「簡約風格＋抹茶拿鐵」，之後各自改的就照各自的（index.html 也有同一段，先跑的那邊會做）
+  try {
+    if (!localStorage.getItem('family-defaults-v2')) {
+      localStorage.setItem(THEME_KEY, 'matcha'); localStorage.setItem('family-style', 'simple'); localStorage.setItem('family-defaults-v2', '1');
+      document.documentElement.dataset.style = 'simple';
+    }
+  } catch (e) { /* 忽略 */ }
   let chosenTheme = '';
   try { chosenTheme = localStorage.getItem(THEME_KEY) || ''; } catch (e) { /* 忽略 */ }
   const autoNight = () => { try { return localStorage.getItem(AUTO_NIGHT_KEY) === '1'; } catch (e) { return false; } };
