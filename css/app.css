@@ -842,6 +842,7 @@ html[data-theme="forest"]   { --paper: #F3F7F0; --line: #D9E3D3; --ink: #1B2A1E;
 html[data-theme="sakura"]   { --paper: #FCF4F7; --line: #EEDAE2; --ink: #33202A; --ink-2: #7A6570; --red: #D6457F; --green: #7A4B8C; }
 html[data-theme="sunset"]   { --paper: #FBF6EE; --line: #EBDFCB; --ink: #2E2416; --ink-2: #74664F; --red: #E0701A; --green: #7A5A1E; }
 html[data-theme="lavender"] { --paper: #F6F4FC; --line: #DEDAEE; --ink: #221D38; --ink-2: #645E7E; --red: #7A4FD0; --green: #3F5BB5; }
+html[data-theme="matcha"]   { --paper: #EEF2E3; --line: #DCE4CF; --ink: #24321F; --ink-2: #56644D; --red: #4F7B3A; --green: #3F6B35; }
 html[data-theme="night"] {
   --paper: #111715; --sheet: #1B2320; --line: #2D3934; --ink: #E9F0EC; --ink-2: #9BABA4;
   --red: #FF6B6B; --green: #3FA57F; --danger: #FF6B6B; --holiday: #FF6B6B;
@@ -2632,3 +2633,32 @@ html[data-theme="night"] .mc-act.main { color: #0E1412; }
 .cg-step[hidden] { display: none; }
 .call-sound { position: absolute; left: 50%; top: calc(var(--safe-t) + 92px); transform: translateX(-50%); z-index: 5; margin: 0; padding: 10px 18px; border: 0; border-radius: 999px; background: #fff; color: #10231C; font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
 .call-sound[hidden] { display: none; }
+
+/* ---------- 抹茶面板：卡片底下一條淺綠的厚度，未讀數字用紅豆色 ---------- */
+html[data-theme="matcha"] .card-list, html[data-theme="matcha"] .hub, html[data-theme="matcha"] .hub-tile { border-radius: 22px; box-shadow: 0 3px 0 #DCE4CF, 0 8px 20px rgba(63, 107, 53, .07); }
+html[data-theme="matcha"] .tab[data-count]::after { background: #B5473D; }
+html[data-theme="matcha"] .fab { box-shadow: 0 4px 0 #355626, 0 10px 18px rgba(53, 86, 38, .25); }
+
+/* ---------- 3D 可愛圖示（設定 → 圖示風格） ---------- */
+svg.i3 { display: block; fill: none; stroke: none; overflow: visible; }
+.tab .tab-3d { display: flex; height: 34px; align-items: flex-end; }
+.tab .tab-3d svg.i3 { width: 28px; height: 28px; stroke: none; filter: saturate(.25) brightness(1.06); opacity: .72; transition: transform .2s cubic-bezier(.3, 1.5, .5, 1), width .2s, height .2s; }
+.tab.on .tab-3d svg.i3 { width: 34px; height: 34px; filter: none; opacity: 1; transform: translateY(-3px); }
+html[data-icons="3d"] .tab.on { color: var(--ink); font-weight: 700; }
+.hub-3d { margin-top: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.hub-tile { background: var(--sheet); border-radius: 20px; padding: 12px 6px 10px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; color: var(--ink); box-shadow: 0 3px 0 var(--line); min-height: 44px; }
+.hub-tile svg.i3 { width: 56px; height: 56px; margin-bottom: 2px; transition: transform .15s; }
+.hub-tile:active svg.i3 { transform: scale(.92); }
+.hub-tile b { font-size: 14px; }
+.hub-tile small { font-size: 11px; line-height: 1.3; color: var(--ink-2); overflow-wrap: anywhere; }
+.hub-tile small em { font-style: normal; color: var(--red); font-weight: 700; }
+.icon-styles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 6px 0 12px; }
+.icon-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px; border-radius: 18px; background: var(--paper); box-shadow: inset 0 0 0 1.5px var(--line); text-align: left; color: var(--ink); }
+.icon-opt.on { box-shadow: inset 0 0 0 2.5px var(--red); }
+.icon-opt b { font-size: 15px; }
+.icon-opt small { font-size: 12px; color: var(--ink-2); }
+.icon-demo { display: flex; gap: 6px; margin-bottom: 4px; }
+.icon-demo svg.i3 { width: 34px; height: 34px; }
+.icon-demo.line i { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; }
+.icon-demo.line svg { width: 20px; height: 20px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+@media (prefers-reduced-motion: reduce) { .tab .tab-3d svg.i3, .hub-tile svg.i3 { transition: none; } }

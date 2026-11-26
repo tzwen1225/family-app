@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-26 15:34';
+  const VERSION = '2026-11-26 20:51';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -20,6 +20,7 @@
     ['sakura', '櫻花粉', '#D6457F', '#7A4B8C'],
     ['sunset', '暖陽橘', '#E0701A', '#7A5A1E'],
     ['lavender', '薰衣草紫', '#7A4FD0', '#3F5BB5'],
+    ['matcha', '抹茶', '#6E9B4E', '#DDEBCB'],
     ['night', '夜間', '#1B2320', '#3FA57F']
   ];
   const THEME_KEY = 'family-theme';
@@ -79,6 +80,34 @@
     try { if (id) localStorage.setItem(STYLE_KEY, id); else localStorage.removeItem(STYLE_KEY); } catch (e) { /* 忽略 */ }
     syncThemeColor();
   }
+  // ---- 3D 可愛圖示（設定 → 圖示風格）：圓角糖果磚、上亮下暗做出厚度，部分有小眼睛和腮紅 ----
+  const I3_PAL = {"matcha": ["#B5D68A", "#6E9B4E", "#4E7637"], "koicha": ["#93BA6E", "#4F7B3A", "#355626"], "hojicha": ["#E2B48A", "#A9714A", "#7E5032"], "sakura": ["#F9C0D0", "#E27C9B", "#B8577A"], "yuzu": ["#FFE08A", "#F2B33D", "#C88A1E"], "azuki": ["#EFA597", "#C4574C", "#93392F"], "sky": ["#A8D3F5", "#5A9BD8", "#3A75AF"], "lavender": ["#D0C1F4", "#9479D8", "#6E55B0"], "mint": ["#9FDDD1", "#45A897", "#2D7D6F"], "coral": ["#FFBFA3", "#F07850", "#C0532F"], "stone": ["#D2D8E0", "#8C98A8", "#677284"]};
+  const I3_GLYPH = {"butler": ["<path d=\"M28 14c7.500 0 13 5.500 13 13.500S35.500 42 28 42 15 35.500 15 27.500 20.500 14 28 14z\" fill=\"#FFFFFF\"></path><path d=\"M28 14c1-4 4.500-6 8-5.500-.500 3.500-3.500 6-8 5.500z\" fill=\"#8DBF5A\"></path>", "<circle cx=\"23.5\" cy=\"28\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"32.5\" cy=\"28\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"24.1\" cy=\"27.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"33.1\" cy=\"27.3\" r=\".6\" fill=\"#FFFFFF\"></circle><ellipse cx=\"20.5\" cy=\"31.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse><ellipse cx=\"35.5\" cy=\"31.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse><path d=\"M25.8 32q2.200 2 4.400 0\" fill=\"none\" stroke=\"#3A2E28\" stroke-width=\"1.400\" stroke-linecap=\"round\"></path>"], "study": ["<path d=\"M12 19c5-2.500 11-2.500 16 1 5-3.500 11-3.500 16-1v19c-5-2.500-11-2.500-16 1-5-3.500-11-3.500-16-1z\" fill=\"#FFFFFF\"></path><path d=\"M28 20v19\" stroke=\"__D__\" stroke-opacity=\".35\" stroke-width=\"1.600\"></path>", "<circle cx=\"19.5\" cy=\"27\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"23.5\" cy=\"27\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"20.1\" cy=\"26.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"24.1\" cy=\"26.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"32.5\" cy=\"27\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"36.5\" cy=\"27\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"33.1\" cy=\"26.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"37.1\" cy=\"26.3\" r=\".6\" fill=\"#FFFFFF\"></circle>"], "video": ["<path d=\"M22 14l6 4 6-4\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.600\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path><rect x=\"11\" y=\"18\" width=\"34\" height=\"24\" rx=\"8\" fill=\"#FFFFFF\"></rect><path d=\"M25 24.500v11l9-5.500z\" fill=\"#E06257\"></path>", ""], "ledger": ["<ellipse cx=\"28\" cy=\"30\" rx=\"15\" ry=\"11.500\" fill=\"#FFFFFF\"></ellipse><path d=\"M19 21l-2-6 6 3.500z\" fill=\"#FFFFFF\"></path><rect x=\"22\" y=\"37.500\" width=\"4\" height=\"6\" rx=\"2\" fill=\"#FFFFFF\"></rect><rect x=\"31\" y=\"37.500\" width=\"4\" height=\"6\" rx=\"2\" fill=\"#FFFFFF\"></rect><rect x=\"24\" y=\"17.500\" width=\"8\" height=\"2.400\" rx=\"1.200\" fill=\"__D__\" opacity=\".45\"></rect><ellipse cx=\"41.500\" cy=\"31\" rx=\"3.600\" ry=\"3\" fill=\"#F7B9C9\"></ellipse><circle cx=\"40.600\" cy=\"31\" r=\".7\" fill=\"#B8577A\"></circle><circle cx=\"42.400\" cy=\"31\" r=\".7\" fill=\"#B8577A\"></circle>", "<circle cx=\"29\" cy=\"27\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"35.5\" cy=\"27\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"29.6\" cy=\"26.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"36.1\" cy=\"26.3\" r=\".6\" fill=\"#FFFFFF\"></circle><ellipse cx=\"26\" cy=\"30.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse><ellipse cx=\"38.5\" cy=\"30.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse>"], "scores": ["<rect x=\"13\" y=\"27\" width=\"8\" height=\"14\" rx=\"3\" fill=\"#FFFFFF\"></rect><rect x=\"24\" y=\"20\" width=\"8\" height=\"21\" rx=\"3\" fill=\"#FFFFFF\"></rect><rect x=\"35\" y=\"24\" width=\"8\" height=\"17\" rx=\"3\" fill=\"#FFFFFF\"></rect><path d=\"M28 9.500l1.700 3.500 3.800.500-2.800 2.600.700 3.800L28 18l-3.400 1.900.700-3.800-2.800-2.600 3.800-.500z\" fill=\"#FFF6C9\"></path>", ""], "travel": ["<path d=\"M23 17v-3a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v3\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.600\"></path><rect x=\"13\" y=\"17\" width=\"30\" height=\"24\" rx=\"7\" fill=\"#FFFFFF\"></rect><rect x=\"15.500\" y=\"41\" width=\"4\" height=\"3\" rx=\"1.500\" fill=\"#FFFFFF\"></rect><rect x=\"36.500\" y=\"41\" width=\"4\" height=\"3\" rx=\"1.500\" fill=\"#FFFFFF\"></rect><circle cx=\"36\" cy=\"23.500\" r=\"3\" fill=\"#FFD36E\"></circle>", "<circle cx=\"23\" cy=\"29\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"31\" cy=\"29\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"23.6\" cy=\"28.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"31.6\" cy=\"28.3\" r=\".6\" fill=\"#FFFFFF\"></circle><ellipse cx=\"20\" cy=\"32.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse><ellipse cx=\"34\" cy=\"32.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse>"], "album": ["<rect x=\"12\" y=\"15\" width=\"32\" height=\"26\" rx=\"7\" fill=\"#FFFFFF\"></rect><path d=\"M15.500 37l7.500-8 5.500 5 4-3.500 8 6.500z\" fill=\"#8DBF5A\"></path><circle cx=\"35\" cy=\"22.500\" r=\"3.400\" fill=\"#FFC857\"></circle>", ""], "transit": ["<rect x=\"14\" y=\"12\" width=\"28\" height=\"28\" rx=\"8\" fill=\"#FFFFFF\"></rect><rect x=\"17.500\" y=\"16\" width=\"21\" height=\"10\" rx=\"3.500\" fill=\"#BFE6DD\"></rect><rect x=\"17\" y=\"40\" width=\"5\" height=\"4\" rx=\"2\" fill=\"#FFFFFF\"></rect><rect x=\"34\" y=\"40\" width=\"5\" height=\"4\" rx=\"2\" fill=\"#FFFFFF\"></rect>", "<circle cx=\"21.5\" cy=\"32\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"34.5\" cy=\"32\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"22.1\" cy=\"31.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"35.1\" cy=\"31.3\" r=\".6\" fill=\"#FFFFFF\"></circle><ellipse cx=\"18.5\" cy=\"35.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse><ellipse cx=\"37.5\" cy=\"35.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse><path d=\"M25.8 34q2.200 2 4.400 0\" fill=\"none\" stroke=\"#3A2E28\" stroke-width=\"1.400\" stroke-linecap=\"round\"></path>"], "checkins": ["<path d=\"M28 44s-12-9.500-12-19a12 12 0 0 1 24 0c0 9.500-12 19-12 19z\" fill=\"#FFFFFF\"></path>", "<circle cx=\"24\" cy=\"24\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"32\" cy=\"24\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"24.6\" cy=\"23.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"32.6\" cy=\"23.3\" r=\".6\" fill=\"#FFFFFF\"></circle><ellipse cx=\"21\" cy=\"27.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse><ellipse cx=\"35\" cy=\"27.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse><path d=\"M25.8 28q2.200 2 4.400 0\" fill=\"none\" stroke=\"#3A2E28\" stroke-width=\"1.400\" stroke-linecap=\"round\"></path>"], "todo": ["<rect x=\"14\" y=\"13\" width=\"28\" height=\"31\" rx=\"6\" fill=\"#FFFFFF\"></rect><rect x=\"22\" y=\"10.500\" width=\"12\" height=\"5.500\" rx=\"2.700\" fill=\"#DDEBCB\"></rect><path d=\"M19 24l2.500 2.500 4.500-5M19 34l2.500 2.500 4.500-5\" fill=\"none\" stroke=\"#5E8F43\" stroke-width=\"2.400\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path><rect x=\"29\" y=\"23\" width=\"9\" height=\"2.600\" rx=\"1.300\" fill=\"#C8D9B5\"></rect><rect x=\"29\" y=\"33\" width=\"9\" height=\"2.600\" rx=\"1.300\" fill=\"#C8D9B5\"></rect>", ""], "cards": ["<rect x=\"11\" y=\"16\" width=\"34\" height=\"24\" rx=\"6\" fill=\"#FFFFFF\"></rect><circle cx=\"21\" cy=\"26\" r=\"4.500\" fill=\"#C9D3E0\"></circle><path d=\"M14.500 36c1.500-4 11.500-4 13 0\" fill=\"#C9D3E0\"></path><rect x=\"30\" y=\"23\" width=\"10\" height=\"2.600\" rx=\"1.300\" fill=\"#C9D3E0\"></rect><rect x=\"30\" y=\"29\" width=\"8\" height=\"2.600\" rx=\"1.300\" fill=\"#C9D3E0\"></rect>", ""], "home": ["<path d=\"M14 26L28 14l14 12v14a4 4 0 0 1-4 4H18a4 4 0 0 1-4-4z\" fill=\"#FFFFFF\"></path><rect x=\"25\" y=\"34\" width=\"6\" height=\"10\" rx=\"3\" fill=\"#CFE3B4\"></rect>", "<circle cx=\"23\" cy=\"28\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"33\" cy=\"28\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"23.6\" cy=\"27.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"33.6\" cy=\"27.3\" r=\".6\" fill=\"#FFFFFF\"></circle>"], "chat": ["<path d=\"M12 18a6 6 0 0 1 6-6h20a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H24l-8 6v-6.500a6 6 0 0 1-4-5.500z\" fill=\"#FFFFFF\"></path>", "<circle cx=\"23\" cy=\"23\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"33\" cy=\"23\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"23.6\" cy=\"22.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"33.6\" cy=\"22.3\" r=\".6\" fill=\"#FFFFFF\"></circle><ellipse cx=\"20\" cy=\"26.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse><ellipse cx=\"36\" cy=\"26.5\" rx=\"2.400\" ry=\"1.400\" fill=\"#F59AAE\" opacity=\".85\"></ellipse><path d=\"M25.8 27q2.200 2 4.400 0\" fill=\"none\" stroke=\"#3A2E28\" stroke-width=\"1.400\" stroke-linecap=\"round\"></path>"], "life": ["<path d=\"M11 24h34c0 10-7.500 17-17 17S11 34 11 24z\" fill=\"#FFFFFF\"></path><ellipse cx=\"28\" cy=\"24\" rx=\"17\" ry=\"4\" fill=\"#8DBF5A\"></ellipse><path d=\"M28 9c1 3 4 4 4 7.500a4 4 0 0 1-8 0C24 13 27 12 28 9z\" fill=\"#FFFFFF\" opacity=\".9\"></path>", "<circle cx=\"23\" cy=\"31\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"33\" cy=\"31\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"23.6\" cy=\"30.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"33.6\" cy=\"30.3\" r=\".6\" fill=\"#FFFFFF\"></circle>"], "talk": ["<path d=\"M13 23h7l15-8v26l-15-8h-7a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3z\" fill=\"#FFFFFF\"></path><rect x=\"17\" y=\"33\" width=\"5\" height=\"9\" rx=\"2.500\" fill=\"#FFFFFF\"></rect><path d=\"M39 22a8 8 0 0 1 0 12\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.600\" stroke-linecap=\"round\"></path>", ""], "gear": ["<rect x=\"25\" y=\"9\" width=\"6\" height=\"9\" rx=\"2.500\" fill=\"#FFFFFF\" transform=\"rotate(0 28 28)\"></rect><rect x=\"25\" y=\"9\" width=\"6\" height=\"9\" rx=\"2.500\" fill=\"#FFFFFF\" transform=\"rotate(45 28 28)\"></rect><rect x=\"25\" y=\"9\" width=\"6\" height=\"9\" rx=\"2.500\" fill=\"#FFFFFF\" transform=\"rotate(90 28 28)\"></rect><rect x=\"25\" y=\"9\" width=\"6\" height=\"9\" rx=\"2.500\" fill=\"#FFFFFF\" transform=\"rotate(135 28 28)\"></rect><rect x=\"25\" y=\"9\" width=\"6\" height=\"9\" rx=\"2.500\" fill=\"#FFFFFF\" transform=\"rotate(180 28 28)\"></rect><rect x=\"25\" y=\"9\" width=\"6\" height=\"9\" rx=\"2.500\" fill=\"#FFFFFF\" transform=\"rotate(225 28 28)\"></rect><rect x=\"25\" y=\"9\" width=\"6\" height=\"9\" rx=\"2.500\" fill=\"#FFFFFF\" transform=\"rotate(270 28 28)\"></rect><rect x=\"25\" y=\"9\" width=\"6\" height=\"9\" rx=\"2.500\" fill=\"#FFFFFF\" transform=\"rotate(315 28 28)\"></rect><circle cx=\"28\" cy=\"28\" r=\"13\" fill=\"#FFFFFF\"></circle>", "<circle cx=\"24\" cy=\"27\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"32\" cy=\"27\" r=\"1.900\" fill=\"#3A2E28\"></circle><circle cx=\"24.6\" cy=\"26.3\" r=\".6\" fill=\"#FFFFFF\"></circle><circle cx=\"32.6\" cy=\"26.3\" r=\".6\" fill=\"#FFFFFF\"></circle><path d=\"M25.8 31q2.200 2 4.400 0\" fill=\"none\" stroke=\"#3A2E28\" stroke-width=\"1.400\" stroke-linecap=\"round\"></path>"]};
+  const ICON_STYLE_KEY = 'family-icon-style';
+  const is3d = () => document.documentElement.dataset.icons === '3d';
+  function applyIconStyle(id) {
+    if (id === '3d') document.documentElement.dataset.icons = '3d'; else delete document.documentElement.dataset.icons;
+    try { if (id === '3d') localStorage.setItem(ICON_STYLE_KEY, '3d'); else localStorage.removeItem(ICON_STYLE_KEY); } catch (e) { /* 忽略 */ }
+  }
+  try { if (localStorage.getItem(ICON_STYLE_KEY) === '3d') document.documentElement.dataset.icons = '3d'; } catch (e) { /* 忽略 */ }
+  // 漸層只放一份在頁面上，所有 3D 圖示共用
+  function ensureI3Defs() {
+    if (document.getElementById('i3-defs')) return;
+    const g = Object.entries(I3_PAL).map(([k, [a, b]]) => `<linearGradient id="i3-${k}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient>`).join('');
+    const d = document.createElement('div');
+    d.innerHTML = `<svg id="i3-defs" width="0" height="0" aria-hidden="true" style="position:absolute"><defs>${g}<radialGradient id="i3-shine" cx=".35" cy=".25" r=".7"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs></svg>`;
+    document.body.appendChild(d.firstChild);
+  }
+  function icon3d(k, color) {
+    ensureI3Defs();
+    const pal = I3_PAL[color] || I3_PAL.matcha, dark = pal[2];
+    const [body0, face] = I3_GLYPH[k] || I3_GLYPH.home;
+    const body = body0.split('__D__').join(dark);
+    const shadow = body.replace(/#FFFFFF|#FFF6C9|#FFD36E|#FFC857/g, dark);
+    return `<svg class="i3" viewBox="0 0 56 56" aria-hidden="true"><ellipse cx="28" cy="53" rx="20" ry="3" fill="#3F5A2C" opacity=".16"/><rect x="3" y="5" width="50" height="47" rx="17" fill="${dark}"/><rect x="3" y="2" width="50" height="47" rx="17" fill="url(#i3-${color})"/><rect x="3" y="2" width="50" height="47" rx="17" fill="url(#i3-shine)"/><ellipse cx="20" cy="8.5" rx="11" ry="3" fill="#fff" opacity=".45"/><g transform="translate(0 2.2)" opacity=".28">${shadow}</g>${body}${face}</svg>`;
+  }
+  const HUB_3D = { butler: ['butler', 'matcha'], study: ['study', 'lavender'], video: ['video', 'azuki'], ledger: ['ledger', 'sakura'], scores: ['scores', 'yuzu'], notes: ['travel', 'sky'], album: ['album', 'hojicha'], transit: ['transit', 'mint'], checkins: ['checkins', 'coral'], shop: ['todo', 'koicha'], cards: ['cards', 'stone'] };
+  const TAB_3D = { cal: ['home', 'matcha'], chat: ['chat', 'sky'], notes: ['life', 'koicha'], posts: ['talk', 'yuzu'], me: ['gear', 'lavender'] };
   // 讓手機最上方狀態列的底色跟著面板走
   function syncThemeColor() {
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -853,7 +882,7 @@
       <nav class="tabbar" aria-label="主選單">
         ${TABS.map(([id, label]) => `
           <button class="tab ${state.tab === id ? 'on' : ''} ${badge(id) ? 'unread' : ''}" style="--tab-c:${TAB_COLOR[id]}" data-act="tab" data-tab="${id}" ${countText(id) ? `data-count="${countText(id)}" aria-label="${label}，${countText(id)} 則未讀"` : ''} ${state.tab === id ? 'aria-current="page"' : ''}>
-            ${state.tab === id ? ICON_ON[id] : ICON[id]}<span>${label}</span>
+            ${is3d() ? `<span class="tab-3d">${icon3d(...TAB_3D[id])}</span>` : state.tab === id ? ICON_ON[id] : ICON[id]}<span>${label}</span>
           </button>`).join('')}
       </nav>`;
     renderedTab = state.tab; renderedKey = key;
@@ -5879,14 +5908,17 @@
   function viewHub() {
     return `
       <header class="plain-head"><h1>鍾家生活</h1></header>
-      <nav class="hub" aria-label="鍾家生活的功能">
+      ${is3d() ? `<nav class="hub-3d" aria-label="鍾家生活的功能">
+        ${HUB.map(([id, label]) => `
+          <button class="hub-tile" data-act="notes-view" data-view="${id}">${icon3d(...HUB_3D[id])}<b>${label}</b><small>${hubNote(id)}</small></button>`).join('')}
+      </nav>` : `<nav class="hub" aria-label="鍾家生活的功能">
         ${HUB.map(([id, label, color, icon]) => `
           <button class="hub-row" data-act="notes-view" data-view="${id}">
             <span class="hub-icon" style="background:${color}" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span>
             <span class="hub-main"><b>${label}</b><small>${hubNote(id)}</small></span>
             <span class="chev" aria-hidden="true">›</span>
           </button>`).join('')}
-      </nav>`;
+      </nav>`}`;
   }
   function viewNotes() {
     const views = { video: viewVideo, study: viewStudy, butler: viewButler, ledger: viewLedger, scores: viewScores, notes: viewTravel, album: viewAlbum, checkins: viewCheckins, transit: viewTransit, shop: viewShop, cards: viewCards };
@@ -6123,6 +6155,19 @@
             </button>`).join('')}
         </div>
         <label class="switch auto-night"><span>跟著手機的深色模式<small>手機切到深色時自動換成夜間，白天換回你選的顏色</small></span><input type="checkbox" id="auto-night" ${autoNight() ? 'checked' : ''}></label>
+      </section>
+      <section class="card-list">
+        <h2>圖示風格<small>只會改這支手機，每個面板顏色都能配</small></h2>
+        <div class="icon-styles" role="group" aria-label="圖示風格">
+          <button class="icon-opt ${is3d() ? '' : 'on'}" data-act="icon-style" data-icon-style="" ${is3d() ? '' : 'aria-pressed="true"'}>
+            <span class="icon-demo line" aria-hidden="true">${HUB.slice(1, 4).map(([, , color, icon]) => `<i style="background:${color}"><svg viewBox="0 0 24 24">${icon}</svg></i>`).join('')}</span>
+            <b>簡約線條</b><small>原本的樣子</small>
+          </button>
+          <button class="icon-opt ${is3d() ? 'on' : ''}" data-act="icon-style" data-icon-style="3d" ${is3d() ? 'aria-pressed="true"' : ''}>
+            <span class="icon-demo" aria-hidden="true">${icon3d('study', 'lavender')}${icon3d('video', 'azuki')}${icon3d('ledger', 'sakura')}</span>
+            <b>3D 可愛</b><small>圓滾滾、有表情</small>
+          </button>
+        </div>
       </section>
       ${pushSectionHtml()}
       ${pushTestHtml()}
@@ -7941,6 +7986,7 @@
     else if (act === 'new-category') { if (!amChild()) openCategorySheet(); }
     else if (act === 'del-category') onDeleteCategory(el);
     else if (act === 'theme') { applyTheme(el.dataset.themeId); render(); }
+    else if (act === 'icon-style') { applyIconStyle(el.dataset.iconStyle); render(); toast(el.dataset.iconStyle === '3d' ? '圖示換成 3D 可愛' : '圖示換回簡約線條'); }
     else if (act === 'ui-style') { applyStyle(el.dataset.styleId); render(); toast('已換成' + (STYLES.find(([id]) => id === el.dataset.styleId) || STYLES[0])[1]); }
     else if (act === 'push-on') onPushOn(el);
     else if (act === 'push-off') { Api.disablePush().then(() => { toast('已關閉通知'); render(); }); }
