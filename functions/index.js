@@ -41,7 +41,7 @@ async function memberNames() {
 const NOTIFY_KINDS = { chat: 'chat', post: 'post', poll: 'poll', event: 'cal', bday: 'cal', request: 'money', todo: 'todo', study: 'study', video: 'video', checkin: 'checkin', call: 'call' };
 const notifyKind = (tag) => NOTIFY_KINDS[String(tag || '').split('-')[0]] || 'other';
 exports._notifyKind = notifyKind;
-async function notify(uids, title, body, tag) {
+async function notify(uids, title, body, tag, badges) {
   const everyone = [...new Set(uids)].filter(Boolean);
   if (!everyone.length) return;
   const kind = notifyKind(tag);
@@ -61,24 +61,34 @@ async function notify(uids, title, body, tag) {
   const snap = await db.collection('push_tokens').where('uid', 'in', targets).get();
   if (snap.empty) return;
 
-  const result = await getMessaging().sendEachForMulticast({
-    tokens: snap.docs.map((d) => d.id),
+  // badges：{ uid: 未讀數 }，手機收到後把 App 圖示右上角的數字改成這個（同一個數字的人一起送）
+  const groups = new Map();
+  snap.docs.forEach((d) => {
+    const b = badges && Number.isFinite(badges[d.data().uid]) ? String(badges[d.data().uid]) : '';
+    if (!groups.has(b)) groups.set(b, []);
+    groups.get(b).push(d);
+  });
+  const sent = await Promise.all([...groups].map(([b, docs]) => getMessaging().sendEachForMulticast({
+    tokens: docs.map((d) => d.id),
     notification: { title, body },
     // 手機點通知後要開哪一頁，由 sw.js 依 tag 決定（chat → 聊天，post-… → 我有話要說）
-    data: { title, body, tag, url: APP_URL },
+    data: { title, body, tag, url: APP_URL, ...(b ? { badge: b } : {}) },
     webpush: {
       headers: { Urgency: 'high', TTL: '86400' },
       notification: { icon: APP_URL + 'icons/icon-192.png', tag },
       fcmOptions: { link: APP_URL }
     }
-  });
+  }).then((r) => ({ r, docs }))));
+  const result = { responses: [], successCount: 0, failureCount: 0 };
+  const order = [];
+  sent.forEach(({ r, docs }) => { result.responses.push(...r.responses); order.push(...docs); result.successCount += r.successCount; result.failureCount += r.failureCount; });
 
   // 已經失效的裝置代碼（例如 App 被刪除）順手清掉
   const dead = ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'];
   await Promise.all(result.responses.map((r, i) => {
     if (r.success) return null;
     logger.warn('通知沒有送達', r.error && r.error.code);
-    return r.error && dead.includes(r.error.code) ? snap.docs[i].ref.delete() : null;
+    return r.error && dead.includes(r.error.code) ? order[i].ref.delete() : null;
   }));
   logger.info(`通知「${title}」：成功 ${result.successCount}，失敗 ${result.failureCount}`);
 }
@@ -95,16 +105,33 @@ exports.onChatMessage = onDocumentCreated('messages/{id}', async (event) => {
   const at = (Array.isArray(m.mentions) ? m.mentions : []).filter((uid) => others.includes(uid));
   const replied = m.reply_to && others.includes(m.reply_to.sender) && !at.includes(m.reply_to.sender) ? [m.reply_to.sender] : [];
   // 正開著聊天室在看的人不用再跳通知（App 每 60 秒回報一次；超過 90 秒沒回報就當作已經離開）
-  const watching = await db.collection('presence').get()
-    .then((snap) => snap.docs.filter((d) => { const p = d.data(); return p.online === true && p.in_chat === true && Date.now() - (p.last_seen || 0) < 90000; }).map((d) => d.id))
-    .catch((e) => { logger.warn('讀不到上線狀態', e); return []; });
+  const presence = await db.collection('presence').get().then((snap) => snap.docs).catch((e) => { logger.warn('讀不到上線狀態', e); return []; });
+  const watching = presence.filter((d) => { const p = d.data(); return p.online === true && p.in_chat === true && Date.now() - (p.last_seen || 0) < 90000; }).map((d) => d.id);
   const awake = (list) => list.filter((uid) => !muted.includes(uid) && !watching.includes(uid));
+  const badges = await unreadBadges(others, presence).catch((e) => { logger.warn('算不出未讀數', e); return null; });
   await Promise.all([
-    notify(awake(at), who + '提到了你', body, 'chat'),
-    notify(awake(replied), who + '回覆了你', body, 'chat'),
-    notify(awake(others.filter((uid) => !at.includes(uid) && !replied.includes(uid))), who, body, 'chat')
+    notify(awake(at), who + '提到了你', body, 'chat', badges),
+    notify(awake(replied), who + '回覆了你', body, 'chat', badges),
+    notify(awake(others.filter((uid) => !at.includes(uid) && !replied.includes(uid))), who, body, 'chat', badges)
   ]);
 });
+
+// 每個人聊天室還有幾則沒讀（App 圖示右上角的數字）：讀到的時間點之後、別人傳的、沒收回的訊息
+async function unreadBadges(uids, presence) {
+  if (!uids.length) return {};
+  const readAt = Object.fromEntries(presence.map((d) => [d.id, d.data().read_at || 0]));
+  const since = Math.min(...uids.map((u) => readAt[u] || 0));
+  const snap = await db.collection('messages').where('sent_at', '>', Math.max(since, Date.now() - 30 * 86400000)).orderBy('sent_at', 'desc').limit(300).select('sender', 'sent_at', 'recalled').get();
+  const msgs = snap.docs.map((d) => d.data());
+  const out = {};
+  uids.forEach((u) => {
+    // 自己傳過訊息，就當作看過之前的
+    const mineAt = msgs.filter((m) => m.sender === u).reduce((t, m) => Math.max(t, m.sent_at || 0), 0);
+    const from = Math.max(readAt[u] || 0, mineAt);
+    out[u] = Math.min(99, msgs.filter((m) => m.sender !== u && !m.recalled && (m.sent_at || 0) > from).length);
+  });
+  return out;
+}
 
 // ---- 聊天免打擾 ----
 // settings/chat_quiet：{ on, start: 'HH:MM', end: 'HH:MM' }（台灣時間，可以跨過半夜）。回傳現在不該收聊天通知的小朋友。

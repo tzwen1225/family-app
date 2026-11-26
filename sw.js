@@ -2,7 +2,7 @@
 // 策略：程式檔先用手機上存的那一份（馬上顯示），同時在背景向伺服器拿新的，存起來給下次用。
 // 有新版本時，App 會比對 version.txt，通知這裡把檔案全部換新，再重新載入。
 // 只處理本站的檔案，Firebase 的資料請求完全不經過這裡。
-const CACHE = 'family-shell-v163';
+const CACHE = 'family-shell-v164';
 const SHELL = [
   './', 'index.html', 'css/app.css',
   'js/config.js', 'js/holidays.js', 'js/api.js', 'js/app.js', 'vendor/firebase.js',
@@ -62,6 +62,11 @@ self.addEventListener('push', (e) => {
   const n = payload.notification || {};
   const d = payload.data || {};
   const title = n.title || d.title || '鍾家大宅';
+  // App 圖示右上角的未讀數（伺服器算好放在 badge）
+  if (d.badge !== undefined && self.navigator.setAppBadge) {
+    const b = Number(d.badge);
+    (b > 0 ? self.navigator.setAppBadge(b) : self.navigator.clearAppBadge()).catch(() => {});
+  }
   e.waitUntil(self.registration.showNotification(title, {
     body: n.body || d.body || '有新的訊息',
     icon: 'icons/icon-192.png',

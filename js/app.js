@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-25 23:15';
+  const VERSION = '2026-11-26 15:34';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -748,7 +748,17 @@
     });
   }
 
+  // App 圖示右上角的數字＝聊天室沒讀的則數（iPhone 要加到主畫面、允許通知才會顯示）
+  let appBadgeN = -1;
+  function syncAppBadge() {
+    if (!navigator.setAppBadge || !state.userId || !state.messages.length) return;
+    const n = Math.min(99, unreadCount());
+    if (n === appBadgeN) return;
+    appBadgeN = n;
+    (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+  }
   function refreshBadges() {
+    syncAppBadge();
     TABS.forEach(([id]) => {
       const el = document.querySelector('.tab[data-tab="' + id + '"]');
       if (!el) return;
@@ -806,6 +816,7 @@
     if (t.form) t.form.requestSubmit ? t.form.requestSubmit() : t.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   });
   function render() {
+    setTimeout(syncAppBadge, 0);
     if (!state.userId) return;
     if (holdForIme($app, render)) return;
     const active = document.activeElement;
