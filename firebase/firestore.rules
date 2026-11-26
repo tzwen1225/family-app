@@ -737,7 +737,8 @@ service cloud.firestore {
       function validCard() {
         return request.resource.data.title is string
           && request.resource.data.title.size() >= 1 && request.resource.data.title.size() <= 40
-          && request.resource.data.body is string && request.resource.data.body.size() <= 2000;
+          && request.resource.data.body is string && request.resource.data.body.size() <= 2000
+          && (!('photos' in request.resource.data) || (request.resource.data.photos is list && request.resource.data.photos.size() <= 4));
       }
       allow read: if isFamily() && (!isChild() || resource.data.created_by == request.auth.uid);
       allow create: if isFamily() && validCard()
@@ -747,6 +748,19 @@ service cloud.firestore {
         && request.resource.data.get('created_by', null) == resource.data.get('created_by', null)
         && (!isChild() || (resource.data.created_by == request.auth.uid && request.resource.data.member == request.auth.uid));
       allow delete: if isFamily() && (!isChild() || resource.data.created_by == request.auth.uid);
+    }
+    // 資料卡的照片原圖：owner＝資料卡建立者，誰看得到跟資料卡一樣（小朋友只看得到自己建立的卡）
+    match /card_photos/{id} {
+      allow read: if isFamily() && (!isChild() || resource.data.owner == request.auth.uid);
+      allow create: if isFamily()
+        && request.resource.data.keys().hasOnly(['data', 'card_id', 'owner', 'created_by', 'created_at'])
+        && request.resource.data.created_by == request.auth.uid
+        && request.resource.data.data is string && request.resource.data.data.size() < 1000000
+        && request.resource.data.data.matches('data:image/jpeg;base64,.*')
+        && request.resource.data.card_id is string
+        && (!isChild() || request.resource.data.owner == request.auth.uid);
+      allow update: if false;
+      allow delete: if isFamily() && (!isChild() || resource.data.owner == request.auth.uid);
     }
 
     // 我有話要說：全家都看得到，只有發言的人可以刪除

@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-26 21:40';
+  const VERSION = '2026-11-27 01:41';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -5063,13 +5063,84 @@
               const byKid = c.created_by && isChildId(c.created_by);
               const inner = `
                 <span class="info-title">${esc(c.title)}${!child && byKid ? `<small class="info-by">${esc(nameOf(c.created_by))}新增</small>` : ''}</span>
-                <span class="info-body">${esc(c.body)}</span>`;
-              return canEditCard(c) ? `<button data-act="edit-card" data-id="${esc(c.id)}" class="info-card">${inner}</button>` : `<div class="info-card">${inner}</div>`;
+                ${c.body ? `<span class="info-body">${esc(c.body)}</span>` : ''}`;
+              const photos = cardPhotos(c);
+              const main = canEditCard(c) ? `<button data-act="edit-card" data-id="${esc(c.id)}" class="info-main">${inner}</button>` : `<div class="info-main">${inner}</div>`;
+              return `<article class="info-card">${main}${photos.length ? `
+                <div class="info-photos">${photos.map((p, i) => `<button data-act="card-photo" data-id="${esc(c.id)}" data-i="${i}" aria-label="看照片 ${i + 1}"><img src="${esc(p.thumb)}" alt=""></button>`).join('')}</div>` : ''}</article>`;
             }).join('')}
           </section>`;
       }).join('')}`;
   }
+  // ---- 資料卡的照片 ----
+  // 原圖壓成最長邊 1600 存在 card_photos（一張一份），資料卡本身只放小縮圖，列表才不會慢。
+  // 誰看得到照片跟資料卡一樣：owner＝資料卡的建立者；小朋友只看得到自己建立的卡的照片。
+  const CARD_MAX_PHOTOS = 4;
+  const cardPhotos = (c) => (Array.isArray(c && c.photos) ? c.photos.filter((p) => p && p.id && p.thumb) : []);
+  let cardDraft = null;      // { keep: [{id, thumb}], add: [{img, thumb}], removed: [id] }
+  function drawCardPhotos() {
+    const el = document.getElementById('card-photo-list');
+    if (!el || !cardDraft) return;
+    const total = cardDraft.keep.length + cardDraft.add.length;
+    el.innerHTML = cardDraft.keep.map((p, i) => `<span class="cp-item"><img src="${esc(p.thumb)}" alt="照片 ${i + 1}"><button type="button" data-act="card-photo-del" data-kind="keep" data-i="${i}" aria-label="移除這張照片">×</button></span>`).join('') +
+      cardDraft.add.map((p, i) => `<span class="cp-item new"><img src="${esc(p.thumb)}" alt="新照片 ${i + 1}"><button type="button" data-act="card-photo-del" data-kind="add" data-i="${i}" aria-label="移除這張照片">×</button></span>`).join('') +
+      (total < CARD_MAX_PHOTOS ? `<label class="cp-add"><input type="file" id="card-photo-file" accept="image/*" multiple hidden><span aria-hidden="true">＋</span><small>加照片</small></label>` : '');
+  }
+  async function onPickCardPhotos(input) {
+    const files = Array.from(input.files || []);
+    input.value = '';
+    if (!files.length || !cardDraft) return;
+    const room = CARD_MAX_PHOTOS - cardDraft.keep.length - cardDraft.add.length;
+    if (files.length > room) toast('最多 ' + CARD_MAX_PHOTOS + ' 張，只加前 ' + room + ' 張');
+    for (const file of files.slice(0, Math.max(0, room))) {
+      try { const img = await loadImage(file); cardDraft.add.push({ img, thumb: shrink(img, 200, 0.6) }); }
+      catch (e) { console.error(e); toast('有一張照片讀不到'); }
+    }
+    drawCardPhotos();
+  }
+  // 存原圖：太大就再壓小一點（一份資料最多 1MB）
+  function cardFull(img) {
+    let data = shrink(img, 1600, 0.82);
+    if (data.length > 900000) data = shrink(img, 1280, 0.72);
+    if (data.length > 900000) data = shrink(img, 1024, 0.65);
+    return data;
+  }
+  async function saveCardPhotos(cardId, owner) {
+    const d = cardDraft || { keep: [], add: [], removed: [] };
+    const list = d.keep.slice();
+    for (const p of d.add) {
+      const id = await Api.addDoc('card_photos', { data: cardFull(p.img), card_id: cardId, owner, created_by: state.userId, created_at: Date.now() });
+      fullImages.set(id, null);
+      list.push({ id, thumb: p.thumb });
+    }
+    return list;
+  }
+  async function openCardPhoto(cardId, i) {
+    const c = findById(state.cards, cardId);
+    const photos = cardPhotos(c);
+    const p = photos[i];
+    if (!p) return;
+    const nav = (d) => (photos[i + d] ? `<button class="cg-step ${d < 0 ? 'prev' : 'next'}" data-act="card-photo" data-id="${esc(cardId)}" data-i="${i + d}" aria-label="${d < 0 ? '上一張' : '下一張'}">${d < 0 ? '‹' : '›'}</button>` : '');
+    document.body.classList.add('sheet-open');
+    $sheet.innerHTML = `<div class="viewer card-viewer" role="dialog" aria-label="${esc(c.title)} 的照片">
+        <div class="cg-top"><button class="cg-x" data-act="close" aria-label="關閉">×</button><span class="cg-pos">${esc(c.title)}・${i + 1} / ${photos.length}</span><span class="cg-gap"></span></div>
+        <img id="card-photo-img" src="${esc(fullImages.get(p.id) || p.thumb)}" alt="${esc(c.title)} 照片 ${i + 1}" class="${fullImages.get(p.id) ? '' : 'loading'}">
+        ${nav(-1)}${nav(1)}
+      </div>`;
+    if (!fullImages.get(p.id)) {
+      try {
+        const doc = await Api.getDoc('card_photos', p.id);
+        if (doc && String(doc.data).startsWith('data:image/')) {
+          fullImages.set(p.id, doc.data);
+          const img = document.getElementById('card-photo-img');
+          if (img && img.alt.endsWith(' ' + (i + 1))) { img.src = doc.data; img.classList.remove('loading'); }
+        }
+      } catch (e) { console.warn('讀不到資料卡照片', e); toast('照片讀不到，請確認網路'); }
+    }
+  }
   function openCardSheet(card) {
+    cardDraft = { keep: cardPhotos(card), add: [], removed: [] };
+    setTimeout(drawCardPhotos, 0);
     const child = amChild();
     const c = card || { title: '', member: child ? state.userId : '', body: '' };
     const who = child ? state.members.filter((m) => m.id === state.userId) : state.members;
@@ -5085,6 +5156,10 @@
           <label style="--cat:${esc(m.color)}"><input type="radio" name="member" value="${esc(m.id)}" ${c.member === m.id ? 'checked' : ''}><span>${esc(m.display_name)}</span></label>`).join('')}
       </fieldset>
       <label>內容<textarea name="body" rows="8" maxlength="2000" placeholder="${child ? '學號：&#10;班級座號：&#10;置物櫃密碼：' : '健保卡號：&#10;血型：&#10;過敏：&#10;固定用藥：&#10;緊急聯絡人：'}">${esc(c.body)}</textarea></label>
+      <div class="card-photos-edit">
+        <span class="field-label">照片<small>最多 ${CARD_MAX_PHOTOS} 張，例如證件正反面、保單</small></span>
+        <div id="card-photo-list" class="card-photo-list"></div>
+      </div>
       <p class="hint">${child ? '這張卡只有你和爸媽看得到。' : card && card.created_by && isChildId(card.created_by) ? '這張卡是' + esc(nameOf(card.created_by)) + '新增的，他也看得到。' : '家長新增的資料卡，小朋友看不到。'}</p>`
     });
   }
@@ -7376,16 +7451,27 @@
       check(c) {
         const old = c.id && findById(state.cards, c.id);
         if (old && !canEditCard(old)) return '這張卡不能修改';
-        return !c.title ? '請輸入標題' : !c.body ? '請填寫內容' : null;
+        const pics = cardDraft ? cardDraft.keep.length + cardDraft.add.length : 0;
+        return !c.title ? '請輸入標題' : !c.body && !pics ? '請填寫內容或加一張照片' : null;
       },
-      save(c) {
+      async save(c) {
         const data = { title: c.title, member: c.member, body: c.body, updated_at: Date.now() };
-        return c.id ? Api.updateDoc('cards', c.id, data) : Api.addDoc('cards', { ...data, created_by: state.userId, created_at: Date.now() });
+        const old = c.id && findById(state.cards, c.id);
+        let id = c.id;
+        if (!id) id = await Api.addDoc('cards', { ...data, photos: [], created_by: state.userId, created_at: Date.now() });
+        const owner = old ? old.created_by || state.userId : state.userId;
+        const photos = await saveCardPhotos(id, owner);
+        await Api.updateDoc('cards', id, { ...data, photos });
+        // 移除的照片：資料卡先存好，再刪原圖
+        const gone = cardPhotos(old).filter((p) => !photos.some((x) => x.id === p.id));
+        await Promise.all(gone.map((p) => Api.deleteDoc('card_photos', p.id).catch((e) => console.warn('刪照片失敗', e))));
+        cardDraft = null;
       },
       async remove(id) {
         const old = findById(state.cards, id);
         if (!old || !canEditCard(old)) throw new Error('not-allowed');
         await Api.deleteDoc('cards', id);
+        await Promise.all(cardPhotos(old).map((p) => Api.deleteDoc('card_photos', p.id).catch((e) => console.warn('刪照片失敗', e))));
       },
       after() { if (state.tab === 'notes') render(); }
     },
@@ -8023,6 +8109,8 @@
     }
     else if (act === 'todo-undo') onTodoUndo(el.dataset.id);
     else if (act === 'open-todos') { Object.assign(state, { tab: 'notes', notesView: 'shop' }); render(); scroller().scrollTop = 0; }
+    else if (act === 'card-photo') openCardPhoto(el.dataset.id, Number(el.dataset.i));
+    else if (act === 'card-photo-del') { if (cardDraft) { cardDraft[el.dataset.kind].splice(Number(el.dataset.i), 1); drawCardPhotos(); } }
     else if (act === 'edit-card') { const c = findById(state.cards, el.dataset.id); if (c && canEditCard(c)) openCardSheet(c); }
     else if (act === 'view-image') openImage(el.dataset.id);
     else if (act === 'cg-close') closeCg();
@@ -8163,6 +8251,7 @@
   });
 
   document.addEventListener('change', (ev) => { if (ev.target.id === 'chat-file') onPickImage(ev.target); });
+  document.addEventListener('change', (ev) => { if (ev.target.id === 'card-photo-file') onPickCardPhotos(ev.target); });
 
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && $sheet.innerHTML) closeSheet(); });
   // 在「用一句話新增」按 Enter：請 AI 填，不是直接儲存（選字中的 Enter 不算）
