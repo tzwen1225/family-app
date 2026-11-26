@@ -2723,8 +2723,48 @@ html[data-theme="boba"] .tabbar {
   margin: 0 12px calc(var(--safe-b) + 8px); height: var(--tabbar); padding-bottom: 0; border: 0; border-radius: 28px;
   background: #3B2A20; box-shadow: 0 5px 0 #1E140F, 0 12px 24px rgba(46, 32, 25, .3);
 }
-html[data-theme="boba"] .tab { color: #D9C2A6; }
 html[data-theme="boba"] .tab.on, html[data-theme="boba"][data-icons] .tab.on { color: #FFFFFF; }
 html[data-theme="boba"] .tab[data-count]::after { box-shadow: 0 0 0 2px #3B2A20; }
-html[data-theme="straw"] .tabbar { border-top: 0; border-radius: 26px 26px 0 0; box-shadow: 0 -6px 24px rgba(210, 59, 98, .12); }
-html[data-theme="matcha"] .tabbar { border-top: 0; border-radius: 26px 26px 0 0; box-shadow: 0 -6px 24px rgba(63, 100, 36, .12); }
+
+
+/* ---------- 飲料面板 v2 介面：浮動膠囊頁籤、右下角圓形新增鈕、家人膠囊列、主題色按鈕 ---------- */
+html[data-theme="straw"]  { --soft: #FFDCE4; --deep: #A82248; --tab-bg: #FFFFFF; --tab-ink: #7E5562; --tab-on: #FFE1E8; --tab-on-ink: #A82248; --tab-edge: #F6CCD6; }
+html[data-theme="boba"]   { --soft: #EED9BF; --deep: #5C3820; --tab-bg: #3B2A20; --tab-ink: #D9C2A6; --tab-on: #6B4A36; --tab-on-ink: #FFFFFF; --tab-edge: #1E140F; }
+html[data-theme="matcha"] { --soft: #E4EED0; --deep: #3F6424; --tab-bg: #FFFFFF; --tab-ink: #5E6A50; --tab-on: #E4EED0; --tab-on-ink: #3F6424; --tab-edge: #DCE6C4; }
+html[data-drink] .tabbar {
+  margin: 0 12px calc(var(--safe-b) + 10px); height: calc(var(--tabbar) + 4px); padding: 5px; gap: 2px; border: 0; border-radius: 30px;
+  background: var(--tab-bg); box-shadow: 0 5px 0 var(--tab-edge), 0 14px 30px rgba(0, 0, 0, .14);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+html[data-drink] .tab { color: var(--tab-ink); border-radius: 24px; }
+html[data-drink] .tab.on, html[data-drink][data-icons] .tab.on { background: var(--tab-on); color: var(--tab-on-ink); font-weight: 800; }
+html[data-drink] .tab.on .tab-3d svg.i3 { width: 30px; height: 30px; transform: none; }
+html[data-drink] .tab[data-count]::after { box-shadow: 0 0 0 2px var(--tab-bg); }
+/* 新增鈕：右下角一顆浮起的圓形按鈕 */
+html[data-drink] .addbar {
+  position: absolute; right: 16px; bottom: calc(var(--tabbar) + var(--safe-b) + 26px); z-index: 6;
+  padding: 0; background: none; border: 0; -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+html[data-drink] .fab { font-size: 0; gap: 0; padding: 0; min-height: 0; border-radius: 50%; }
+html[data-drink] .fab-plus { width: 58px; height: 58px; }
+html[data-drink] .fab-plus svg { width: 26px; height: 26px; stroke-width: 3; }
+html[data-theme="straw"] .fab-plus { box-shadow: 0 5px 0 #A82248, 0 12px 20px rgba(0, 0, 0, .2); }
+html[data-theme="matcha"] .fab-plus { box-shadow: 0 5px 0 #3F6424, 0 12px 20px rgba(0, 0, 0, .2); }
+html[data-theme="boba"] .fab-plus { box-shadow: 0 5px 0 #120B07, 0 12px 20px rgba(0, 0, 0, .25); }
+html[data-drink] .screen { padding-bottom: 150px; }
+/* 問候旁的主題小物、家人膠囊列 */
+.hello-mascot { flex: none; width: 46px; height: 46px; display: grid; place-items: center; }
+.hello-mascot svg { width: 46px; height: 46px; }
+html[data-drink] .home-tools { background: var(--sheet); border-radius: 999px; padding: 5px 5px 5px 10px; box-shadow: 0 3px 0 var(--line); }
+html[data-drink] .home-tools .gs-open { width: 42px; height: 42px; margin: 0; border-radius: 50%; background: var(--soft); box-shadow: none; }
+/* 切換鈕、按鈕 */
+html[data-drink] .switcher { background: var(--soft); border-radius: 999px; padding: 4px; }
+html[data-drink] .switcher button { border-radius: 999px; }
+html[data-drink] .switcher button.on { background: var(--red); color: #FFFFFF; font-weight: 800; box-shadow: 0 3px 0 var(--deep); }
+html[data-drink] .btn.primary { background: var(--red); color: #FFFFFF; border-radius: 999px; box-shadow: 0 3px 0 var(--deep); }
+html[data-drink] .btn.ghost { background: var(--soft); color: var(--deep); border-radius: 999px; }
+html[data-drink] .send:not(:has(svg.i3s)) { box-shadow: 0 3px 0 var(--deep); }
+html[data-drink] .plain-head { flex-wrap: wrap; row-gap: 2px; }
+html[data-drink] .plain-head h1 { white-space: nowrap; color: var(--deep); }
+html[data-drink] .plain-head p { flex-basis: 100%; }
+html[data-drink] .plain-head.with-action p { flex-basis: auto; }

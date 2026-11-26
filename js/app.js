@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-26 21:24';
+  const VERSION = '2026-11-26 21:33';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -33,9 +33,13 @@
   const autoNight = () => { try { return localStorage.getItem(AUTO_NIGHT_KEY) === '1'; } catch (e) { return false; } };
   const darkMq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   const currentTheme = () => chosenTheme;
+  // 飲料面板：問候旁的主題小物（草莓、珍奶、抹茶拿鐵）
+  const DRINK_MASCOT = {"straw": "<svg width=\"46\" height=\"46\" viewBox=\"0 0 56 56\" aria-hidden=\"true\"><ellipse cx=\"29\" cy=\"52\" rx=\"15\" ry=\"2.600\" fill=\"#3A1F27\" opacity=\".14\"></ellipse><path d=\"M29.600 50C18 46 10 34 12 24c1.500-7 8-10 16-10s14.500 3 16 10c2 10-6 22-14.400 26z\" fill=\"#A82248\"></path><path d=\"M28 48C16.500 44 8.500 32 10.500 22c1.500-7 8-10 17.500-10s16 3 17.500 10c2 10-6 22-17.500 26z\" fill=\"url(#st-g)\"></path><g fill=\"#FFE3A8\"><ellipse cx=\"19\" cy=\"24\" rx=\"1.200\" ry=\"1.800\"></ellipse><ellipse cx=\"27\" cy=\"22\" rx=\"1.200\" ry=\"1.800\"></ellipse><ellipse cx=\"35\" cy=\"24\" rx=\"1.200\" ry=\"1.800\"></ellipse><ellipse cx=\"23\" cy=\"31\" rx=\"1.200\" ry=\"1.800\"></ellipse><ellipse cx=\"31\" cy=\"31\" rx=\"1.200\" ry=\"1.800\"></ellipse><ellipse cx=\"39\" cy=\"31\" rx=\"1.200\" ry=\"1.800\"></ellipse><ellipse cx=\"27\" cy=\"39\" rx=\"1.200\" ry=\"1.800\"></ellipse><ellipse cx=\"35\" cy=\"38\" rx=\"1.200\" ry=\"1.800\"></ellipse><ellipse cx=\"18\" cy=\"35\" rx=\"1.200\" ry=\"1.800\"></ellipse></g><path d=\"M16 14c4 0 7 1 12 4 5-3 8-4 12-4-2 4-5 6-9 6.500L28 22l-3-1.500c-4-.500-7-2.500-9-6.500z\" fill=\"#3E9A4A\"></path><path d=\"M28 8v9\" stroke=\"#2E7A38\" stroke-width=\"2.600\" stroke-linecap=\"round\"></path><ellipse cx=\"18\" cy=\"21\" rx=\"2.400\" ry=\"4.500\" transform=\"rotate(25 18 21)\" fill=\"#FFFFFF\" opacity=\".5\"></ellipse><defs><linearGradient id=\"st-g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#FF7A99\"></stop><stop offset=\"1\" stop-color=\"#D23B62\"></stop></linearGradient></defs></svg>", "boba": "<svg width=\"46\" height=\"46\" viewBox=\"0 0 56 56\" aria-hidden=\"true\"><ellipse cx=\"29\" cy=\"52\" rx=\"13\" ry=\"2.600\" fill=\"#2E2019\" opacity=\".16\"></ellipse><path d=\"M33 4l-4 14\" stroke=\"#E8604C\" stroke-width=\"3.400\" stroke-linecap=\"round\"></path><path d=\"M14.600 21h28l-3.400 25.500a4 4 0 0 1-4 3.500H22a4 4 0 0 1-4-3.500z\" fill=\"#8A5532\"></path><path d=\"M13 19h28l-3.400 25.500a4 4 0 0 1-4 3.500H20.400a4 4 0 0 1-4-3.500z\" fill=\"url(#bb-g)\"></path><path d=\"M11 16.500a3 3 0 0 1 3-3h26a3 3 0 0 1 3 3V20H11z\" fill=\"#FFFBF5\"></path><g fill=\"#2E2019\"><circle cx=\"21\" cy=\"42\" r=\"2.600\"></circle><circle cx=\"27\" cy=\"44\" r=\"2.600\"></circle><circle cx=\"33\" cy=\"42\" r=\"2.600\"></circle><circle cx=\"24\" cy=\"37.5\" r=\"2.600\"></circle><circle cx=\"30\" cy=\"38\" r=\"2.600\"></circle></g><rect x=\"17\" y=\"24\" width=\"3\" height=\"11\" rx=\"1.500\" fill=\"#FFFFFF\" opacity=\".45\"></rect><defs><linearGradient id=\"bb-g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#E7C9A5\"></stop><stop offset=\"1\" stop-color=\"#C9976A\"></stop></linearGradient></defs></svg>", "matcha": "<svg width=\"46\" height=\"46\" viewBox=\"0 0 56 56\" aria-hidden=\"true\"><ellipse cx=\"28\" cy=\"52\" rx=\"16\" ry=\"2.600\" fill=\"#2B3520\" opacity=\".14\"></ellipse><path d=\"M42 24h3a6 6 0 0 1 0 12h-3\" fill=\"none\" stroke=\"#C9D8B0\" stroke-width=\"3.400\"></path><path d=\"M11.600 20h32l-3 25a5 5 0 0 1-5 4.500H19.600a5 5 0 0 1-5-4.500z\" fill=\"#9DB57A\"></path><path d=\"M10 18h32l-3 25a5 5 0 0 1-5 4.500H18a5 5 0 0 1-5-4.500z\" fill=\"#FFFFFF\"></path><path d=\"M11.600 31h29l-1.700 12a5 5 0 0 1-5 4.500H18.300a5 5 0 0 1-5-4.500z\" fill=\"url(#lt-g)\"></path><ellipse cx=\"26\" cy=\"18\" rx=\"16\" ry=\"4\" fill=\"#EEF4DF\"></ellipse><path d=\"M26 15.500c-2.500-2.500-6 0-3 2.600l3 2.400 3-2.400c3-2.600-.500-5.100-3-2.600z\" fill=\"#7FA94A\"></path><defs><linearGradient id=\"lt-g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#A9C978\"></stop><stop offset=\"1\" stop-color=\"#6F9A3E\"></stop></linearGradient></defs></svg>"};
+  const DRINKS = Object.keys(DRINK_MASCOT);
   function paintTheme() {
     const id = autoNight() && darkMq && darkMq.matches ? 'night' : chosenTheme;
     if (id) document.documentElement.dataset.theme = id; else delete document.documentElement.dataset.theme;
+    if (DRINKS.includes(id)) document.documentElement.dataset.drink = '1'; else delete document.documentElement.dataset.drink;
     syncThemeColor();
   }
   function applyTheme(id) {
@@ -927,7 +931,7 @@
           <span class="chat-field"><textarea id="butler-input" class="grow" name="text" rows="1" placeholder="${state.butler.msgs.length ? '繼續問' : '想問什麼都可以'}" maxlength="${amChild() ? 1000 : 4000}" autocomplete="off" enterkeyhint="send" aria-label="問小管家"></textarea><button type="button" class="chat-clear" data-act="input-clear" data-for="butler-input" aria-label="清除輸入的文字"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button></span>
           <button type="submit" class="send" aria-label="送出">${sm('send', ICON.send)}</button>
         </form>` : ''}
-      ${fabLabel() ? `<div class="addbar"><button class="fab" data-act="new" aria-label="${fabLabel()}"><span class="fab-plus" aria-hidden="true">${sm('plus', ICON.plus)}</span>${fabLabel()}</button></div>` : ''}
+      ${fabLabel() ? `<div class="addbar"><button class="fab" data-act="new" aria-label="${fabLabel()}"><span class="fab-plus" aria-hidden="true">${document.documentElement.dataset.drink ? ICON.plus : sm('plus', ICON.plus)}</span>${fabLabel()}</button></div>` : ''}
       <nav class="tabbar" aria-label="主選單">
         ${TABS.map(([id, label]) => `
           <button class="tab ${state.tab === id ? 'on' : ''} ${badge(id) ? 'unread' : ''}" style="--tab-c:${TAB_COLOR[id]}" data-act="tab" data-tab="${id}" ${countText(id) ? `data-count="${countText(id)}" aria-label="${label}，${countText(id)} 則未讀"` : ''} ${state.tab === id ? 'aria-current="page"' : ''}>
@@ -1832,7 +1836,7 @@
     startParty();
     // 問候、天氣和家人狀態固定在最上面，往下滑也看得到
     return `<div class="home-top">
-        <header class="hello"><div><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></div><button class="wx" id="wx" data-act="wx-tap" aria-label="今天天氣，點一下更新或改用我的位置">${weatherHtml()}</button></header>
+        <header class="hello">${DRINK_MASCOT[document.documentElement.dataset.theme] && document.documentElement.dataset.drink ? `<span class="hello-mascot" aria-hidden="true">${DRINK_MASCOT[document.documentElement.dataset.theme]}</span>` : ''}<div><h1>${hello}，${esc(me().display_name)}</h1><p>${now.getMonth() + 1}月${now.getDate()}日　星期${WEEKDAYS[now.getDay()]}</p></div><button class="wx" id="wx" data-act="wx-tap" aria-label="今天天氣，點一下更新或改用我的位置">${weatherHtml()}</button></header>
         <div class="home-tools"><section class="presence home-pres" id="presence" aria-label="家人上線狀態">${presenceHtml(true)}</section><button class="icon-btn gs-open" data-act="gs-open" aria-label="搜尋全部內容">${sm('search', SEARCH_SVG)}</button><button class="icon-btn gs-open bell ${noticeNew() ? 'has' : ''}" id="bell" data-act="notices" aria-label="通知${noticeNew() ? '，' + noticeNew() + ' 則新的' : ''}">${sm('bell', BELL_SVG)}</button></div>
       </div>`
       + `<section class="bday" id="bday" aria-label="生日" ${bdayHtml() ? '' : 'hidden'}>${bdayHtml()}</section>`
