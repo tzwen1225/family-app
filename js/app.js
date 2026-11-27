@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-27 21:56';
+  const VERSION = '2026-11-27 22:07';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -8339,6 +8339,7 @@
     if (ev.cancelable) ev.preventDefault();
     const form = btn.closest('form');
     if (form.getAttribute('id') === 'chat-form') onSend(form);
+    else if (form.getAttribute('id') === 'dm-form') onDmSend(form);
     else if (form.getAttribute('id') === 'butler-form') sendButler(form);
     else if (form.getAttribute('id') === 'shop-form') onShopAdd(form);
     else if (form.getAttribute('id') === 'pack-form') onPackAdd(form);
