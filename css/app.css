@@ -2732,7 +2732,7 @@ html[data-theme="straw"]  { --soft: #FFDCE4; --deep: #A82248; --tab-bg: #FFFFFF;
 html[data-theme="boba"]   { --soft: #EED9BF; --deep: #5C3820; --tab-bg: #3B2A20; --tab-ink: #D9C2A6; --tab-on: #6B4A36; --tab-on-ink: #FFFFFF; --tab-edge: #1E140F; }
 html[data-theme="matcha"] { --soft: #E4EED0; --deep: #3F6424; --tab-bg: #FFFFFF; --tab-ink: #5E6A50; --tab-on: #E4EED0; --tab-on-ink: #3F6424; --tab-edge: #DCE6C4; }
 html[data-drink] .tabbar {
-  margin: 0 12px calc(var(--safe-b) + 10px); height: calc(var(--tabbar) + 4px); padding: 5px; gap: 2px; border: 0; border-radius: 30px;
+  margin: 0 12px max(6px, calc(var(--safe-b) - 16px)); height: calc(var(--tabbar) + 4px); padding: 5px; gap: 2px; border: 0; border-radius: 30px;
   background: var(--tab-bg); box-shadow: 0 5px 0 var(--tab-edge), 0 14px 30px rgba(0, 0, 0, .14);
   -webkit-backdrop-filter: none; backdrop-filter: none;
 }
@@ -2742,7 +2742,7 @@ html[data-drink] .tab.on .tab-3d svg.i3 { width: 30px; height: 30px; transform: 
 html[data-drink] .tab[data-count]::after { box-shadow: 0 0 0 2px var(--tab-bg); }
 /* 新增鈕：右下角一顆浮起的圓形按鈕 */
 html[data-drink] .addbar {
-  position: absolute; right: 18px; bottom: calc(var(--tabbar) + var(--safe-b) + 24px); z-index: 6;
+  position: absolute; right: 18px; bottom: calc(var(--tabbar) + max(6px, calc(var(--safe-b) - 16px)) + 16px); z-index: 6;
   padding: 0; background: none; border: 0; -webkit-backdrop-filter: none; backdrop-filter: none;
 }
 html[data-drink] .fab { font-size: 0; gap: 0; padding: 0; min-height: 0; width: 44px; height: 44px; justify-content: center; border-radius: 50%; }
