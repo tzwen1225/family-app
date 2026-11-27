@@ -206,6 +206,9 @@
         return (await call({ url })).data;
       },
       watchMessages: (cb) => watch('聊天室', F.query(col('messages'), F.orderBy('sent_at'), F.limitToLast(300)), cb),
+      // 一對一私訊：dm_rooms/{兩人UID照順序用_接起來}/messages
+      watchRecent: (name, n, cb) => watch(name, F.query(col(name), F.orderBy('sent_at'), F.limitToLast(n)), cb),
+      watchDoc: (name, id, cb) => F.onSnapshot(F.doc(db, name, id), (d) => cb(d.exists() ? row(d) : null), (err) => console.warn(name + '即時同步中斷', err)),
 
       // 沒有標註任何人（to 是空的）= 全家都看得到，記 public: true
       async addPost(p) {
@@ -703,6 +706,8 @@
         return () => { gsubs[name] = gsubs[name].filter((x) => x !== cb); };
       },
       watchHas(name, field, value, cb) { return this.watchList(name, (list) => cb(list.filter((x) => (x[field] || []).includes(value)))); },
+      watchRecent(name, n, cb) { return this.watchList(name, (list) => cb(list.sort((a, b) => a.sent_at - b.sent_at).slice(-n))); },
+      watchDoc(name, id, cb) { return this.watchList(name, (list) => cb(list.find((x) => x.id === id) || null)); },
       async videoInfo(id) {
         await new Promise((r) => setTimeout(r, 300));
         if (/^x/.test(id)) return { ok: false, reason: 'no-embed' };

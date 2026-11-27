@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-27 10:51';
+  const VERSION = '2026-11-27 21:56';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -224,6 +224,7 @@
     notes: [],
     notesView: 'hub',        // hub（鍾家生活的首頁，預設）| ledger（零用錢）| scores | notes（旅遊）| album | transit | shop | cards // ledger（零用錢，預設）| notes（雜記）| shop（採買）| cards（資料卡）
     shopping: [], cards: [],
+    dmWith: null, dm: {}, dmRooms: {}, dmSel: null,   // 一對一私訊：正在跟誰聊、各房間的訊息、各房間讀到哪
     todoFilter: 'all', todoShowDone: false, todoNewWho: '', todoNewDue: '', todoNewRepeat: '',   // 日常待辦（資料沿用 shopping）
     butler: { msgs: [], busy: false },   // 家庭小管家的對話（不存檔，重新整理就清掉）
     butlerReady: Promise.resolve(),      // 小管家要用的紀錄（行程、成績、零用錢）讀完了沒
@@ -476,7 +477,7 @@
     const mine = state.presence[state.userId];
     const readAt = Math.max(state.lastRead, (mine && mine.read_at) || 0);
     // 正開著聊天室在看（畫面在前景、不是在搜尋舊訊息）：告訴伺服器不用再推播聊天通知給我
-    const inChat = online && state.tab === 'chat' && !state.chatSearch && document.visibilityState === 'visible';
+    const inChat = online && state.tab === 'chat' && !state.chatSearch && !state.dmWith && document.visibilityState === 'visible';
     Api.beat(online, readAt, inChat).catch((e) => console.warn('上線狀態更新失敗', e));
   }
 
@@ -540,6 +541,7 @@
     }
     if (!$sheet.innerHTML) render();
     if (!warm) startWatching();
+    startDmWatch();
     await loadEvents();
     saveCache();
   }
@@ -579,6 +581,7 @@
       }),
       Api.watchList('trips', (list) => { state.trips = list; loadEvents(); refreshTravel(); }),
       Api.watchList('calls', onCalls),
+      () => { dmWatch.forEach((off) => off()); dmWatch = []; },
       Api.watchList('trip_items', (list) => { state.tripItems = list; refreshTravel(); }),
       Api.watchWhere('birthday_cards', 'to', state.userId, (list) => { bdayTo = list; state.bdayCards = bdayTo.concat(bdayFrom); drawBday(); }),
       Api.watchWhere('birthday_cards', 'from', state.userId, (list) => { bdayFrom = list; state.bdayCards = bdayTo.concat(bdayFrom); drawBday(); }),
@@ -706,7 +709,7 @@
   const hasUnread = () => state.messages.some((m) => m.sender !== state.userId && m.sent_at > state.lastRead);
   // 我還沒讀的聊天訊息有幾則（收回的不算），顯示在下面「聊天」的按鈕上
   const unreadCount = () => state.messages.filter((m) => m.sender !== state.userId && !m.recalled && m.sent_at > state.lastRead).length;
-  const countText = (id) => { const n = id === 'chat' ? unreadCount() : 0; return n > 99 ? '99+' : n ? String(n) : ''; };
+  const countText = (id) => { const n = id === 'chat' ? unreadCount() + dmUnreadAll() : 0; return n > 99 ? '99+' : n ? String(n) : ''; };
   const repliedBy = (post, uid) => state.replies.some((r) => r.post_id === post.id && r.author === uid);
   const waitingForMe = () => state.posts.some((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId));
   // 還開著、而我還沒投的投票
@@ -841,7 +844,7 @@
   let appBadgeN = -1;
   function syncAppBadge() {
     if (!navigator.setAppBadge || !state.userId || !state.messages.length) return;
-    const n = Math.min(99, unreadCount());
+    const n = Math.min(99, unreadCount() + dmUnreadAll());
     if (n === appBadgeN) return;
     appBadgeN = n;
     (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
@@ -922,7 +925,16 @@
 
     $app.innerHTML = `
       <div class="scroller" id="scroller"><div class="screen">${views[state.tab]()}</div></div>
-      ${state.tab === 'chat' && !state.chatSearch ? `
+      ${state.tab === 'chat' && state.dmWith ? `
+        <form class="chat-bar" id="dm-form">
+          <label class="attach" aria-label="傳照片">
+            <input type="file" id="dm-file" accept="image/*" multiple hidden>
+            ${sm('photo', ICON.photo)}
+          </label>
+          <span class="chat-field"><textarea id="dm-input" class="grow" name="text" rows="1" placeholder="私訊${esc(nameOf(state.dmWith))}" maxlength="2000" autocomplete="off" aria-label="私訊內容"></textarea><button type="button" class="chat-clear" data-act="input-clear" data-for="dm-input" aria-label="清除輸入的文字"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button></span>
+          <button type="submit" class="send" aria-label="傳送">${sm('send', ICON.send)}</button>
+        </form>` : ''}
+      ${state.tab === 'chat' && !state.chatSearch && !state.dmWith ? `
         <div class="chat-assist" id="chat-assist">${chatAssistHtml()}</div>
         <form class="chat-bar" id="chat-form">
           <label class="attach" aria-label="傳照片">
@@ -2465,6 +2477,8 @@
   }
 
   function viewChat() {
+    if (state.dmWith && member(state.dmWith)) return viewDm();
+    state.dmWith = null;
     // 標題、視訊、搜尋固定在最上面，訊息再多往上捲也不會不見
     return `
       <div class="chat-top">
@@ -2473,11 +2487,152 @@
         <button class="icon-btn call-start-btn" data-act="call-pick" aria-label="打電話（語音或視訊）">${sm('phone', PHONE_SVG)}</button>
         <button class="icon-btn ${state.chatSearch ? 'on' : ''}" data-act="chat-search" aria-label="${state.chatSearch ? '關閉搜尋' : '搜尋訊息'}" aria-pressed="${state.chatSearch}">${sm('search', ICON.search)}</button>
       </header>
+      <nav class="rooms" id="rooms" aria-label="聊天室">${roomsHtml()}</nav>
       <div id="call-banner">${callBannerHtml()}</div>
       <div id="chat-pins">${pinsHtml()}</div>
       ${state.chatSearch ? `<input id="chat-q" class="search" type="search" placeholder="搜尋訊息" value="${esc(state.chatQuery)}" autocomplete="off" aria-label="搜尋訊息">` : ''}
       </div>
       <div class="chat" id="chat-list" aria-live="polite">${chatDrawn = chatListHtml()}</div>`;
+  }
+
+  // ================= 一對一私訊 =================
+  // 每兩個人一個房間：dm_rooms/{兩人UID照順序用_接起來}，底下 messages 是訊息、images 是照片原圖。
+  // 房間文件只放 read = { UID: 讀到的時間 }。只有這兩個人看得到（爸媽也看不到小朋友之間的私訊）。
+  let dmWatch = [];
+  const dmRoom = (uid) => [state.userId, uid].sort().join('_');
+  const dmPath = (uid) => 'dm_rooms/' + dmRoom(uid) + '/messages';
+  const dmOthers = () => state.members.filter((m) => m.id !== state.userId);
+  const dmMsgs = (uid) => state.dm[dmRoom(uid)] || [];
+  const dmReadOf = (uid, who) => (((state.dmRooms[dmRoom(uid)] || {}).read) || {})[who] || 0;
+  const dmUnread = (uid) => { const r = dmReadOf(uid, state.userId); return dmMsgs(uid).filter((m) => m.sender !== state.userId && !m.recalled && m.sent_at > r).length; };
+  const dmUnreadAll = () => (state.userId ? dmOthers().reduce((t, m) => t + dmUnread(m.id), 0) : 0);
+  function startDmWatch() {
+    if (dmWatch.length || !state.userId || !Api.watchRecent) return;
+    dmOthers().forEach((m) => {
+      const room = dmRoom(m.id);
+      dmWatch.push(Api.watchRecent('dm_rooms/' + room + '/messages', 300, (list) => {
+        const grew = list.length !== (state.dm[room] || []).length;
+        state.dm[room] = list; onDmChange(m.id, grew);
+      }));
+      dmWatch.push(Api.watchDoc('dm_rooms', room, (doc) => { state.dmRooms[room] = doc || {}; onDmChange(m.id, false); }));
+    });
+  }
+  function onDmChange(uid, grew) {
+    if (state.tab === 'chat' && state.dmWith === uid && document.visibilityState === 'visible') {
+      markDmRead(uid);
+      const el = document.getElementById('dm-list');
+      if (el) { el.innerHTML = dmListHtml(uid); if (grew) scrollDm(); }
+    }
+    const r = document.getElementById('rooms');
+    if (r) r.innerHTML = roomsHtml();
+    refreshBadges();
+  }
+  function markDmRead(uid) {
+    const list = dmMsgs(uid), last = list[list.length - 1];
+    if (!last || last.sent_at <= dmReadOf(uid, state.userId)) return;
+    const room = dmRoom(uid), read = { ...((state.dmRooms[room] || {}).read || {}), [state.userId]: last.sent_at };
+    state.dmRooms[room] = { ...(state.dmRooms[room] || {}), read };
+    Api.setDoc('dm_rooms', room, { read }).catch((e) => console.warn('私訊已讀沒存到', e));
+  }
+  function roomsHtml() {
+    const fam = unreadCount();
+    const chip = (id, label, face, n, on) => `<button class="room ${on ? 'on' : ''}" data-act="dm-open" data-id="${id}" ${on ? 'aria-current="true"' : ''} aria-label="${esc(label)}${n ? '，' + n + ' 則未讀' : ''}">${face}<span>${esc(label)}</span>${n ? `<b class="room-n">${n > 99 ? '99+' : n}</b>` : ''}</button>`;
+    return chip('', '全家', '<span class="room-fam" aria-hidden="true">家</span>', fam, !state.dmWith) +
+      dmOthers().map((m) => chip(m.id, m.display_name, avatarHtml(m, 'xs'), dmUnread(m.id), state.dmWith === m.id)).join('');
+  }
+  function openDm(uid) {
+    state.dmWith = uid && member(uid) && uid !== state.userId ? uid : null;
+    state.dmSel = null; state.chatSearch = false;
+    if (state.tab !== 'chat') goTab('chat'); else render();
+    if (state.dmWith) { markDmRead(state.dmWith); scrollDm(); setTimeout(() => { const i = document.getElementById('dm-input'); if (i && !matchMedia('(hover: none)').matches) i.focus(); }, 50); }
+    else enterChat();
+    beat(true);
+  }
+  function scrollDm() {
+    const go = () => { const s = scroller(); if (s && state.dmWith) s.scrollTop = s.scrollHeight; };
+    go(); requestAnimationFrame(go); setTimeout(go, 150); setTimeout(go, 400);
+  }
+  function viewDm() {
+    const m = member(state.dmWith);
+    return `
+      <div class="chat-top">
+      <header class="plain-head with-action dm-head">
+        <h1>${avatarHtml(m)}<span>${esc(m.display_name)}<small>只有你們兩個看得到</small></span></h1>
+        <button class="icon-btn" data-act="dm-call" data-id="${esc(m.id)}" aria-label="打電話給${esc(m.display_name)}">${sm('phone', PHONE_SVG)}</button>
+      </header>
+      <nav class="rooms" id="rooms" aria-label="聊天室">${roomsHtml()}</nav>
+      </div>
+      <div class="chat dm" id="dm-list" aria-live="polite">${dmListHtml(m.id)}</div>`;
+  }
+  const DM_RECALL_MS = 24 * 3600 * 1000;
+  function dmListHtml(uid) {
+    const list = dmMsgs(uid);
+    if (!list.length) return `<p class="empty">還沒有私訊。說點只想讓${esc(nameOf(uid))}知道的話吧。</p>`;
+    const theirRead = dmReadOf(uid, uid);
+    let lastDay = '';
+    const lastMine = [...list].reverse().find((x) => x.sender === state.userId && !x.recalled);
+    return list.map((x) => {
+      const mine = x.sender === state.userId, day = ymd(new Date(x.sent_at));
+      const sep = day !== lastDay ? `<p class="dm-day"><span>${esc(shortDate(day))}</span></p>` : '';
+      lastDay = day;
+      if (x.recalled) return sep + `<p class="dm-recalled">${mine ? '你' : esc(nameOf(x.sender))}收回了一則訊息</p>`;
+      const body = x.image_id
+        ? `<button class="dm-photo" data-act="dm-photo" data-id="${esc(x.id)}" aria-label="看照片"><img src="${esc(x.thumb || '')}" alt="照片"></button>`
+        : `<span class="dm-text">${richText(x.text)}</span>`;
+      const read = mine && lastMine && lastMine.id === x.id && theirRead >= x.sent_at ? '<small class="dm-read">已讀</small>' : '';
+      const sel = mine && state.dmSel === x.id && Date.now() - x.sent_at < DM_RECALL_MS ? `<button class="dm-recall" data-act="dm-recall" data-id="${esc(x.id)}">收回</button>` : '';
+      return sep + `<div class="dm-row ${mine ? 'mine' : ''}">
+          <div class="dm-bubble ${x.image_id ? 'pic' : ''}" ${mine ? `data-act="dm-sel" data-id="${esc(x.id)}"` : ''}>${body}</div>
+          <span class="dm-meta">${read}<small>${clock(x.sent_at)}</small></span>
+        </div>${sel}`;
+    }).join('');
+  }
+  async function onDmSend(form) {
+    const uid = state.dmWith;
+    const input = form.elements.text, text = input.value.trim();
+    if (!uid || !text) return;
+    input.value = ''; growInputs && growInputs();
+    input.focus();
+    try { await Api.addDoc(dmPath(uid), { sender: state.userId, text, sent_at: Date.now() }); scrollDm(); }
+    catch (e) { console.error(e); input.value = text; toast('沒傳出去，請確認網路後再試'); }
+  }
+  async function onPickDmImage(input) {
+    const uid = state.dmWith, files = Array.from(input.files || []).slice(0, 9);
+    input.value = '';
+    if (!uid || !files.length) return;
+    toast('照片傳送中…');
+    for (const file of files) {
+      try {
+        const img = await loadImage(file);
+        const imageId = await Api.addDoc('dm_rooms/' + dmRoom(uid) + '/images', { data: cardFull(img), sender: state.userId, created_at: Date.now() });
+        await Api.addDoc(dmPath(uid), { sender: state.userId, text: '', thumb: shrink(img, 240, 0.6), image_id: imageId, sent_at: Date.now() });
+      } catch (e) { console.error(e); toast('有一張照片沒傳出去'); }
+    }
+    scrollDm();
+  }
+  async function openDmPhoto(id) {
+    const uid = state.dmWith, x = findById(dmMsgs(uid), id);
+    if (!x || !x.image_id) return;
+    document.body.classList.add('sheet-open');
+    $sheet.innerHTML = `<div class="viewer card-viewer" role="dialog" aria-label="照片">
+        <div class="cg-top"><button class="cg-x" data-act="close" aria-label="關閉">×</button><span class="cg-pos">${esc(nameOf(x.sender))}・${clock(x.sent_at)}</span><span class="cg-gap"></span></div>
+        <img id="dm-photo-img" src="${esc(fullImages.get(x.image_id) || x.thumb)}" alt="照片" class="${fullImages.get(x.image_id) ? '' : 'loading'}">
+      </div>`;
+    if (fullImages.get(x.image_id)) return;
+    try {
+      const doc = await Api.getDoc('dm_rooms/' + dmRoom(uid) + '/images', x.image_id);
+      if (doc && String(doc.data).startsWith('data:image/')) {
+        fullImages.set(x.image_id, doc.data);
+        const img = document.getElementById('dm-photo-img');
+        if (img) { img.src = doc.data; img.classList.remove('loading'); }
+      }
+    } catch (e) { console.warn('私訊照片讀不到', e); toast('照片讀不到，請確認網路'); }
+  }
+  async function dmRecall(id) {
+    const uid = state.dmWith;
+    state.dmSel = null;
+    try { await Api.updateDoc(dmPath(uid), id, { recalled: true, text: '', thumb: '', image_id: '' }); toast('已收回'); }
+    catch (e) { console.error(e); toast('沒有收回成功，請再試一次'); }
   }
 
   // 捲到最新一則。畫面高度可能還在變（鍵盤彈出、新訊息剛畫上去），所以隔一下再補捲兩次。
@@ -2505,6 +2660,7 @@
   let chatDrawn = '';
 
   function markRead() {
+    if (state.dmWith) return;     // 正在看私訊：全家聊天室的不算讀過
     const last = state.messages[state.messages.length - 1];
     if (!last || last.sent_at <= state.lastRead) return;
     state.lastRead = last.sent_at;
@@ -8009,7 +8165,12 @@
     else if (act === 'call-back') { const to = (el.dataset.to || '').split(',').filter((u) => member(u)); if (to.length) startCall(to, el.dataset.kind); }
     else if (act === 'member-card') openMemberCard(el.dataset.id);
     else if (act === 'mc-call') { closeSheet(); startCall([el.dataset.id], el.dataset.kind); }
-    else if (act === 'mc-chat') { closeSheet(); goTab('chat'); const i = document.getElementById('chat-input'); const m = member(el.dataset.id); if (i && m && !i.value) { i.value = '@' + m.display_name + ' '; state.draft = i.value; } }
+    else if (act === 'mc-chat') { closeSheet(); openDm(el.dataset.id); }
+    else if (act === 'dm-open') openDm(el.dataset.id);
+    else if (act === 'dm-photo') openDmPhoto(el.dataset.id);
+    else if (act === 'dm-sel') { state.dmSel = state.dmSel === el.dataset.id ? null : el.dataset.id; const l = document.getElementById('dm-list'); if (l) l.innerHTML = dmListHtml(state.dmWith); }
+    else if (act === 'dm-recall') dmRecall(el.dataset.id);
+    else if (act === 'dm-call') startCall([el.dataset.id], 'voice');
     else if (act === 'call-mute') toggleMute();
     else if (act === 'call-sound') callSoundOn();
     else if (act === 'call-route') switchRoute();
@@ -8151,6 +8312,7 @@
     const id = form.getAttribute('id');
     if (id === 'login-form') onLogin(form);
     else if (id === 'chat-form') onSend(form);
+    else if (id === 'dm-form') onDmSend(form);
     else if (id === 'butler-form') sendButler(form);
     else if (id === 'ci-custom-form') { const t = form.elements.text.value.trim(); if (!t) return; closeSheet(); sendCheckin('custom', t); }
     else if (id === 'shop-form') onShopAdd(form);
@@ -8252,6 +8414,7 @@
 
   document.addEventListener('change', (ev) => { if (ev.target.id === 'chat-file') onPickImage(ev.target); });
   document.addEventListener('change', (ev) => { if (ev.target.id === 'card-photo-file') onPickCardPhotos(ev.target); });
+  document.addEventListener('change', (ev) => { if (ev.target.id === 'dm-file') onPickDmImage(ev.target); });
 
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && $sheet.innerHTML) closeSheet(); });
   // 在「用一句話新增」按 Enter：請 AI 填，不是直接儲存（選字中的 Enter 不算）

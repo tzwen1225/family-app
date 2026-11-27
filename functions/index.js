@@ -896,6 +896,20 @@ exports.shareLink = onRequest({ region: 'asia-east1', invoker: 'public', maxInst
   return reply(200, '已傳到鍾家大宅聊天室');
 });
 
+// ---------- 一對一私訊：通知另一個人 ----------
+exports.onDmMessage = onDocumentCreated('dm_rooms/{room}/messages/{id}', async (event) => {
+  const m = event.data && event.data.data();
+  if (!m) return;
+  const pair = String(event.params.room).split('_');
+  const to = pair.find((u) => u !== m.sender);
+  if (!to || pair.length !== 2) return;
+  const muted = await quietKids(Date.now());
+  if (muted.includes(to)) return;
+  const who = await db.doc('members/' + m.sender).get().then((d) => (d.exists ? d.data().display_name : '家人')).catch(() => '家人');
+  const body = m.image_id ? '傳了一張照片' : String(m.text || '').slice(0, 120);
+  await notify([to], who + '（私訊）', body, 'chat-dm');
+});
+
 // 爸媽加了影片：通知要看的小朋友；小朋友申請想看：通知爸媽
 exports.onVideo = onDocumentCreated('videos/{id}', async (event) => {
   const v = event.data.data();

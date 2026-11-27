@@ -749,6 +749,33 @@ service cloud.firestore {
         && (!isChild() || (resource.data.created_by == request.auth.uid && request.resource.data.member == request.auth.uid));
       allow delete: if isFamily() && (!isChild() || resource.data.created_by == request.auth.uid);
     }
+    // 一對一私訊：房間 ID＝兩個人的 UID 照順序用 _ 接起來，只有這兩個人讀得到、寫得進去（爸媽也看不到小朋友之間的私訊）
+    match /dm_rooms/{room} {
+      function inRoom() {
+        return isFamily() && room.split('_').size() == 2 && request.auth.uid in room.split('_');
+      }
+      allow read: if inRoom();
+      allow create, update: if inRoom() && request.resource.data.keys().hasOnly(['read']) && request.resource.data.read is map;
+      match /messages/{id} {
+        allow read: if inRoom();
+        allow create: if inRoom()
+          && request.resource.data.keys().hasOnly(['sender', 'text', 'thumb', 'image_id', 'sent_at'])
+          && request.resource.data.sender == request.auth.uid
+          && request.resource.data.text is string && request.resource.data.text.size() <= 2000
+          && request.resource.data.sent_at is number
+          && (!('thumb' in request.resource.data) || (request.resource.data.thumb is string && request.resource.data.thumb.size() < 60000));
+        // 收回：只有自己傳的，只能把內容清掉
+        allow update: if inRoom() && resource.data.sender == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['recalled', 'text', 'thumb', 'image_id'])
+          && request.resource.data.recalled == true;
+      }
+      match /images/{id} {
+        allow read: if inRoom();
+        allow create: if inRoom() && request.resource.data.keys().hasOnly(['data', 'sender', 'created_at'])
+          && request.resource.data.sender == request.auth.uid
+          && request.resource.data.data is string && request.resource.data.data.size() < 1000000;
+      }
+    }
     // 資料卡的照片原圖：owner＝資料卡建立者，誰看得到跟資料卡一樣（小朋友只看得到自己建立的卡）
     match /card_photos/{id} {
       allow read: if isFamily() && (!isChild() || resource.data.owner == request.auth.uid);
