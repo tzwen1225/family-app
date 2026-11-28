@@ -325,10 +325,14 @@ service cloud.firestore {
     // 家庭設定（目前只有聊天免打擾時段 chat_quiet）：全家讀得到，只有爸媽能改
     match /settings/{id} {
       allow read: if isFamily();
-      allow create, update: if isFamily() && !isChild() && id == 'chat_quiet'
+      allow create, update: if isFamily() && !isChild() && ((id == 'chat_quiet'
         && request.resource.data.on is bool
         && request.resource.data.start is string && request.resource.data.start.size() == 5
-        && request.resource.data.end is string && request.resource.data.end.size() == 5;
+        && request.resource.data.end is string && request.resource.data.end.size() == 5)
+        || (id == 'kid_links'
+        && request.resource.data.keys().hasOnly(['mode', 'allow'])
+        && request.resource.data.mode in ['allow', 'ask', 'list', 'block']
+        && request.resource.data.allow is list && request.resource.data.allow.size() <= 30));
       allow delete: if false;
     }
 
@@ -748,6 +752,14 @@ service cloud.firestore {
         && request.resource.data.get('created_by', null) == resource.data.get('created_by', null)
         && (!isChild() || (resource.data.created_by == request.auth.uid && request.resource.data.member == request.auth.uid));
       allow delete: if isFamily() && (!isChild() || resource.data.created_by == request.auth.uid);
+    }
+    // 小朋友在「點了先問」時打開的連結：小朋友自己記一筆，爸媽看得到、會收到通知
+    match /link_opens/{id} {
+      allow create: if isChild() && request.resource.data.keys().hasOnly(['by', 'url', 'host', 'at'])
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.url is string && request.resource.data.url.size() <= 1000;
+      allow read: if isFamily() && !isChild();
+      allow delete: if isAdmin();
     }
     // 一對一私訊：房間 ID＝兩個人的 UID 照順序用 _ 接起來，只有這兩個人讀得到、寫得進去（爸媽也看不到小朋友之間的私訊）
     match /dm_rooms/{room} {

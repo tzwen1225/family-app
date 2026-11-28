@@ -896,6 +896,17 @@ exports.shareLink = onRequest({ region: 'asia-east1', invoker: 'public', maxInst
   return reply(200, '已傳到鍾家大宅聊天室');
 });
 
+// ---------- 小朋友打開了連結（「點了先問」模式）：通知爸媽 ----------
+exports.onLinkOpen = onDocumentCreated('link_opens/{id}', async (event) => {
+  const d = event.data && event.data.data();
+  if (!d) return;
+  const members = await db.collection('members').get();
+  const parents = members.docs.filter((m) => m.data().child !== true).map((m) => m.id);
+  const kid = members.docs.find((m) => m.id === d.by);
+  const who = kid ? kid.data().display_name : '小朋友';
+  await notify(parents, who + '打開了一個網站', String(d.host || '') + '\n' + String(d.url || '').slice(0, 200), 'link-open');
+});
+
 // ---------- 一對一私訊：通知另一個人 ----------
 exports.onDmMessage = onDocumentCreated('dm_rooms/{room}/messages/{id}', async (event) => {
   const m = event.data && event.data.data();

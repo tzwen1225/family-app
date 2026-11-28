@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-28 10:55';
+  const VERSION = '2026-11-28 18:04';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -266,6 +266,7 @@
     pins: [], pinsOpen: false,   // 聊天室置頂的訊息
     unreadFrom: null, unreadJump: false,   // 進聊天室時上次讀到的時間點（畫「以下是新訊息」用）
     quiet: null,             // 聊天免打擾時段 { on, start, end }
+    kidLinks: null,          // 小朋友點連結的規則 { mode: allow|ask|block|list, allow: [網域] }
     notices: [], notifyOff: null, share: null,   // App 裡的通知紀錄；我關掉的推播種類（null = 還沒讀）
     previews: {},            // 連結預覽
     replyTo: null,           // 正在引用回覆哪一則訊息
@@ -599,7 +600,7 @@
       Api.watchList('albums', (list) => { state.albums = list; if (state.tab === 'notes' && state.notesView === 'album' && !$sheet.innerHTML) render(); }),
       Api.watchList('chat_pins', (list) => { state.pins = list; drawPins(); if (state.tab === 'chat') refreshChat(false); }),
       Api.watchWhere('notifications', 'uid', state.userId, (list) => { state.notices = list; drawBell(); }),
-      Api.watchList('settings', (list) => { state.quiet = findById(list, 'chat_quiet') || null; if (state.tab === 'me' && !$sheet.innerHTML) render(); }),
+      Api.watchList('settings', (list) => { state.quiet = findById(list, 'chat_quiet') || null; state.kidLinks = findById(list, 'kid_links') || null; if (state.tab === 'me' && !$sheet.innerHTML) render(); }),
       Api.watchList('shopping', (list) => { state.shopping = list; refreshShop(); }),
       // 資料卡：家長看全部；小朋友只讀得到自己新增的（安全規則也是這樣擋）
       (amChild() ? (cb) => Api.watchWhere('cards', 'created_by', state.userId, cb) : (cb) => Api.watchList('cards', cb))(
@@ -2414,6 +2415,51 @@
   }
   // 免打擾時段（設定頁）
   const quietSet = () => state.quiet || { on: false, start: '22:00', end: '07:00' };
+  // ---- 小朋友點連結：爸媽在設定裡選（沒設定時預設「點了先問」） ----
+  const LINK_MODES = [
+    ['allow', '可以點', '跟大人一樣，直接打開'],
+    ['ask', '點了先問', '先跳出確認，打開的話會通知爸媽是哪個網址'],
+    ['list', '只允許指定網站', '清單上的網站可以打開，其他不行'],
+    ['block', '不能點', '連結只能看，不能打開']
+  ];
+  const kidLinkSet = () => ({ mode: 'list', allow: ['youtube.com', 'youtu.be'], ...(state.kidLinks || {}) });
+  const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, '').toLowerCase(); } catch (e) { return ''; } };
+  const hostAllowed = (host, list) => (list || []).some((d) => host === d || host.endsWith('.' + d));
+  // 小朋友點了連結：照規則決定。回傳 true＝已經處理（不要讓瀏覽器直接打開）
+  function kidLinkGate(href) {
+    const rule = kidLinkSet(), host = hostOf(href);
+    if (rule.mode === 'allow') return false;
+    if (rule.mode === 'list' && hostAllowed(host, rule.allow)) return false;
+    if (rule.mode === 'block') { toast('爸媽設定小朋友不能打開連結'); return true; }
+    if (rule.mode === 'list') { toast('「' + host + '」不在爸媽允許的網站裡'); return true; }
+    showSheet('kid-link-form', {
+      title: '要打開這個網站嗎？', submit: '打開',
+      body: `
+        <p class="hint">你要離開家庭 App，用瀏覽器打開：</p>
+        <p class="kid-link-url"><b>${esc(host)}</b><br><small>${esc(href.slice(0, 200))}</small></p>
+        <p class="hint">打開的話，爸媽會收到通知。</p>
+        <input type="hidden" name="url" value="${esc(href)}">`
+    });
+    return true;
+  }
+  function openKidLink(url) {
+    // 先開網頁（iPhone 要在點擊當下開，不然會被擋），再把紀錄送給爸媽
+    window.open(url, '_blank', 'noopener');
+    Api.addDoc('link_opens', { by: state.userId, url: url.slice(0, 1000), host: hostOf(url), at: Date.now() }).catch((e) => console.warn('連結紀錄沒送出', e));
+  }
+  function openLinkRuleSheet() {
+    const r = kidLinkSet();
+    showSheet('links-form', {
+      title: '小朋友點連結', submit: '儲存',
+      body: `
+        <fieldset class="link-modes"><legend class="sr">規則</legend>
+          ${LINK_MODES.map(([id, name, note]) => `<label class="radio-row"><input type="radio" name="mode" value="${id}" ${r.mode === id ? 'checked' : ''}><span><b>${name}</b><small>${note}</small></span></label>`).join('')}
+        </fieldset>
+        <label>允許的網站<small>（選「只允許指定網站」時才用到，一行一個，例如 youtube.com）</small>
+          <textarea name="allow" rows="4" placeholder="youtube.com&#10;school.edu.tw">${esc((r.allow || []).join('\n'))}</textarea></label>
+        <p class="hint">YouTube 影片連結本來就會變成「跟爸媽申請看影片」，不受這裡影響。小朋友還是可以長按複製網址自己貼到 Safari，要完全擋住請搭配 iPhone 的「螢幕使用時間」。</p>`
+    });
+  }
   function openQuietSheet() {
     const q = quietSet();
     showSheet('quiet-form', {
@@ -6455,6 +6501,11 @@
         ${amChild() ? '' : '<button class="btn ghost small" data-act="quiet-edit">設定時段</button>'}
       </section>
       <section class="card-list">
+        <h2>小朋友點連結<small>${amChild() ? '由家長管理' : '聊天室、私訊、我有話要說裡的連結'}</small></h2>
+        <p class="hint">目前：${esc((LINK_MODES.find((x) => x[0] === kidLinkSet().mode) || LINK_MODES[1])[1])}${kidLinkSet().mode === 'list' ? '（' + esc(kidLinkSet().allow.join('、') || '沒有網站') + '）' : ''}</p>
+        ${amChild() ? '' : '<button class="btn ghost small" data-act="links-edit">設定規則</button>'}
+      </section>
+      <section class="card-list">
         <h2>行事曆類型<small>${amChild() ? '由家長管理' : '家長可以新增或刪除'}</small></h2>
         <div class="cats">
           ${EVENT_CATS.map((k) => `<span class="cat-chip" style="--cat:${CATEGORIES[k].color}">${CATEGORIES[k].label}</span>`).join('')}
@@ -7565,6 +7616,13 @@
       },
       after() { state.pollHistory = false; refreshPolls(); const sc = scroller(); if (sc) sc.scrollTop = 0; }
     },
+    'links-form': {
+      read: (f) => ({ mode: (f.querySelector('input[name="mode"]:checked') || {}).value || 'list', allow: f.allow.value.split(/[\s,，、]+/).map((x) => hostOf(/^https?:/.test(x) ? x : 'https://' + x)).filter(Boolean).slice(0, 30) }),
+      check: (d) => (d.mode === 'list' && !d.allow.length ? '請至少填一個允許的網站' : null),
+      save: (d) => Api.setDoc('settings', 'kid_links', d),
+      done: '已儲存',
+      after(d) { state.kidLinks = { id: 'kid_links', ...d }; render(); }
+    },
     'quiet-form': {
       read: (f) => ({ on: f.on.checked, start: f.start.value, end: f.end.value }),
       check: (d) => (!/^\d\d:\d\d$/.test(d.start) || !/^\d\d:\d\d$/.test(d.end) ? '請選開始和結束的時間' : d.on && d.start === d.end ? '開始和結束的時間不能一樣' : null),
@@ -7888,6 +7946,7 @@
     const link = ev.target.closest('a.msg-link, a.lp');
     if (link) {   // 點訊息裡的連結：直接打開，不跳出訊息選單。小朋友點 YouTube 連結：改成跟爸媽申請，不跳去 YouTube
       if (amChild() && parseYouTube(link.href)) { ev.preventDefault(); addVideoFromChat(link.href); }
+      else if (amChild() && kidLinkGate(link.href)) ev.preventDefault();
       return;
     }
     const el = ev.target.closest('[data-act]');
@@ -7998,6 +8057,7 @@
     else if (act === 'voice-send') stopVoice(true);
     else if (act === 'voice-cancel') stopVoice(false);
     else if (act === 'play-voice') playVoice(el.dataset.id);
+    else if (act === 'links-edit') openLinkRuleSheet();
     else if (act === 'quiet-edit') openQuietSheet();
     else if (act === 'outbox-retry') { const x = outbox.find((o) => o.id === el.dataset.id); if (x) { trySend(x); refreshChat(false); } }
     else if (act === 'outbox-drop') dropOutbox(el.dataset.id);
@@ -8307,6 +8367,7 @@
     if (id === 'login-form') onLogin(form);
     else if (id === 'chat-form') onSend(form);
     else if (id === 'dm-form') onDmSend(form);
+    else if (id === 'kid-link-form') { const url = form.elements.url.value; closeSheet(); if (/^https?:\/\//.test(url)) openKidLink(url); }
     else if (id === 'butler-form') sendButler(form);
     else if (id === 'ci-custom-form') { const t = form.elements.text.value.trim(); if (!t) return; closeSheet(); sendCheckin('custom', t); }
     else if (id === 'shop-form') onShopAdd(form);
