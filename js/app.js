@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-28 09:59';
+  const VERSION = '2026-11-28 10:36';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2610,24 +2610,6 @@
     }
     scrollDm();
   }
-  async function openDmPhoto(id) {
-    const uid = state.dmWith, x = findById(dmMsgs(uid), id);
-    if (!x || !x.image_id) return;
-    document.body.classList.add('sheet-open');
-    $sheet.innerHTML = `<div class="viewer card-viewer" role="dialog" aria-label="照片">
-        <div class="cg-top"><button class="cg-x" data-act="close" aria-label="關閉">×</button><span class="cg-pos">${esc(nameOf(x.sender))}・${clock(x.sent_at)}</span><span class="cg-gap"></span></div>
-        <img id="dm-photo-img" src="${esc(fullImages.get(x.image_id) || x.thumb)}" alt="照片" class="${fullImages.get(x.image_id) ? '' : 'loading'}">
-      </div>`;
-    if (fullImages.get(x.image_id)) return;
-    try {
-      const doc = await Api.getDoc('dm_rooms/' + dmRoom(uid) + '/images', x.image_id);
-      if (doc && String(doc.data).startsWith('data:image/')) {
-        fullImages.set(x.image_id, doc.data);
-        const img = document.getElementById('dm-photo-img');
-        if (img) { img.src = doc.data; img.classList.remove('loading'); }
-      }
-    } catch (e) { console.warn('私訊照片讀不到', e); toast('照片讀不到，請確認網路'); }
-  }
   async function dmRecall(id) {
     const uid = state.dmWith;
     state.dmSel = null;
@@ -2838,8 +2820,10 @@
   const cgZoom = { s: 1, x: 0, y: 0 };
   const CG_GAP = 16;  // 照片之間的空隙
   let cgAnim = null, cgDrag = null, cgRaf = 0, cgTap = { at: 0, timer: 0 };
-  const chatPhotos = () => state.messages.filter((m) => m.image_id && m.thumb && !m.recalled);
-  const cgMsg = (k) => (cg && cg.ids[k] ? findById(state.messages, cg.ids[k]) : null);
+  // 照片來源：全家聊天室，或跟某人的私訊（cg.src＝對方的 UID）
+  const cgSource = (src) => (src ? dmMsgs(src) : state.messages);
+  const chatPhotos = (src) => cgSource(src).filter((m) => m.image_id && m.thumb && !m.recalled);
+  const cgMsg = (k) => (cg && cg.ids[k] ? findById(cgSource(cg.src), cg.ids[k]) : null);
   const cgTrack = () => $sheet.querySelector('.cg-track');
   const cgW = () => { const st = $sheet.querySelector('.cg-stage'); return (st && st.clientWidth) || window.innerWidth || 390; };
   const cgBase = () => -(cgW() + CG_GAP);
@@ -2849,11 +2833,11 @@
     t.style.transition = ms ? `transform ${ms}ms cubic-bezier(.2,.8,.25,1)` : 'none';
     t.style.transform = `translate3d(${x}px,0,0)`;
   }
-  function openImage(id) {
-    const ids = chatPhotos().map((m) => m.id);
+  function openImage(id, src) {
+    const ids = chatPhotos(src).map((m) => m.id);
     const i = ids.indexOf(id);
     if (i < 0) return;
-    cg = { ids, i, ui: true };
+    cg = { ids, i, ui: true, src: src || '' };
     cgAnim = null;
     document.body.classList.add('sheet-open');
     Object.assign(cgZoom, { s: 1, x: 0, y: 0 });
@@ -2894,7 +2878,8 @@
     v.querySelector('.cg-step.prev').hidden = cg.i === 0;
     v.querySelector('.cg-step.next').hidden = cg.i >= cg.ids.length - 1;
     [...cgTrack().children].forEach((el, n) => { el.className = 'cg-slide ' + ['prev', 'cur', 'next'][n]; });
-    v.querySelector('.cg-bot').innerHTML = `
+    v.querySelector('.cg-bot').innerHTML = cg.src ? `
+        <div class="viewer-bar"><span>${esc(nameOf(m.sender))}　${stamp(m.sent_at)}</span></div>` : `
         ${reactPickHtml(m.id)}
         <div class="viewer-bar">
           <span>${esc(nameOf(m.sender))}　${stamp(m.sent_at)}</span>
@@ -2907,7 +2892,7 @@
     if (!m || fullImages.has(m.image_id) || loadCgFull.busy.has(m.image_id)) return;
     loadCgFull.busy.add(m.image_id);
     try {
-      const doc = await Api.getDoc('chat_images', m.image_id);
+      const doc = await Api.getDoc(cg && cg.src ? 'dm_rooms/' + dmRoom(cg.src) + '/images' : 'chat_images', m.image_id);
       if (!doc || !String(doc.data).startsWith('data:image/')) return;
       // 先在背景解碼好再換上去，換的瞬間才不會卡一下
       const pre = new Image();
@@ -8167,7 +8152,7 @@
     else if (act === 'mc-call') { closeSheet(); startCall([el.dataset.id], el.dataset.kind); }
     else if (act === 'mc-chat') { closeSheet(); openDm(el.dataset.id); }
     else if (act === 'dm-open') openDm(el.dataset.id);
-    else if (act === 'dm-photo') openDmPhoto(el.dataset.id);
+    else if (act === 'dm-photo') openImage(el.dataset.id, state.dmWith);
     else if (act === 'dm-sel') { state.dmSel = state.dmSel === el.dataset.id ? null : el.dataset.id; const l = document.getElementById('dm-list'); if (l) l.innerHTML = dmListHtml(state.dmWith); }
     else if (act === 'dm-recall') dmRecall(el.dataset.id);
     else if (act === 'dm-call') startCall([el.dataset.id], 'voice');
