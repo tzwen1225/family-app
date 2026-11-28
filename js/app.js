@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-28 10:36';
+  const VERSION = '2026-11-28 10:55';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2823,7 +2823,18 @@
   // 照片來源：全家聊天室，或跟某人的私訊（cg.src＝對方的 UID）
   const cgSource = (src) => (src ? dmMsgs(src) : state.messages);
   const chatPhotos = (src) => cgSource(src).filter((m) => m.image_id && m.thumb && !m.recalled);
-  const cgMsg = (k) => (cg && cg.ids[k] ? findById(cgSource(cg.src), cg.ids[k]) : null);
+  const cgMsg = (k) => (cg && cg.ids[k] ? (cg.items ? cg.items[k] : findById(cgSource(cg.src), cg.ids[k])) : null);
+  // 其他地方的照片（旅遊日誌、資料卡）也用同一個看圖畫面：items＝[{ id, image_id, thumb, col: 原圖放在哪個集合, label: 下方說明 }]
+  function openGallery(items, startId) {
+    const list = items.filter((x) => x && x.thumb && x.image_id);
+    const i = list.findIndex((x) => x.id === startId);
+    if (i < 0) return;
+    cg = { ids: list.map((x) => x.id), i, ui: true, src: '', items: list };
+    cgAnim = null;
+    document.body.classList.add('sheet-open');
+    Object.assign(cgZoom, { s: 1, x: 0, y: 0 });
+    buildCg();
+  }
   const cgTrack = () => $sheet.querySelector('.cg-track');
   const cgW = () => { const st = $sheet.querySelector('.cg-stage'); return (st && st.clientWidth) || window.innerWidth || 390; };
   const cgBase = () => -(cgW() + CG_GAP);
@@ -2841,6 +2852,10 @@
     cgAnim = null;
     document.body.classList.add('sheet-open');
     Object.assign(cgZoom, { s: 1, x: 0, y: 0 });
+    buildCg();
+  }
+  function buildCg() {
+    const i = cg.i;
     $sheet.innerHTML = `
       <div class="viewer cg" role="dialog" aria-label="照片">
         <div class="cg-stage"><div class="cg-track"><div class="cg-slide"></div><div class="cg-slide"></div><div class="cg-slide"></div></div></div>
@@ -2878,7 +2893,8 @@
     v.querySelector('.cg-step.prev').hidden = cg.i === 0;
     v.querySelector('.cg-step.next').hidden = cg.i >= cg.ids.length - 1;
     [...cgTrack().children].forEach((el, n) => { el.className = 'cg-slide ' + ['prev', 'cur', 'next'][n]; });
-    v.querySelector('.cg-bot').innerHTML = cg.src ? `
+    v.querySelector('.cg-bot').innerHTML = cg.items ? `
+        <div class="viewer-bar"><span>${esc(m.label || '')}</span></div>` : cg.src ? `
         <div class="viewer-bar"><span>${esc(nameOf(m.sender))}　${stamp(m.sent_at)}</span></div>` : `
         ${reactPickHtml(m.id)}
         <div class="viewer-bar">
@@ -2892,7 +2908,7 @@
     if (!m || fullImages.has(m.image_id) || loadCgFull.busy.has(m.image_id)) return;
     loadCgFull.busy.add(m.image_id);
     try {
-      const doc = await Api.getDoc(cg && cg.src ? 'dm_rooms/' + dmRoom(cg.src) + '/images' : 'chat_images', m.image_id);
+      const doc = await Api.getDoc(m.col || (cg && cg.src ? 'dm_rooms/' + dmRoom(cg.src) + '/images' : 'chat_images'), m.image_id);
       if (!doc || !String(doc.data).startsWith('data:image/')) return;
       // 先在背景解碼好再換上去，換的瞬間才不會卡一下
       const pre = new Image();
@@ -3962,20 +3978,13 @@
     catch (e) { console.error(e); btn.disabled = false; toast('刪除失敗，請再試一次'); }
   }
 
-  async function openTripPhoto(id) {
+  function openTripPhoto(id) {
     const j = findById(state.tripItems, id);
-    if (!j || !j.thumb) return;
-    $sheet.innerHTML = `
-      <div class="viewer" data-act="close">
-        <img src="${esc(j.thumb)}" alt="照片" class="loading">
-        <div class="viewer-bar"><span>${esc(nameOf(j.author))}　${shortDate(j.date)}</span><button class="link-btn" data-act="close">關閉</button></div>
-      </div>`;
-    try {
-      const doc = await Api.getDoc('chat_images', j.image_id);
-      const el = $sheet.querySelector('.viewer img');
-      if (el && doc && String(doc.data).startsWith('data:image/')) { el.src = doc.data; el.classList.remove('loading'); }
-    } catch (e) { console.error(e); toast('原圖讀取失敗'); }
+    if (!j) return;
+    const list = itemsOf(j.trip_id, 'journal').sort((a, b) => a.date.localeCompare(b.date) || a.created_at - b.created_at);
+    openGallery(list.map((x) => ({ id: x.id, image_id: x.image_id, thumb: x.thumb, col: 'chat_images', label: nameOf(x.author) + '　' + shortDate(x.date) })), id);
   }
+
 
   // ---------- 家庭相簿 ----------
   // 鍾家生活 →「相簿」。日常的照片，按月份看；每張可以留言、按愛心、標註照片裡有誰。
@@ -4329,6 +4338,15 @@
       if (zoom.scale === 1) { zoom.x = 0; zoom.y = 0; }
       if (ev.cancelable) ev.preventDefault();
       applyZoom();
+    } else if (pinch.kind === 'down' && t.length === 1) {
+      // 左右滑：照片跟著手指走，放開時換上一張／下一張
+      const dx = t[0].clientX - pinch.sx, dy = t[0].clientY - pinch.sy;
+      if (!pinch.dir && Math.hypot(dx, dy) > 8) pinch.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      if (pinch.dir === 'h') {
+        const img = stageImg(), edge = !$sheet.querySelector('.album-step.' + (dx < 0 ? 'next' : 'prev'));
+        if (img) { img.style.transition = 'none'; img.style.transform = `translate3d(${edge ? dx * 0.3 : dx}px,0,0)`; }
+        if (ev.cancelable) ev.preventDefault();
+      }
     } else if (pinch.kind === 'pan' && t.length === 1) {
       const max = 160 * zoom.scale;
       zoom.x = Math.min(max, Math.max(-max, pinch.x + t[0].clientX - pinch.sx));
@@ -4343,6 +4361,15 @@
     if (ev.touches.length) return;
     pinch = null;
     if (zoom.scale < 1.08) { zoom = { scale: 1, x: 0, y: 0 }; applyZoom(); }
+    if (p.kind === 'down' && p.dir === 'h' && t) {
+      const dx = t.clientX - p.sx, btn = $sheet.querySelector('.album-step.' + (dx < 0 ? 'next' : 'prev'));
+      const img = stageImg();
+      if (btn && Math.abs(dx) > 60) {
+        if (img) { img.style.transition = 'transform .18s ease-out, opacity .18s'; img.style.transform = `translate3d(${dx < 0 ? -window.innerWidth : window.innerWidth}px,0,0)`; img.style.opacity = '0'; }
+        setTimeout(() => btn.click(), 160);
+      } else if (img) { img.style.transition = 'transform .2s ease-out'; img.style.transform = ''; }
+      return;
+    }
     if (p.kind === 'down' && t && t.clientY - p.sy > 110 && Math.abs(t.clientX - p.sx) < 70 && state.photoId) closePhoto();
   }, { passive: true });
 
@@ -5251,33 +5278,15 @@
     const list = d.keep.slice();
     for (const p of d.add) {
       const id = await Api.addDoc('card_photos', { data: cardFull(p.img), card_id: cardId, owner, created_by: state.userId, created_at: Date.now() });
-      fullImages.set(id, null);
       list.push({ id, thumb: p.thumb });
     }
     return list;
   }
-  async function openCardPhoto(cardId, i) {
+  function openCardPhoto(cardId, i) {
     const c = findById(state.cards, cardId);
     const photos = cardPhotos(c);
-    const p = photos[i];
-    if (!p) return;
-    const nav = (d) => (photos[i + d] ? `<button class="cg-step ${d < 0 ? 'prev' : 'next'}" data-act="card-photo" data-id="${esc(cardId)}" data-i="${i + d}" aria-label="${d < 0 ? '上一張' : '下一張'}">${d < 0 ? '‹' : '›'}</button>` : '');
-    document.body.classList.add('sheet-open');
-    $sheet.innerHTML = `<div class="viewer card-viewer" role="dialog" aria-label="${esc(c.title)} 的照片">
-        <div class="cg-top"><button class="cg-x" data-act="close" aria-label="關閉">×</button><span class="cg-pos">${esc(c.title)}・${i + 1} / ${photos.length}</span><span class="cg-gap"></span></div>
-        <img id="card-photo-img" src="${esc(fullImages.get(p.id) || p.thumb)}" alt="${esc(c.title)} 照片 ${i + 1}" class="${fullImages.get(p.id) ? '' : 'loading'}">
-        ${nav(-1)}${nav(1)}
-      </div>`;
-    if (!fullImages.get(p.id)) {
-      try {
-        const doc = await Api.getDoc('card_photos', p.id);
-        if (doc && String(doc.data).startsWith('data:image/')) {
-          fullImages.set(p.id, doc.data);
-          const img = document.getElementById('card-photo-img');
-          if (img && img.alt.endsWith(' ' + (i + 1))) { img.src = doc.data; img.classList.remove('loading'); }
-        }
-      } catch (e) { console.warn('讀不到資料卡照片', e); toast('照片讀不到，請確認網路'); }
-    }
+    if (!photos[i]) return;
+    openGallery(photos.map((p, n) => ({ id: p.id, image_id: p.id, thumb: p.thumb, col: 'card_photos', label: c.title + '・' + (n + 1) + ' / ' + photos.length })), photos[i].id);
   }
   function openCardSheet(card) {
     cardDraft = { keep: cardPhotos(card), add: [], removed: [] };
