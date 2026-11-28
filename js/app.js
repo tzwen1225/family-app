@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-28 18:08';
+  const VERSION = '2026-11-28 18:11';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2065,7 +2065,7 @@
       const url = splitUrl(raw)[0];
       if (!url || url.length < 5) return raw;
       const href = /^www\./i.test(url) ? 'https://' + url : url;
-      out += mentionHtml(text.slice(last, at)) + `<a class="msg-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`;
+      out += mentionHtml(text.slice(last, at)) + (kidNoWeb() && !parseYouTube(href) ? `<span class="msg-link off">${esc(url)}</span>` : `<a class="msg-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`);
       last = at + url.length;
       return raw;
     });
@@ -2289,7 +2289,7 @@
         <span><b>${esc((p && p.title) || 'YouTube 影片')}</b><small>${esc((p && p.channel) || 'YouTube')}</small>
         ${have ? '<em>已在影片清單</em>' : `<button data-act="chat-add-video" data-url="${esc(url)}">${amChild() ? '跟爸媽申請想看' : '加到影片清單'}</button>`}</span></div>`;
     }
-    if (!p || !p.ok) return '';
+    if (!p || !p.ok || kidNoWeb()) return '';
     return `<a class="lp" href="${esc(url)}" target="_blank" rel="noopener noreferrer"><small>${esc(p.site || '')}</small><b>${esc(p.title)}</b>${p.desc ? `<span>${esc(p.desc)}</span>` : ''}</a>`;
   }
   // 從聊天室的 YouTube 連結，直接開「加影片」（小朋友是「我想看這部」）並帶入連結
@@ -2417,12 +2417,14 @@
   const quietSet = () => state.quiet || { on: false, start: '22:00', end: '07:00' };
   // ---- 小朋友點連結：爸媽在設定裡選（沒設定時預設「點了先問」） ----
   const LINK_MODES = [
-    ['allow', '可以點（交給 Safari 把關）', '直接用 Safari 打開，能不能看由 iPhone 的「螢幕使用時間」決定'],
+    ['allow', '可以點', '直接用 Safari 打開'],
     ['ask', '點了先問', '先跳出確認，打開的話會通知爸媽是哪個網址'],
     ['list', '只允許指定網站', '清單上的網站可以打開，其他不行'],
-    ['block', '不能點', '連結只能看，不能打開']
+    ['block', '不能點', '連結只能看不能點；行程的「查網頁」、小管家查到的網頁都會藏起來，只留地圖']
   ];
-  const kidLinkSet = () => ({ mode: 'allow', allow: ['youtube.com', 'youtu.be'], ...(state.kidLinks || {}) });
+  const kidLinkSet = () => ({ mode: 'block', allow: ['youtube.com', 'youtu.be'], ...(state.kidLinks || {}) });
+  // 小朋友這支手機：連結一律不能點（行程只留地圖）
+  const kidNoWeb = () => amChild() && kidLinkSet().mode === 'block';
   const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, '').toLowerCase(); } catch (e) { return ''; } };
   const hostAllowed = (host, list) => (list || []).some((d) => host === d || host.endsWith('.' + d));
   // 小朋友點了連結：照規則決定。回傳 true＝已經處理（不要讓瀏覽器直接打開）
@@ -3653,7 +3655,7 @@
     if (x.place) html += link('map', mapUrl(near(x.place)), '地圖');
     if (x.place && prev && prev.place) html += link('dir', dirUrl(near(prev.place), near(x.place)), '路線');
     shopList(x).forEach((n) => { html += link('shop', mapUrl(near(n)), n); });
-    if (x.place) html += link('web', webUrl(near(x.place)), '查網頁');
+    if (x.place && !kidNoWeb()) html += link('web', webUrl(near(x.place)), '查網頁');
     return html ? `<div class="plan-links">${html}</div>` : '';
   }
   // 行程的種類（cat）、停留時間（minutes）、預估花費（cost）、預約（booking：need 要預約｜done 已預約）、去過了（visited）
@@ -6925,7 +6927,7 @@
     return b.msgs.map((m, i) => (m.role === 'user' ? `<p class="bt-q">${esc(m.text)}</p>` : `
       <article class="bt-a ${m.error ? 'err' : ''}">
         ${esc(m.text).split(/\n+/).map((p) => `<p>${p}</p>`).join('')}
-        ${(m.links || []).length || (m.queries || []).length ? `<div class="bt-src"><small>上網查到的資料</small><div>${(m.links || []).map((l) => `<a class="plan-link web" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join('')}${(m.queries || []).map((x) => `<a class="plan-link map" href="${esc(webUrl(x))}" target="_blank" rel="noopener">搜尋：${esc(x)}</a>`).join('')}</div></div>` : ''}
+        ${!kidNoWeb() && ((m.links || []).length || (m.queries || []).length) ? `<div class="bt-src"><small>上網查到的資料</small><div>${(m.links || []).map((l) => `<a class="plan-link web" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join('')}${(m.queries || []).map((x) => `<a class="plan-link map" href="${esc(webUrl(x))}" target="_blank" rel="noopener">搜尋：${esc(x)}</a>`).join('')}</div></div>` : ''}
         ${(m.sources || []).length ? `<div class="bt-src"><small>小管家看了這些紀錄，數字請以紀錄為準</small><div>${m.sources.map((k) => `<button class="plan-link map" data-act="butler-go" data-src="${k}">${BUTLER_SRC[k][0]}</button>`).join('')}</div></div>` : ''}
         ${m.error ? '' : `<button class="link-btn bt-copy" data-act="butler-copy" data-i="${i}">複製回答</button>`}
       </article>`)).join('') + (b.busy ? '<p class="ai-wait bt-wait" role="status">小管家正在想…</p>' : '');
@@ -7617,7 +7619,7 @@
       after() { state.pollHistory = false; refreshPolls(); const sc = scroller(); if (sc) sc.scrollTop = 0; }
     },
     'links-form': {
-      read: (f) => ({ mode: (f.querySelector('input[name="mode"]:checked') || {}).value || 'allow', allow: f.allow.value.split(/[\s,，、]+/).map((x) => hostOf(/^https?:/.test(x) ? x : 'https://' + x)).filter(Boolean).slice(0, 30) }),
+      read: (f) => ({ mode: (f.querySelector('input[name="mode"]:checked') || {}).value || 'block', allow: f.allow.value.split(/[\s,，、]+/).map((x) => hostOf(/^https?:/.test(x) ? x : 'https://' + x)).filter(Boolean).slice(0, 30) }),
       check: (d) => (d.mode === 'list' && !d.allow.length ? '請至少填一個允許的網站' : null),
       save: (d) => Api.setDoc('settings', 'kid_links', d),
       done: '已儲存',

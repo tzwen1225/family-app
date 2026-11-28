@@ -2829,3 +2829,4 @@ html[data-drink] .tab[data-count]::after { top: 1px; left: calc(50% + 6px); }
 .link-modes .radio-row small { color: var(--ink-2); font-size: 12px; }
 .kid-link-url { padding: 12px; border-radius: 14px; background: var(--paper); overflow-wrap: anywhere; }
 .kid-link-url small { color: var(--ink-2); }
+.msg-link.off { text-decoration: none; opacity: .75; cursor: default; }
