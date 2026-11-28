@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-28 18:11';
+  const VERSION = '2026-11-28 22:59';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -167,7 +167,7 @@
     return isVec() ? vecSvg(V_GLYPH[k], 'i3') : icon3d(k, color);
   }
   const HUB_3D = { butler: ['butler', 'matcha'], study: ['study', 'lavender'], video: ['video', 'azuki'], ledger: ['ledger', 'sakura'], scores: ['scores', 'yuzu'], notes: ['travel', 'sky'], album: ['album', 'hojicha'], transit: ['transit', 'mint'], checkins: ['checkins', 'coral'], shop: ['todo', 'koicha'], cards: ['cards', 'stone'] };
-  const TAB_3D = { cal: ['home', 'matcha'], chat: ['chat', 'sky'], notes: ['life', 'koicha'], posts: ['talk', 'yuzu'], me: ['gear', 'lavender'] };
+  const TAB_3D = { cal: ['home', 'matcha'], chat: ['chat', 'sky'], notes: ['life', 'koicha'], posts: ['scores', 'yuzu'], me: ['gear', 'lavender'] };
   // 讓手機最上方狀態列的底色跟著面板走
   function syncThemeColor() {
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -243,7 +243,7 @@
     subjects: [],                   // 家長自訂的考試科目 { id, label }
     scores: [], scoreSubject: '',   // 成績紀錄
     scoreTerm: '',                  // 目前看哪個學期（空的代表全部）；會記在這支手機上；scoreSubject 是目前只看哪一科（空的代表全部）
-    postsView: 'posts',      // posts（留言）| polls（投票）
+    postsView: 'polls',      // 「我有話要說」已取消，這個頁籤只剩投票
     polls: [], votes: [],
     pollOpen: null,          // 歷史紀錄裡點開看細節的那一則
     pollHistory: false,      // 投票頁正在看「歷史紀錄」（已結束、已截止、已作廢的投票）
@@ -668,7 +668,7 @@
   const ICON = {
     cal: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 9.500V20h4.500v-5.500h3V20H18V9.500"/></svg>',
     chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/></svg>',
-    posts: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l7 4.5v-13L7 10zM17.500 9.500a4 4 0 0 1 0 5M7.500 14l1 5h2.500"/></svg>',
+    posts: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V5M19 20v-7M3 20h18"/></svg>',
     notes: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="2.200"/><rect x="13" y="4" width="7" height="7" rx="2.200"/><rect x="4" y="13" width="7" height="7" rx="2.200"/><rect x="13" y="13" width="7" height="7" rx="2.200"/></svg>',
     me: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h10M18 17h2"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="16" cy="17" r="2"/></svg>',
     photo: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.500" y="5" width="17" height="14" rx="2.500"/><circle cx="9" cy="10" r="1.800"/><path d="M4 17l5-4.500 3.500 3 3-2.500 4.500 4"/></svg>',
@@ -682,15 +682,15 @@
     cal: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.500 10.400 12 5l6.500 5.400V19a1.500 1.500 0 0 1-1.500 1.500H7A1.500 1.500 0 0 1 5.500 19z" fill="#FFB224"/><path d="M10 20.500v-4.700a2 2 0 0 1 4 0v4.700z" fill="#fff"/><path d="M3.300 11.300 12 3.800l8.700 7.500" fill="none" stroke="#E5484D" stroke-width="2.400" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     chat: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.500 6.500A3 3 0 0 1 6.500 3.500h11a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-6.200L6 21v-4.500a3 3 0 0 1-2.500-3z" fill="#2F8CFF"/><circle cx="8.300" cy="10" r="1.250" fill="#fff"/><circle cx="12" cy="10" r="1.250" fill="#fff"/><circle cx="15.700" cy="10" r="1.250" fill="#fff"/></svg>',
     notes: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.500" y="3.500" width="8" height="8" rx="2.500" fill="#FF8A3D"/><rect x="12.500" y="3.500" width="8" height="8" rx="2.500" fill="#34C17B"/><rect x="3.500" y="12.500" width="8" height="8" rx="2.500" fill="#3B9BFF"/><rect x="12.500" y="12.500" width="8" height="8" rx="2.500" fill="#A66BFF"/></svg>',
-    posts: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.200 13.500l1.100 5.300a1 1 0 0 0 1 .800h1.200a1 1 0 0 0 1-1.200l-.900-4.900z" fill="#D97A00"/><path d="M3.500 9.800a1 1 0 0 1 1-1H7.300l6.200-4a1 1 0 0 1 1.500.850v12.700a1 1 0 0 1-1.500.850l-6.200-4H4.500a1 1 0 0 1-1-1z" fill="#FF9F1C"/><path d="M17.600 9.300a4 4 0 0 1 0 5.400M19.600 7a7.200 7.200 0 0 1 0 10" fill="none" stroke="#F25F4C" stroke-width="1.800" stroke-linecap="round"/></svg>',
+    posts: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="10" width="4.5" height="10" rx="1.2" fill="#FFB52E"/><rect x="9.75" y="4" width="4.5" height="16" rx="1.2" fill="#FF8A1C"/><rect x="16" y="12.5" width="4.5" height="7.5" rx="1.2" fill="#F25F4C"/></svg>',
     me: '<svg class="color" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="#B4BAC6" stroke-width="2.200" stroke-linecap="round"/><circle cx="15" cy="7" r="2.800" fill="#7C5CFC"/><circle cx="9" cy="12" r="2.800" fill="#FF5A7A"/><circle cx="16" cy="17" r="2.800" fill="#22B8A0"/></svg>'
   };
   const TAB_COLOR = { cal: '#E5484D', chat: '#2F8CFF', notes: '#2FA36B', posts: '#E8850C', me: '#7C5CFC' };
-  const TABS = [['cal', '首頁'], ['chat', '聊天'], ['notes', '鍾家生活'], ['posts', '我有話要說'], ['me', '設定']];
+  const TABS = [['cal', '首頁'], ['chat', '聊天'], ['notes', '鍾家生活'], ['posts', '投票'], ['me', '設定']];
   // 右下角的新增鈕在這個畫面要做什麼；沒有東西可新增時不顯示
   function fabLabel() {
     if (state.tab === 'cal') return '新增行程';
-    if (state.tab === 'posts') return state.postsView === 'polls' ? '發起投票' : '我有話要說';
+    if (state.tab === 'posts') return '發起投票';
     if (state.tab !== 'notes') return '';
     if (state.notesView === 'notes') {
       if (!state.tripId) return '新增旅程';
@@ -723,7 +723,7 @@
   const pendingRequests = () => state.requests.filter((r) => r.status !== 'given')
     .sort((a, b) => a.need_date.localeCompare(b.need_date));
   const badge = (tab) => (tab === 'chat' ? hasUnread()
-    : tab === 'posts' ? (waitingForMe() || pollsForMe().length > 0)
+    : tab === 'posts' ? pollsForMe().length > 0
     : tab === 'notes' ? (!amChild() && pendingRequests().length > 0)
     : false);
 
@@ -1556,7 +1556,7 @@
   // notifications/{id}：伺服器每發一則推播（聊天、來電除外）就記一筆給那個人，留 14 天。錯過推播也能在這裡找到。
   const BELL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></svg>';
   const NOTICE_SEEN_KEY = 'family-notice-seen';
-  const NOTIFY_KINDS = [['chat', '聊天'], ['post', '我有話要說'], ['poll', '投票'], ['cal', '行程提醒、生日'], ['money', '零用錢、費用申請'], ['todo', '待辦'], ['study', '讀書計畫'], ['video', '影片']];
+  const NOTIFY_KINDS = [['chat', '聊天'], ['poll', '投票'], ['cal', '行程提醒、生日'], ['money', '零用錢、費用申請'], ['todo', '待辦'], ['study', '讀書計畫'], ['video', '影片']];
   const noticeList = () => state.notices.slice().sort((a, b) => b.at - a.at).slice(0, 60);
   function noticeSeenAt() { try { return Number(localStorage.getItem(NOTICE_SEEN_KEY + '-' + state.userId)) || 0; } catch (e) { return 0; } }
   const noticeNew = () => state.notices.filter((n) => n.at > noticeSeenAt()).length;
@@ -1754,7 +1754,7 @@
   }
   function searchHtml(raw) {
     const q = raw.trim().toLowerCase();
-    if (!q) return '<p class="hint">輸入關鍵字，一次找行事曆（今天起 90 天和這個月）、最近 300 則聊天、待辦、我有話要說、筆記。</p>';
+    if (!q) return '<p class="hint">輸入關鍵字，一次找行事曆（今天起 90 天和這個月）、最近 300 則聊天、待辦、筆記。</p>';
     const has = (...texts) => texts.some((t) => String(t || '').toLowerCase().includes(q));
     const row = (act, id, title, sub, extra) => `<button class="gs-row" data-act="${act}" data-id="${esc(id)}" ${extra || ''}><b>${markText(String(title || '').slice(0, 80), raw.trim())}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</button>`;
     const seen = {}, groups = [];
@@ -1765,8 +1765,6 @@
     if (msgs.length) groups.push(['聊天', msgs.map((m) => row('gs-msg', m.id, m.text, nameOf(m.sender) + '・' + stamp(m.sent_at)))]);
     const todos = state.shopping.filter((t) => has(t.text, t.note)).slice(0, 12);
     if (todos.length) groups.push(['待辦', todos.map((t) => row('gs-go', 'todos', t.text, (t.done ? '已完成' : '還沒做') + (t.due ? '・' + shortDate(t.due) : '')))]);
-    const posts = state.posts.filter((p) => has(p.text)).slice(0, 12);
-    if (posts.length) groups.push(['我有話要說', posts.map((p) => row('gs-go', 'posts', p.text, nameOf(p.author) + '・' + stamp(p.created_at)))]);
     const polls = state.polls.filter((p) => has(p.question, ...(p.options || []))).slice(0, 8);
     if (polls.length) groups.push(['投票', polls.map((p) => row('gs-go', 'polls', p.question, pollOver(p) ? '已結束' : '進行中'))]);
     const notes = state.notes.filter((n) => has(n.title, n.body, n.text)).slice(0, 12);
@@ -2525,7 +2523,7 @@
   }
 
   function viewChat() {
-    if (state.dmWith && member(state.dmWith)) return viewDm();
+    if (DM_ENABLED && state.dmWith && member(state.dmWith)) return viewDm();
     state.dmWith = null;
     // 標題、視訊、搜尋固定在最上面，訊息再多往上捲也不會不見
     return `
@@ -2535,7 +2533,7 @@
         <button class="icon-btn call-start-btn" data-act="call-pick" aria-label="打電話（語音或視訊）">${sm('phone', PHONE_SVG)}</button>
         <button class="icon-btn ${state.chatSearch ? 'on' : ''}" data-act="chat-search" aria-label="${state.chatSearch ? '關閉搜尋' : '搜尋訊息'}" aria-pressed="${state.chatSearch}">${sm('search', ICON.search)}</button>
       </header>
-      <nav class="rooms" id="rooms" aria-label="聊天室">${roomsHtml()}</nav>
+      ${DM_ENABLED ? `<nav class="rooms" id="rooms" aria-label="聊天室">${roomsHtml()}</nav>` : ''}
       <div id="call-banner">${callBannerHtml()}</div>
       <div id="chat-pins">${pinsHtml()}</div>
       ${state.chatSearch ? `<input id="chat-q" class="search" type="search" placeholder="搜尋訊息" value="${esc(state.chatQuery)}" autocomplete="off" aria-label="搜尋訊息">` : ''}
@@ -2546,6 +2544,8 @@
   // ================= 一對一私訊 =================
   // 每兩個人一個房間：dm_rooms/{兩人UID照順序用_接起來}，底下 messages 是訊息、images 是照片原圖。
   // 房間文件只放 read = { UID: 讀到的時間 }。只有這兩個人看得到（爸媽也看不到小朋友之間的私訊）。
+  // 私訊功能已取消（資料保留在資料庫，畫面不再顯示）。要恢復把這裡改成 true。
+  const DM_ENABLED = false;
   let dmWatch = [];
   const dmRoom = (uid) => [state.userId, uid].sort().join('_');
   const dmPath = (uid) => 'dm_rooms/' + dmRoom(uid) + '/messages';
@@ -2553,9 +2553,9 @@
   const dmMsgs = (uid) => state.dm[dmRoom(uid)] || [];
   const dmReadOf = (uid, who) => (((state.dmRooms[dmRoom(uid)] || {}).read) || {})[who] || 0;
   const dmUnread = (uid) => { const r = dmReadOf(uid, state.userId); return dmMsgs(uid).filter((m) => m.sender !== state.userId && !m.recalled && m.sent_at > r).length; };
-  const dmUnreadAll = () => (state.userId ? dmOthers().reduce((t, m) => t + dmUnread(m.id), 0) : 0);
+  const dmUnreadAll = () => (DM_ENABLED && state.userId ? dmOthers().reduce((t, m) => t + dmUnread(m.id), 0) : 0);
   function startDmWatch() {
-    if (dmWatch.length || !state.userId || !Api.watchRecent) return;
+    if (!DM_ENABLED || dmWatch.length || !state.userId || !Api.watchRecent) return;
     dmOthers().forEach((m) => {
       const room = dmRoom(m.id);
       dmWatch.push(Api.watchRecent('dm_rooms/' + room + '/messages', 300, (list) => {
@@ -2589,7 +2589,7 @@
       dmOthers().map((m) => chip(m.id, m.display_name, avatarHtml(m, 'xs'), dmUnread(m.id), state.dmWith === m.id)).join('');
   }
   function openDm(uid) {
-    state.dmWith = uid && member(uid) && uid !== state.userId ? uid : null;
+    state.dmWith = DM_ENABLED && uid && member(uid) && uid !== state.userId ? uid : null;
     state.dmSel = null; state.chatSearch = false;
     if (state.tab !== 'chat') goTab('chat'); else render();
     if (state.dmWith) { markDmRead(state.dmWith); scrollDm(); setTimeout(() => { const i = document.getElementById('dm-input'); if (i && !matchMedia('(hover: none)').matches) i.focus(); }, 50); }
@@ -3183,15 +3183,12 @@
     }).join('');
   }
 
+  // 「我有話要說」已取消（舊的留言資料保留在資料庫，畫面不再顯示），這個頁籤只放投票
   function viewPosts() {
-    const b = (v, label, dot) => `<button class="${state.postsView === v ? 'on' : ''} ${dot ? 'dot' : ''}" data-act="posts-view" data-view="${v}" ${state.postsView === v ? 'aria-pressed="true"' : ''}>${label}</button>`;
-    const sw = `<div class="switcher" role="group" aria-label="留言或投票">${b('posts', '留言', waitingForMe())}${b('polls', '投票', pollsForMe().length > 0)}</div>`;
-    if (state.postsView === 'polls') return sw + `
+    state.postsView = 'polls';
+    return `
       <header class="plain-head"><h1>投票</h1><p>全家都看得到誰選了什麼</p></header>
       <div id="poll-list">${pollListHtml()}</div>`;
-    return sw + `
-      <header class="plain-head"><h1>我有話要說</h1><p>有標註：只有被標註的人看得到；沒標註：全家都看得到</p></header>
-      <div id="post-list">${postListHtml()}</div>`;
   }
 
   // ---------- 投票 ----------
@@ -6416,7 +6413,7 @@
     const st = Api.pushState();
     const body = {
       on: '<p>這支手機會收到新訊息和被點名的通知。</p><button class="btn ghost" data-act="push-off">關閉這支手機的通知</button>',
-      off: '<p>開啟後，有人在聊天室傳訊息、在「我有話要說」點名你或回覆你，這支手機會跳出通知。</p><button class="btn primary" data-act="push-on">開啟這支手機的通知</button>',
+      off: '<p>開啟後，有人在聊天室傳訊息、發起投票，這支手機會跳出通知。</p><button class="btn primary" data-act="push-on">開啟這支手機的通知</button>',
       denied: '<p>通知被系統封鎖了。請到 iPhone 的「設定 → 通知 → 鍾家大宅」打開「允許通知」，再回來這裡。</p>',
       unsupported: '<p>這裡沒辦法開啟通知。iPhone 需要 iOS 16.4 以上，而且要從主畫面的「鍾家大宅」圖示開啟，不能在 Safari 裡直接開。</p>',
       unconfigured: '<p>通知功能還沒設定完成（缺少推播金鑰）。</p>'
@@ -6503,7 +6500,7 @@
         ${amChild() ? '' : '<button class="btn ghost small" data-act="quiet-edit">設定時段</button>'}
       </section>
       <section class="card-list">
-        <h2>小朋友點連結<small>${amChild() ? '由家長管理' : '聊天室、私訊、我有話要說裡的連結'}</small></h2>
+        <h2>小朋友點連結<small>${amChild() ? '由家長管理' : '聊天室裡的連結'}</small></h2>
         <p class="hint">目前：${esc((LINK_MODES.find((x) => x[0] === kidLinkSet().mode) || LINK_MODES[1])[1])}${kidLinkSet().mode === 'list' ? '（' + esc(kidLinkSet().allow.join('、') || '沒有網站') + '）' : ''}</p>
         ${amChild() ? '' : '<button class="btn ghost small" data-act="links-edit">設定規則</button>'}
       </section>
@@ -6901,7 +6898,7 @@
       還沒帶的行李: itemsOf(x.id, 'pack').filter((p) => !p.done).map((p) => p.text).slice(0, 40),
       已經帶的行李數: itemsOf(x.id, 'pack').filter((p) => p.done).length
     }));
-    const posts = state.posts.filter((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId)).slice(0, 10).map((p) => ({ 誰說的: nm(p.author), 內容: p.text.slice(0, 100) }));
+    const posts = [].filter((p) => p.to.includes(state.userId) && !repliedBy(p, state.userId)).slice(0, 10).map((p) => ({ 誰說的: nm(p.author), 內容: p.text.slice(0, 100) }));
     return {
       今天: t + '（星期' + WEEKDAYS[parse(t).getDay()] + '）', 發問的人: me().display_name,
       家人: state.members.map((m) => m.display_name + (m.child ? '（小朋友）' : '')),
@@ -7999,8 +7996,7 @@
         else if (state.tripTab === 'cost') openCostSheet(null);
       }
       else if (state.tab === 'notes') openNoteSheet(null);
-      else if (state.tab === 'posts' && state.postsView === 'polls') openPollSheet();
-      else if (state.tab === 'posts') openPostSheet();
+      else if (state.tab === 'posts') openPollSheet();
       else openEventSheet(null);
     }
     else if (act === 'edit-event') {
@@ -8221,7 +8217,7 @@
     else if (act === 'call-back') { const to = (el.dataset.to || '').split(',').filter((u) => member(u)); if (to.length) startCall(to, el.dataset.kind); }
     else if (act === 'member-card') openMemberCard(el.dataset.id);
     else if (act === 'mc-call') { closeSheet(); startCall([el.dataset.id], el.dataset.kind); }
-    else if (act === 'mc-chat') { closeSheet(); openDm(el.dataset.id); }
+    else if (act === 'mc-chat') { closeSheet(); if (DM_ENABLED) openDm(el.dataset.id); else { state.dmWith = null; goTab('chat'); const i = document.getElementById('chat-input'); const m = member(el.dataset.id); if (i && m && !i.value) { i.value = '@' + m.display_name + ' '; state.draft = i.value; } } }
     else if (act === 'dm-open') openDm(el.dataset.id);
     else if (act === 'dm-photo') openImage(el.dataset.id, state.dmWith);
     else if (act === 'dm-sel') { state.dmSel = state.dmSel === el.dataset.id ? null : el.dataset.id; const l = document.getElementById('dm-list'); if (l) l.innerHTML = dmListHtml(state.dmWith); }
@@ -8354,7 +8350,7 @@
         stopAlbum(); stopSlideshow(true); fullImages.clear(); Object.keys(albumCache).forEach((k) => delete albumCache[k]);
         if (call.id) leaveCall(); hideIncoming();
         Object.assign(state, {
-          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'hub', postsView: 'posts', trips: [], tripItems: [], tripId: null, shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
+          userId: null, tab: 'cal', messages: [], notes: [], categories: [], requests: [], ledgerDay: null, ledger: [], ledgerKid: null, notesView: 'hub', postsView: 'polls', trips: [], tripItems: [], tripId: null, shopping: [], cards: [], subjects: [], scores: [], scoreSubject: '', polls: [], votes: [], posts: [], replies: [],
           profiles: {}, presence: {}, draft: '', postDrafts: {}, chatSearch: false, chatQuery: ''
         });
         renderLogin();
