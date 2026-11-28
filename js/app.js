@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-28 18:04';
+  const VERSION = '2026-11-28 18:08';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2417,12 +2417,12 @@
   const quietSet = () => state.quiet || { on: false, start: '22:00', end: '07:00' };
   // ---- 小朋友點連結：爸媽在設定裡選（沒設定時預設「點了先問」） ----
   const LINK_MODES = [
-    ['allow', '可以點', '跟大人一樣，直接打開'],
+    ['allow', '可以點（交給 Safari 把關）', '直接用 Safari 打開，能不能看由 iPhone 的「螢幕使用時間」決定'],
     ['ask', '點了先問', '先跳出確認，打開的話會通知爸媽是哪個網址'],
     ['list', '只允許指定網站', '清單上的網站可以打開，其他不行'],
     ['block', '不能點', '連結只能看，不能打開']
   ];
-  const kidLinkSet = () => ({ mode: 'list', allow: ['youtube.com', 'youtu.be'], ...(state.kidLinks || {}) });
+  const kidLinkSet = () => ({ mode: 'allow', allow: ['youtube.com', 'youtu.be'], ...(state.kidLinks || {}) });
   const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, '').toLowerCase(); } catch (e) { return ''; } };
   const hostAllowed = (host, list) => (list || []).some((d) => host === d || host.endsWith('.' + d));
   // 小朋友點了連結：照規則決定。回傳 true＝已經處理（不要讓瀏覽器直接打開）
@@ -7617,7 +7617,7 @@
       after() { state.pollHistory = false; refreshPolls(); const sc = scroller(); if (sc) sc.scrollTop = 0; }
     },
     'links-form': {
-      read: (f) => ({ mode: (f.querySelector('input[name="mode"]:checked') || {}).value || 'list', allow: f.allow.value.split(/[\s,，、]+/).map((x) => hostOf(/^https?:/.test(x) ? x : 'https://' + x)).filter(Boolean).slice(0, 30) }),
+      read: (f) => ({ mode: (f.querySelector('input[name="mode"]:checked') || {}).value || 'allow', allow: f.allow.value.split(/[\s,，、]+/).map((x) => hostOf(/^https?:/.test(x) ? x : 'https://' + x)).filter(Boolean).slice(0, 30) }),
       check: (d) => (d.mode === 'list' && !d.allow.length ? '請至少填一個允許的網站' : null),
       save: (d) => Api.setDoc('settings', 'kid_links', d),
       done: '已儲存',
