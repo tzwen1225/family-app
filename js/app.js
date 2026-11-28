@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-28 09:14';
+  const VERSION = '2026-11-28 09:59';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -2570,7 +2570,6 @@
     if (!list.length) return `<p class="empty">還沒有私訊。說點只想讓${esc(nameOf(uid))}知道的話吧。</p>`;
     const theirRead = dmReadOf(uid, uid);
     let lastDay = '';
-    const lastMine = [...list].reverse().find((x) => x.sender === state.userId && !x.recalled);
     return list.map((x) => {
       const mine = x.sender === state.userId, day = ymd(new Date(x.sent_at));
       const sep = day !== lastDay ? `<p class="dm-day"><span>${esc(shortDate(day))}</span></p>` : '';
@@ -2579,7 +2578,8 @@
       const body = x.image_id
         ? `<button class="dm-photo" data-act="dm-photo" data-id="${esc(x.id)}" aria-label="看照片"><img src="${esc(x.thumb || '')}" alt="照片"></button>`
         : `<span class="dm-text">${richText(x.text)}</span>`;
-      const read = mine && lastMine && lastMine.id === x.id && theirRead >= x.sent_at ? '<small class="dm-read">已讀</small>' : '';
+      // 像 LINE：對方讀到的位置之前，自己傳的每一則都標「已讀」
+      const read = mine && theirRead >= x.sent_at ? '<small class="dm-read">已讀</small>' : '';
       const sel = mine && state.dmSel === x.id && Date.now() - x.sent_at < DM_RECALL_MS ? `<button class="dm-recall" data-act="dm-recall" data-id="${esc(x.id)}">收回</button>` : '';
       return sep + `<div class="dm-row ${mine ? 'mine' : ''}">
           <div class="dm-bubble ${x.image_id ? 'pic' : ''}" ${mine ? `data-act="dm-sel" data-id="${esc(x.id)}"` : ''}>${body}</div>
