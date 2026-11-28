@@ -11,7 +11,7 @@
   };
   // 版本：每次更新程式時，這裡和 version.txt 要改成同一個值。
   // App 回到前景時會比對 version.txt，不一樣就自動重新載入，不必手動關掉重開。
-  const VERSION = '2026-11-27 22:07';
+  const VERSION = '2026-11-28 09:14';
   // 面板顏色：[代號, 名稱, 主色, 副色]。顏色定義在 css/app.css 的「面板顏色」區塊。
   const THEMES = [
     ['', '日曆紅', '#D4282C', '#1F6B52'],
@@ -8432,6 +8432,7 @@
     if (!visible) hiddenAt = Date.now();
     beat(visible);
     if (!visible || $sheet.innerHTML) return;
+    if (state.tab === 'chat' && state.dmWith) onDmChange(state.dmWith, false);     // 從別的 App 回來：正開著的私訊算讀過
     if (state.tab === 'chat') { markRead(); refreshChat(false); refreshBadges(); }
     else loadTab();
   });
